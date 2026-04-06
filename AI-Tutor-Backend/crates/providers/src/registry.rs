@@ -1,0 +1,295 @@
+use ai_tutor_domain::provider::{
+    ModelCapabilities, ModelInfo, ProviderConfig, ProviderType, ThinkingCapability,
+};
+
+pub fn built_in_providers() -> Vec<ProviderConfig> {
+    vec![
+        ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            provider_type: ProviderType::OpenAi,
+            default_base_url: Some("https://api.openai.com/v1".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![
+                ModelInfo {
+                    id: "gpt-5.2".to_string(),
+                    name: "GPT-5.2".to_string(),
+                    context_window: Some(400_000),
+                    output_window: Some(128_000),
+                    capabilities: ModelCapabilities {
+                        streaming: true,
+                        tools: true,
+                        vision: true,
+                        thinking: Some(ThinkingCapability {
+                            toggleable: true,
+                            budget_adjustable: true,
+                            default_enabled: false,
+                        }),
+                    },
+                },
+                ModelInfo {
+                    id: "gpt-4o-mini".to_string(),
+                    name: "GPT-4o Mini".to_string(),
+                    context_window: Some(128_000),
+                    output_window: Some(4_096),
+                    capabilities: ModelCapabilities {
+                        streaming: true,
+                        tools: true,
+                        vision: true,
+                        thinking: None,
+                    },
+                },
+            ],
+        },
+        ProviderConfig {
+            id: "anthropic".to_string(),
+            name: "Claude".to_string(),
+            provider_type: ProviderType::Anthropic,
+            default_base_url: Some("https://api.anthropic.com/v1".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "claude-sonnet-4-6".to_string(),
+                name: "Claude Sonnet 4.6".to_string(),
+                context_window: Some(200_000),
+                output_window: Some(128_000),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: true,
+                    thinking: Some(ThinkingCapability {
+                        toggleable: true,
+                        budget_adjustable: true,
+                        default_enabled: false,
+                    }),
+                },
+            }],
+        },
+        ProviderConfig {
+            id: "google".to_string(),
+            name: "Gemini".to_string(),
+            provider_type: ProviderType::Google,
+            default_base_url: Some("https://generativelanguage.googleapis.com/v1beta".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![
+                ModelInfo {
+                    id: "gemini-3.1-pro-preview".to_string(),
+                    name: "Gemini 3.1 Pro Preview".to_string(),
+                    context_window: Some(1_048_576),
+                    output_window: Some(65_536),
+                    capabilities: ModelCapabilities {
+                        streaming: true,
+                        tools: true,
+                        vision: true,
+                        thinking: Some(ThinkingCapability {
+                            toggleable: false,
+                            budget_adjustable: true,
+                            default_enabled: true,
+                        }),
+                    },
+                },
+                ModelInfo {
+                    id: "gemini-2.5-flash".to_string(),
+                    name: "Gemini 2.5 Flash".to_string(),
+                    context_window: Some(1_048_576),
+                    output_window: Some(65_536),
+                    capabilities: ModelCapabilities {
+                        streaming: true,
+                        tools: true,
+                        vision: true,
+                        thinking: Some(ThinkingCapability {
+                            toggleable: true,
+                            budget_adjustable: true,
+                            default_enabled: true,
+                        }),
+                    },
+                },
+            ],
+        },
+        ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            provider_type: ProviderType::OpenAi,
+            default_base_url: Some("https://api.deepseek.com/v1".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "deepseek-chat".to_string(),
+                name: "DeepSeek Chat".to_string(),
+                context_window: Some(128_000),
+                output_window: Some(4_096),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: false,
+                    thinking: Some(ThinkingCapability {
+                        toggleable: true,
+                        budget_adjustable: false,
+                        default_enabled: false,
+                    }),
+                },
+            }],
+        },
+        ProviderConfig {
+            id: "qwen".to_string(),
+            name: "Qwen".to_string(),
+            provider_type: ProviderType::OpenAi,
+            default_base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "qwen3.5-flash".to_string(),
+                name: "Qwen3.5 Flash".to_string(),
+                context_window: Some(1_000_000),
+                output_window: Some(65_536),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: true,
+                    thinking: None,
+                },
+            }],
+        },
+        ProviderConfig {
+            id: "kimi".to_string(),
+            name: "Kimi".to_string(),
+            provider_type: ProviderType::OpenAi,
+            default_base_url: Some("https://api.moonshot.cn/v1".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "kimi-k2.5".to_string(),
+                name: "Kimi K2.5".to_string(),
+                context_window: Some(256_000),
+                output_window: Some(8_192),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: true,
+                    thinking: Some(ThinkingCapability {
+                        toggleable: true,
+                        budget_adjustable: false,
+                        default_enabled: true,
+                    }),
+                },
+            }],
+        },
+        ProviderConfig {
+            id: "minimax".to_string(),
+            name: "MiniMax".to_string(),
+            provider_type: ProviderType::Anthropic,
+            default_base_url: Some("https://api.minimaxi.com/anthropic/v1".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "MiniMax-M2.7-highspeed".to_string(),
+                name: "MiniMax M2.7 Highspeed".to_string(),
+                context_window: Some(204_800),
+                output_window: Some(8_192),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: false,
+                    thinking: None,
+                },
+            }],
+        },
+        ProviderConfig {
+            id: "glm".to_string(),
+            name: "GLM".to_string(),
+            provider_type: ProviderType::OpenAi,
+            default_base_url: Some("https://open.bigmodel.cn/api/paas/v4".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "glm-5".to_string(),
+                name: "GLM-5".to_string(),
+                context_window: Some(200_000),
+                output_window: Some(128_000),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: false,
+                    thinking: None,
+                },
+            }],
+        },
+        ProviderConfig {
+            id: "siliconflow".to_string(),
+            name: "SiliconFlow".to_string(),
+            provider_type: ProviderType::OpenAi,
+            default_base_url: Some("https://api.siliconflow.cn/v1".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "deepseek-ai/DeepSeek-V3.2".to_string(),
+                name: "DeepSeek-V3.2".to_string(),
+                context_window: Some(128_000),
+                output_window: Some(8_192),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: false,
+                    thinking: None,
+                },
+            }],
+        },
+        ProviderConfig {
+            id: "doubao".to_string(),
+            name: "Doubao".to_string(),
+            provider_type: ProviderType::OpenAi,
+            default_base_url: Some("https://ark.cn-beijing.volces.com/api/v3".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "doubao-seed-2-0-pro-260215".to_string(),
+                name: "Doubao Seed 2.0 Pro".to_string(),
+                context_window: Some(128_000),
+                output_window: Some(32_768),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: true,
+                    thinking: None,
+                },
+            }],
+        },
+        ProviderConfig {
+            id: "grok".to_string(),
+            name: "Grok".to_string(),
+            provider_type: ProviderType::OpenAi,
+            default_base_url: Some("https://api.x.ai/v1".to_string()),
+            requires_api_key: true,
+            icon: None,
+            models: vec![ModelInfo {
+                id: "grok-4-fast-reasoning".to_string(),
+                name: "Grok 4 Fast Reasoning".to_string(),
+                context_window: Some(2_000_000),
+                output_window: Some(131_072),
+                capabilities: ModelCapabilities {
+                    streaming: true,
+                    tools: true,
+                    vision: true,
+                    thinking: Some(ThinkingCapability {
+                        toggleable: false,
+                        budget_adjustable: false,
+                        default_enabled: true,
+                    }),
+                },
+            }],
+        },
+    ]
+}
+
+pub fn get_provider(provider_id: &str) -> Option<ProviderConfig> {
+    built_in_providers()
+        .into_iter()
+        .find(|provider| provider.id == provider_id)
+}
+
+pub fn get_model_info(provider_id: &str, model_id: &str) -> Option<ModelInfo> {
+    get_provider(provider_id)
+        .and_then(|provider| provider.models.into_iter().find(|model| model.id == model_id))
+}

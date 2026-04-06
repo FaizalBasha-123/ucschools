@@ -1,0 +1,5 @@
+1:"$Sreact.fragment"
+2:I[60316,["/_next/static/chunks/1fa84f70449bd993.js"],"OutletBoundary"]
+3:"$Sreact.suspense"
+0:{"buildId":"IdMvxrZ_9y97YK-rPkGol","rsc":["$","$1","c",{"children":[["$","main",null,{"className":"home-shell","children":["$","section",null,{"className":"hero-card","children":[["$","p",null,{"className":"hero-eyebrow","children":"AI Tutor Translation Project"}],["$","h1",null,{"children":"Prompt-to-lesson frontend for the Rust tutor backend"}],["$","p",null,{"className":"hero-copy","children":["This workspace now consumes the real lesson generation and retrieval routes from",["$","code",null,{"children":" AI-Tutor-Backend"}],". The runtime player is still a shell, but the contract flow is real."]}],["$","div",null,{"className":"hero-actions","children":["$","a",null,{"className":"hero-link primary-link","href":"/generate","children":"Open generation studio"}]}]]}]}],null,["$","$L2",null,{"children":["$","$3",null,{"name":"Next.MetadataOutlet","children":"$@4"}]}]]}],"loading":null,"isPartial":false}
+4:null
