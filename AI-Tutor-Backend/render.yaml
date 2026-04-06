@@ -23,7 +23,9 @@ services:
     runtime: docker
     region: singapore
     plan: free
+    rootDir: AI-Tutor-Backend
     dockerfilePath: ./Dockerfile
+    dockerContext: ./
     healthCheckPath: /api/health
     envVars:
       # --- Server (auto-configured by Dockerfile) ---
