@@ -1,0 +1,51 @@
+services:
+  backend:
+    build:
+      context: ./AI-Tutor-Backend
+      dockerfile: Dockerfile
+    container_name: ai-tutor-backend
+    environment:
+      AI_TUTOR_API_HOST: 0.0.0.0
+      AI_TUTOR_API_PORT: "4041"
+      AI_TUTOR_STORAGE_ROOT: /app-data
+      AI_TUTOR_BASE_URL: http://localhost:4041
+      AI_TUTOR_ALLOWED_ORIGINS: http://localhost:4040
+      AI_TUTOR_LOG_FORMAT: pretty
+      RUST_LOG: info
+      REDIS_URL: redis://valkey:6379
+      # Set exactly one provider key below (recommended: OPENAI_API_KEY)
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      AI_TUTOR_MODEL: ${AI_TUTOR_MODEL:-openai:gpt-4o-mini}
+      AI_TUTOR_IMAGE_MODEL: ${AI_TUTOR_IMAGE_MODEL:-openai:gpt-image-1}
+      AI_TUTOR_TTS_MODEL: ${AI_TUTOR_TTS_MODEL:-openai:tts-1}
+      AI_TUTOR_ASR_MODEL: ${AI_TUTOR_ASR_MODEL:-openai:whisper-1}
+      AI_TUTOR_API_SECRET: ${AI_TUTOR_API_SECRET:-}
+    ports:
+      - "4041:4041"
+    volumes:
+      - ai_tutor_backend_data:/app-data
+    depends_on:
+      - valkey
+
+  frontend:
+    build:
+      context: ./AI-Tutor-Frontend
+      dockerfile: Dockerfile
+    container_name: ai-tutor-frontend
+    environment:
+      NEXT_PUBLIC_AI_TUTOR_API_BASE_URL: http://localhost:4041
+      NEXT_PUBLIC_AI_TUTOR_API_TOKEN: ${AI_TUTOR_API_SECRET:-}
+    ports:
+      - "4040:4040"
+    depends_on:
+      - backend
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: ai-tutor-valkey
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+
+volumes:
+  ai_tutor_backend_data:
