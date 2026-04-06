@@ -2,22 +2,29 @@
 # Render Blueprint — AI-Tutor Backend
 # https://docs.render.com/blueprints
 #
-# Deploy: Push this file as render.yaml to the root of AI-Tutor-Backend repo.
-# Render will detect it and create the service automatically.
+# Free-tier only setup:
+# - Web service plan: free
+# - Key Value (Valkey/Redis-compatible) plan: free
+# - No persistent disk (free web services cannot use paid persistent disk)
 # =============================================================================
 
 services:
+  - type: keyvalue
+    name: ai-tutor-kv-free
+    region: singapore
+    plan: free
+    # Required for keyvalue in blueprints. Empty list means internal-only access.
+    ipAllowList: []
+    # Recommended for queues so writes fail instead of evicting pending jobs.
+    maxmemoryPolicy: noeviction
+
   - type: web
-    name: ai-tutor-backend
+    name: ai-tutor-backend-free
     runtime: docker
     region: singapore
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
-    disk:
-      name: ai-tutor-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
       # --- Server (auto-configured by Dockerfile) ---
       - key: AI_TUTOR_API_HOST
@@ -25,16 +32,23 @@ services:
       - key: AI_TUTOR_API_PORT
         value: "10000"
       - key: AI_TUTOR_STORAGE_ROOT
-        value: "/data"
+        value: "/tmp/ai-tutor"
       - key: AI_TUTOR_LOG_FORMAT
         value: "json"
       - key: RUST_LOG
         value: "info"
 
+      # --- Redis/Valkey internal connection from Render Key Value ---
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ai-tutor-kv-free
+          property: connectionString
+
       # --- Public URL (Render assigns this) ---
       # Replace with your actual Render URL after first deploy
       - key: AI_TUTOR_BASE_URL
-        value: "https://ai-tutor-backend.onrender.com"
+        value: "https://ai-tutor-backend-free.onrender.com"
 
       # --- CORS — your Vercel frontend URL ---
       - key: AI_TUTOR_ALLOWED_ORIGINS
