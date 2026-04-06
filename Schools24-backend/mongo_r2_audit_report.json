@@ -1,0 +1,85 @@
+{
+  "generated_at_utc": "2026-04-03T07:05:14Z",
+  "mongo_database": "schools24_mongodb",
+  "r2_bucket": "schools24",
+  "r2_total_objects": 13,
+  "mongo_total_docs": 13,
+  "mongo_storage_key_refs": 13,
+  "collection_summaries": [
+    {
+      "collection": "question_documents",
+      "total": 3,
+      "with_storage_key": 3,
+      "without_storage_key": 0,
+      "with_content": 0,
+      "missing_in_r2": 0,
+      "missing_in_r2_keys": []
+    },
+    {
+      "collection": "study_materials",
+      "total": 2,
+      "with_storage_key": 2,
+      "without_storage_key": 0,
+      "with_content": 0,
+      "missing_in_r2": 0,
+      "missing_in_r2_keys": []
+    },
+    {
+      "collection": "student_individual_reports",
+      "total": 1,
+      "with_storage_key": 1,
+      "without_storage_key": 0,
+      "with_content": 0,
+      "missing_in_r2": 0,
+      "missing_in_r2_keys": []
+    },
+    {
+      "collection": "teacher_homework_attachments",
+      "total": 2,
+      "with_storage_key": 2,
+      "without_storage_key": 0,
+      "with_content": 0,
+      "missing_in_r2": 0,
+      "missing_in_r2_keys": []
+    },
+    {
+      "collection": "admission_documents",
+      "total": 0,
+      "with_storage_key": 0,
+      "without_storage_key": 0,
+      "with_content": 0,
+      "missing_in_r2": 0,
+      "missing_in_r2_keys": []
+    },
+    {
+      "collection": "teacher_appointment_documents",
+      "total": 0,
+      "with_storage_key": 0,
+      "without_storage_key": 0,
+      "with_content": 0,
+      "missing_in_r2": 0,
+      "missing_in_r2_keys": []
+    },
+    {
+      "collection": "super_admin_question_documents",
+      "total": 2,
+      "with_storage_key": 2,
+      "without_storage_key": 0,
+      "with_content": 0,
+      "missing_in_r2": 0,
+      "missing_in_r2_keys": []
+    },
+    {
+      "collection": "super_admin_study_materials",
+      "total": 3,
+      "with_storage_key": 3,
+      "without_storage_key": 0,
+      "with_content": 0,
+      "missing_in_r2": 0,
+      "missing_in_r2_keys": []
+    }
+  ],
+  "missing_storage_key_docs": [],
+  "missing_in_r2_docs": [],
+  "r2_orphan_keys": []
+}

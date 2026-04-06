@@ -1,0 +1,136 @@
+openapi: "3.0.3"
+info:
+  title: Schools24 Reconciliation & Identity Verification API
+  version: "1.0.0"
+  description: |
+    Federated identity verification (APAAR/ABC) and learner reconciliation
+    operations for NDEAR compliance.
+
+servers:
+  - url: /api/v1
+    description: Primary API server
+
+paths:
+  /admin/learners/{id}/verify:
+    post:
+      summary: Verify learner federated identity
+      tags: [Identity]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyLearnerRequest"
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  result:
+                    $ref: "#/components/schemas/VerificationResult"
+        "404":
+          description: Student not found
+
+  /admin/learners/{id}/identity:
+    get:
+      summary: Get student federated identity
+      tags: [Identity]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Student identity
+        "404":
+          description: Student not found
+
+  /admin/learners/unverified:
+    get:
+      summary: List unverified students
+      tags: [Identity]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+      responses:
+        "200":
+          description: Unverified students
+
+  /admin/reconciliations/summary:
+    get:
+      summary: Get reconciliation summary
+      tags: [Reconciliation]
+      responses:
+        "200":
+          description: Summary counts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  summary:
+                    $ref: "#/components/schemas/ReconciliationSummary"
+
+components:
+  schemas:
+    VerifyLearnerRequest:
+      type: object
+      required: [verification_type]
+      properties:
+        verification_type:
+          type: string
+          enum: [apaar, abc, both]
+        dry_run:
+          type: boolean
+          default: false
+
+    VerificationResult:
+      type: object
+      properties:
+        student_id:
+          type: string
+          format: uuid
+        apaar_status:
+          type: string
+          enum: [verified, not_found, error, skipped]
+        abc_status:
+          type: string
+          enum: [verified, not_found, error, skipped]
+        identity_verification_status:
+          type: string
+          enum: [verified, partial, failed, unverified]
+        reconciliation_required:
+          type: boolean
+        message:
+          type: string
+
+    ReconciliationSummary:
+      type: object
+      properties:
+        total:
+          type: integer
+        pending:
+          type: integer
+        merged:
+          type: integer
+        dismissed:
+          type: integer
+        unmerged:
+          type: integer

@@ -1,0 +1,228 @@
+openapi: "3.0.3"
+info:
+  title: Schools24 Consent & DSR API
+  version: "1.0.0"
+  description: |
+    Consent lifecycle management and Data Subject Request (DSR) handling
+    for DPDPA compliance.
+
+servers:
+  - url: /api/v1
+    description: Primary API server
+
+paths:
+  /admin/consent/history:
+    get:
+      summary: List consent records
+      tags: [Consent]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, active, withdrawn]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Consent records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ConsentRecord"
+                  count:
+                    type: integer
+
+  /admin/consent/{id}/withdraw:
+    post:
+      summary: Withdraw consent
+      tags: [Consent]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawConsentRequest"
+      responses:
+        "200":
+          description: Consent withdrawn
+        "400":
+          description: Validation error
+        "404":
+          description: Consent not found
+
+  /admin/consent/audit:
+    get:
+      summary: List audit events
+      tags: [Audit]
+      parameters:
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Audit events
+
+  /admin/dsr:
+    get:
+      summary: List DSR tickets
+      tags: [DSR]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, submitted, under_review, approved, rejected, completed, cancelled]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: DSR list
+    post:
+      summary: Create DSR ticket
+      tags: [DSR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDSRRequest"
+      responses:
+        "201":
+          description: DSR created
+        "400":
+          description: Validation error
+
+  /admin/dsr/{id}:
+    get:
+      summary: Get DSR detail
+      tags: [DSR]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: DSR detail
+        "404":
+          description: DSR not found
+
+  /admin/dsr/{id}/status:
+    put:
+      summary: Update DSR status
+      tags: [DSR]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDSRStatusRequest"
+      responses:
+        "200":
+          description: Status updated
+        "400":
+          description: Invalid state transition
+        "404":
+          description: DSR not found
+
+components:
+  schemas:
+    ConsentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        school_id:
+          type: string
+        guardian_name:
+          type: string
+        consent_method:
+          type: string
+        status:
+          type: string
+          enum: [active, withdrawn]
+        consented_at:
+          type: string
+          format: date-time
+        withdrawn_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    WithdrawConsentRequest:
+      type: object
+      required: [reason, method]
+      properties:
+        reason:
+          type: string
+        method:
+          type: string
+          enum: [otp, written, digital, in_person, other]
+
+    CreateDSRRequest:
+      type: object
+      required: [requester_name, request_type]
+      properties:
+        requester_name:
+          type: string
+        requester_email:
+          type: string
+        requester_phone:
+          type: string
+        requester_relation:
+          type: string
+        subject_student_id:
+          type: string
+          format: uuid
+        request_type:
+          type: string
+          enum: [access, rectification, erasure, portability, objection]
+        description:
+          type: string
+
+    UpdateDSRStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [under_review, approved, rejected, completed, cancelled]
+        resolution_notes:
+          type: string
+        review_note:
+          type: string

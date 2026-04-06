@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#F1F5F9"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_no_internet_card"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="24dp"
+        android:layout_margin="20dp"
+        android:elevation="6dp">
+
+        <!-- No-internet icon -->
+        <ImageView
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:src="@drawable/ic_no_internet"
+            android:layout_marginBottom="20dp"
+            android:contentDescription="No internet connection" />
+
+        <!-- Title -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="No Internet Connection"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#0F172A"
+            android:gravity="center"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Subtitle -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="You&#8217;re offline. Check your Wi-Fi or mobile data and try again."
+            android:textSize="14sp"
+            android:textColor="#64748B"
+            android:gravity="center"
+            android:lineSpacingMultiplier="1.35"
+            android:layout_marginBottom="22dp" />
+
+        <!-- Retry button -->
+        <Button
+            android:id="@+id/btnRetry"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Try Again"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:background="@drawable/btn_background_primary"
+            android:stateListAnimator="@null"
+            android:elevation="0dp"
+            android:layout_marginBottom="20dp" />
+
+        <!-- Footer branding -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <View
+                android:layout_width="24dp"
+                android:layout_height="1dp"
+                android:background="#CBD5E1"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MySchools"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#94A3B8" />
+
+            <View
+                android:layout_width="24dp"
+                android:layout_height="1dp"
+                android:background="#CBD5E1"
+                android:layout_marginStart="8dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>

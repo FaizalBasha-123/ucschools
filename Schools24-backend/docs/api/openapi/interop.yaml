@@ -1,0 +1,265 @@
+openapi: "3.0.3"
+info:
+  title: Schools24 Interop API
+  version: "1.0.0"
+  description: |
+    Government interoperability layer for NDEAR-compliant data exchange.
+    Supports DIKSHA, DigiLocker, and ABC system integrations.
+
+servers:
+  - url: /api/v1
+    description: Primary API server
+
+paths:
+  /admin/interop/readiness:
+    get:
+      summary: Check interop readiness
+      tags: [Interop]
+      responses:
+        "200":
+          description: Readiness report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessReport"
+
+  /admin/interop/jobs:
+    get:
+      summary: List interop jobs
+      tags: [Interop]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, running, succeeded, failed, all]
+        - name: system
+          in: query
+          schema:
+            type: string
+            enum: [diksha, digilocker, abc, all]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 25
+      responses:
+        "200":
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/InteropJob"
+                  count:
+                    type: integer
+
+    post:
+      summary: Create interop job
+      tags: [Interop]
+      parameters:
+        - name: X-Idempotency-Key
+          in: header
+          schema:
+            type: string
+          description: Optional idempotency key to prevent duplicate jobs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/InteropJob"
+                  idempotency_hit:
+                    type: boolean
+                    example: false
+        "200":
+          description: Dry run validated or idempotent hit
+          headers:
+            X-Idempotency-Hit:
+              schema:
+                type: boolean
+              description: True when returning previously created job for same idempotency key.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/InteropJob"
+                  idempotency_hit:
+                    type: boolean
+                    example: true
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "412":
+          description: Interop disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/interop/jobs/{id}:
+    get:
+      summary: Get job by ID
+      tags: [Interop]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Job detail
+        "404":
+          description: Job not found
+
+  /admin/interop/jobs/{id}/retry:
+    post:
+      summary: Retry a failed job
+      tags: [Interop]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Retry attempted
+        "404":
+          description: Job not found
+
+  /admin/interop/sweeper/stats:
+    get:
+      summary: Get sweeper statistics
+      tags: [Interop]
+      responses:
+        "200":
+          description: Sweeper statistics
+
+components:
+  schemas:
+    CreateJobRequest:
+      type: object
+      required: [system, operation]
+      properties:
+        system:
+          type: string
+          enum: [diksha, digilocker, abc]
+        operation:
+          type: string
+          enum: [learner_profile_sync, learning_progress_sync, transfer_event_sync, document_metadata_sync, apaar_verify]
+        dry_run:
+          type: boolean
+          default: false
+        payload:
+          type: object
+          additionalProperties: true
+
+    InteropJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        system:
+          type: string
+        operation:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed]
+        dry_run:
+          type: boolean
+        payload:
+          type: object
+        requested_by:
+          type: string
+        requested_role:
+          type: string
+        school_id:
+          type: string
+        idempotency_key:
+          type: string
+        attempt_count:
+          type: integer
+        max_attempts:
+          type: integer
+        last_error:
+          type: string
+        response_code:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ReadinessReport:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        dry_run_available:
+          type: boolean
+        required_missing:
+          type: array
+          items:
+            type: string
+        systems:
+          type: object
+          additionalProperties:
+            type: boolean
+        safety_checks:
+          type: object
+          additionalProperties:
+            type: boolean
+        recommended_next:
+          type: array
+          items:
+            type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              {}

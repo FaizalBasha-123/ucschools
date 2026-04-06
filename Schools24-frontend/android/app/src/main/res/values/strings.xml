@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MySchools</string>
+    <string name="title_activity_main">MySchools</string>
+    <string name="package_name">in.MySchools.app</string>
+    <string name="custom_url_scheme">in.MySchools.app</string>
+
+    <!-- FCM notification channel -->
+    <string name="default_notification_channel_id">MySchools_general</string>
+    <string name="default_notification_channel_name">MySchools Notifications</string>
+</resources>

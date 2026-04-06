@@ -1,0 +1,20 @@
+<!--
+  Fallback foreground for contexts that load @drawable/ic_launcher_foreground
+  (e.g. API 24-25 launcher shortcuts, share-sheet thumbnails).  Same icon as
+  the mipmap-anydpi-v26 vector — Material 'school' graduation cap in white.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportHeight="108"
+    android:viewportWidth="108">
+    <!-- Upper board (diamond) + tassel column -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,13.5 L4.5,40.5 L54,67.5 L94.5,44.415 V76.5 H103.5 V40.5 Z" />
+
+    <!-- Lower cap dome -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M22.5,59.31 V77.31 L54,94.5 L85.5,77.31 V59.31 L54,76.5 Z" />
+</vector>

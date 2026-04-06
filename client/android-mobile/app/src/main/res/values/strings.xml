@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Schools24</string>
+    <string name="title_activity_main">Schools24</string>
+    <string name="package_name">in.schools24.app</string>
+    <string name="custom_url_scheme">in.schools24.app</string>
+
+    <!-- FCM notification channel -->
+    <string name="default_notification_channel_id">schools24_general</string>
+    <string name="default_notification_channel_name">Schools24 Notifications</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Deep-navy background for the adaptive launcher icon (light mode) -->
+    <color name="ic_launcher_background">#1B2A5E</color>
+</resources>

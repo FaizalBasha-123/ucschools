@@ -1,0 +1,50 @@
+services:
+  - type: web
+    name: schools24-backend
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: Schools24-backend
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: GIN_MODE
+        value: release
+      - key: APP_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: RATE_LIMIT_REQUESTS_PER_MIN
+        value: "100"
+      - key: RATE_LIMIT_BURST
+        value: "50"
+      - key: TRANSPORT_SCHEDULED_LOOP_ENABLED
+        value: "true"
+      # SECURITY: Set CORS to your actual Vercel frontend domain
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://your-frontend.vercel.app"
+      # Valkey cache — references the Valkey instance below
+      - key: REDIS_URL
+        fromService:
+          name: schools24-valkey
+          type: redis
+          property: connectionString
+      # Add these manually in Render dashboard (secrets):
+      # - DATABASE_URL        (Neon PostgreSQL — use the POOLED connection string)
+      # - JWT_SECRET          (Strong random string, ≥32 chars — REQUIRED in production)
+      # - R2_ENABLED          (true)
+      # - R2_ACCOUNT_ID       (Cloudflare account id)
+      # - R2_ACCESS_KEY_ID    (R2 API token access key)
+      # - R2_SECRET_ACCESS_KEY (R2 API token secret)
+      # - R2_BUCKET_NAME      (exact bucket name, e.g. schools24)
+      # - R2_REGION           (MUST be auto for Cloudflare R2 signing)
+      # - R2_ENDPOINT         (https://<account-id>.r2.cloudflarestorage.com)
+    autoDeploy: true
+    healthCheckPath: /live
+
+  # Render-hosted Valkey (Redis-compatible) for response caching
+  - type: redis
+    name: schools24-valkey
+    plan: free
+    region: singapore
+    ipAllowList: [] # allow only internal Render services
+    maxmemoryPolicy: allkeys-lru # evict least-recently-used keys when memory is full

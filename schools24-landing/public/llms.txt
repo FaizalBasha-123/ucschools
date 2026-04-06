@@ -1,0 +1,37 @@
+# Schools24
+
+> India's #1 AI-powered school operating system. Schools24 unifies admissions, operations, academic workflows, fee management, communication, and transport for K-12 institutions inside one multi-tenant platform.
+
+Schools24 is built for real school operations — not generic enterprise software. It is a SaaS platform deployed on the cloud, accessible via web browser and native Android/iOS mobile apps. The platform serves school administrators, teachers, students, and parents under strict role-based access and school-level tenant isolation.
+
+## Platform Pages
+
+- [Home](https://schools24.in/): Overview of the Schools24 platform, features, and value proposition for Indian K-12 schools.
+- [About](https://schools24.in/about): Mission, product philosophy, and how Schools24 is built — tenant isolation, role-based workflows, mobile-first design.
+- [Register Your School](https://schools24.in/register): Institutional onboarding form to start with Schools24. Schools submit a structured profile to begin the deployment process.
+- [Contact](https://schools24.in/contact): Reach the Schools24 team for demos, partnerships, and sales. Email: partner@schools24.in. Phone: +91 9110893850. Location: Bangalore, Karnataka, India.
+
+## Learning & Insights
+
+- [Blog](https://schools24.in/blogs): Articles on school operations, product design, and EdTech industry thinking from the Schools24 team.
+- [Articles](https://schools24.in/articles): In-depth pieces on AI in education, school management platforms, and institutional technology decisions.
+
+## Support
+
+- [Help Center](https://schools24.in/help-center): Submit a structured support ticket. Tickets go directly to the super-admin triage team categorised by priority and type (general, technical, billing, academic).
+
+## Legal
+
+- [Privacy Policy](https://schools24.in/privacy-policy): How Schools24 collects, stores, and protects data across the platform, mobile apps, and public website.
+- [Terms of Service](https://schools24.in/terms-of-service): Terms governing institutional and user access to Schools24 services.
+- [Sales Policy](https://schools24.in/sales-policy): Commercial terms covering demos, onboarding, pricing commitments, and deployment expectations.
+
+## Key Facts
+
+- Platform type: Multi-tenant SaaS, school-isolated data architecture
+- Target market: Indian K-12 schools (CBSE, ICSE, State Board, IB)
+- Mobile: Native Android and iOS apps via Capacitor
+- Pricing: Contact for institutional pricing — free to evaluate
+- Headquarters: Bangalore, Karnataka, India
+- Contact email: partner@schools24.in
+- Contact phone: +91 9110893850

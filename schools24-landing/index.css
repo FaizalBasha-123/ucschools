@@ -1,0 +1,155 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand-orange: #f59e0b;
+  --brand-purple: #7c3aed;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
+  /* overflow-y intentionally NOT set — lets window be the scroll container.
+     Setting overflow-y: auto here + -webkit-overflow-scrolling: touch causes
+     iOS Safari to use body as a native scroll container, breaking window.scrollY
+     and preventing scroll/touchmove events from reaching window/document. */
+  background-color: #fff;
+  overscroll-behavior-y: auto;
+  text-rendering: optimizeLegibility;
+  touch-action: pan-y;
+  -webkit-font-smoothing: antialiased;
+  font-family: 'Manrope', system-ui, sans-serif;
+}
+
+#root {
+  width: 100%;
+  height: auto;
+  min-height: 100vh;
+  overflow-x: hidden !important;
+  overflow-y: visible !important;
+}
+
+/* Hide Scrollbar Global */
+::-webkit-scrollbar {
+  display: none;
+}
+
+* {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.snap-container {
+  min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: visible;
+  scroll-snap-type: none;
+  overscroll-behavior-y: auto;
+  scroll-behavior: smooth;
+}
+
+.snap-section {
+  scroll-snap-align: none;
+  min-height: 100vh;
+  width: 100%;
+  position: relative;
+  overflow-x: clip;
+  overflow-y: visible;
+  /* Ensure animations don't trigger scrollbars */
+}
+
+/* --- Animation Utilities --- */
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(50px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-on-scroll {
+  opacity: 0;
+  /* Hidden by default */
+  animation-fill-mode: forwards;
+  animation-duration: 0.8s;
+  animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.snap-active .animate-fade-up {
+  animation-name: fadeInUp;
+}
+
+.snap-active .animate-scale-in {
+  animation-name: scaleIn;
+}
+
+.snap-active .animate-slide-right {
+  animation-name: slideInRight;
+}
+
+.delay-100 {
+  animation-delay: 100ms;
+}
+
+.delay-200 {
+  animation-delay: 200ms;
+}
+
+.delay-300 {
+  animation-delay: 300ms;
+}
+
+.delay-500 {
+  animation-delay: 500ms;
+}
+
+.font-editorial-sans {
+  font-family: 'Manrope', system-ui, sans-serif;
+}
+
+.font-editorial-serif {
+  font-family: 'Source Serif 4', Georgia, serif;
+}

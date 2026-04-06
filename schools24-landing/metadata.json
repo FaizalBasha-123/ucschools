@@ -1,0 +1,7 @@
+{
+  "name": "Schools24 - Future of Education",
+  "description": "An interactive, scroll-scrubbed landing page for a modern school management and discovery platform with AI-powered search.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}

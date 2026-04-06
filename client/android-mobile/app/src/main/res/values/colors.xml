@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ── Enterprise colour palette ─────────────────────────────────────── -->
+    <!-- Primary: deep navy — status bar, tool bar, window chrome             -->
+    <color name="colorPrimary">#1B2A5E</color>
+    <!-- PrimaryDark: almost black-navy — status bar on pre-Material3 themes  -->
+    <color name="colorPrimaryDark">#0F172A</color>
+    <!-- Accent: clean blue — FABs, links, active states                      -->
+    <color name="colorAccent">#3B82F6</color>
+
+    <!-- ── FCM / notification colours ───────────────────────────────────── -->
+    <!-- Small-icon tint rendered behind the notification in the shade        -->
+    <color name="notification_accent">#1B2A5E</color>
+</resources>

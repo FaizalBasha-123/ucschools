@@ -1,0 +1,87 @@
+version: "3.8"
+
+# Schools24 Backend - Oracle ARM VM Optimized
+# Single container deployment for $0/month hosting
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      - GIN_MODE=release
+      - NATS_URL=nats://nats:4222
+    restart: unless-stopped
+    depends_on:
+      - db
+      - redis
+      - nats
+    networks:
+      - backend_internal
+
+
+  db:
+    image: postgres:15-alpine
+    container_name: schools24-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: schools24
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend_internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: schools24-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - backend_internal
+
+  # NATS JetStream — lightweight Go-native message bus for GPS streaming and session events.
+  # Runs on the private Docker network only; backend reaches it via nats://nats:4222.
+  # JetStream data is file-backed here so state survives container restarts.
+  nats:
+    image: nats:2.10-alpine
+    container_name: schools24-nats
+    restart: always
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    expose:
+      - "4222"
+      - "8222"
+    volumes:
+      - nats_data:/data
+    networks:
+      - backend_internal
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+
+networks:
+  backend_internal:
+    driver: bridge
+
+# Enterprise Architecture
+# - Redis for distributed caching
+# - PostgreSQL for persistent data
+

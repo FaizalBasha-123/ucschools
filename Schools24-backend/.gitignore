@@ -1,0 +1,57 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Debug and log files
+*.log
+debug*.log
+*.log.*
+
+# Database dumps and debug outputs
+*.txt
+db_dump.json
+schema_dump.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads (if not needed in repo)
+uploads/*
+!uploads/.gitkeep
+
+# Track 3D model assets (GLBs + manifest) for Render deployment
+!uploads/3d-models/
+uploads/3d-models/*
+!uploads/3d-models/*.glb
+!uploads/3d-models/models.json
+
+# Temporary files
+tmp/
+temp/
+*.tmp

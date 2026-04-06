@@ -1,0 +1,66 @@
+﻿src/app/login/page.tsx(53,1): error TS1185: Merge conflict marker encountered.
+src/app/login/page.tsx(56,1): error TS1185: Merge conflict marker encountered.
+src/app/login/page.tsx(59,1): error TS1185: Merge conflict marker encountered.
+src/app/login/page.tsx(69,1): error TS1185: Merge conflict marker encountered.
+src/app/login/page.tsx(72,1): error TS1185: Merge conflict marker encountered.
+src/app/login/page.tsx(75,1): error TS1185: Merge conflict marker encountered.
+src/app/student/timetable/page.tsx(114,154): error TS1005: '</' expected.
+src/app/student/timetable/page.tsx(115,1): error TS1185: Merge conflict marker encountered.
+src/app/student/timetable/page.tsx(116,1): error TS1185: Merge conflict marker encountered.
+src/app/student/timetable/page.tsx(118,1): error TS1185: Merge conflict marker encountered.
+src/app/student/timetable/page.tsx(119,29): error TS1128: Declaration or statement expected.
+src/app/student/timetable/page.tsx(120,25): error TS1109: Expression expected.
+src/app/student/timetable/page.tsx(120,26): error TS1128: Declaration or statement expected.
+src/app/student/timetable/page.tsx(136,74): error TS1005: '</' expected.
+src/app/student/timetable/page.tsx(137,1): error TS1185: Merge conflict marker encountered.
+src/app/student/timetable/page.tsx(139,1): error TS1185: Merge conflict marker encountered.
+src/app/student/timetable/page.tsx(142,1): error TS1185: Merge conflict marker encountered.
+src/app/student/timetable/page.tsx(143,45): error TS1005: ',' expected.
+src/app/student/timetable/page.tsx(144,41): error TS1109: Expression expected.
+src/app/student/timetable/page.tsx(145,37): error TS1109: Expression expected.
+src/app/student/timetable/page.tsx(167,34): error TS1128: Declaration or statement expected.
+src/app/student/timetable/page.tsx(167,35): error TS1128: Declaration or statement expected.
+src/app/student/timetable/page.tsx(168,29): error TS1128: Declaration or statement expected.
+src/app/student/timetable/page.tsx(169,25): error TS1109: Expression expected.
+src/app/student/timetable/page.tsx(169,26): error TS1128: Declaration or statement expected.
+src/app/student/timetable/page.tsx(169,27): error TS1128: Declaration or statement expected.
+src/app/student/timetable/page.tsx(170,21): error TS1128: Declaration or statement expected.
+src/app/student/timetable/page.tsx(171,17): error TS1109: Expression expected.
+src/app/student/timetable/page.tsx(172,13): error TS1109: Expression expected.
+src/app/student/timetable/page.tsx(173,9): error TS1109: Expression expected.
+src/app/student/timetable/page.tsx(174,5): error TS1109: Expression expected.
+src/app/student/timetable/page.tsx(175,1): error TS1128: Declaration or statement expected.
+src/components/layout/Sidebar.tsx(231,36): error TS1005: '</' expected.
+src/components/layout/Sidebar.tsx(232,1): error TS1185: Merge conflict marker encountered.
+src/components/layout/Sidebar.tsx(234,1): error TS1185: Merge conflict marker encountered.
+src/components/layout/Sidebar.tsx(236,1): error TS1185: Merge conflict marker encountered.
+src/components/layout/Sidebar.tsx(237,33): error TS1128: Declaration or statement expected.
+src/components/layout/Sidebar.tsx(238,29): error TS1109: Expression expected.
+src/components/layout/Sidebar.tsx(239,25): error TS1109: Expression expected.
+src/components/layout/Sidebar.tsx(240,21): error TS1109: Expression expected.
+src/components/layout/Sidebar.tsx(252,17): error TS1128: Declaration or statement expected.
+src/components/layout/Sidebar.tsx(255,29): error TS1005: ';' expected.
+src/components/layout/Sidebar.tsx(359,17): error TS1128: Declaration or statement expected.
+src/components/layout/Sidebar.tsx(362,22): error TS1005: ';' expected.
+src/components/layout/Sidebar.tsx(382,17): error TS1128: Declaration or statement expected.
+src/components/layout/Sidebar.tsx(383,13): error TS1109: Expression expected.
+src/components/layout/Sidebar.tsx(384,9): error TS1109: Expression expected.
+src/components/layout/Sidebar.tsx(385,5): error TS1109: Expression expected.
+src/components/layout/Sidebar.tsx(386,1): error TS1128: Declaration or statement expected.
+src/contexts/AuthContext.tsx(41,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(47,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(77,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(87,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(95,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(112,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(174,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(182,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(212,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(216,5): error TS1472: 'catch' or 'finally' expected.
+src/contexts/AuthContext.tsx(218,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(220,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(222,1): error TS1185: Merge conflict marker encountered.
+src/contexts/AuthContext.tsx(250,1): error TS1005: '}' expected.
+src/lib/mockData.ts(1,1): error TS1185: Merge conflict marker encountered.
+src/lib/mockData.ts(211,1): error TS1185: Merge conflict marker encountered.
+src/lib/mockData.ts(217,1): error TS1185: Merge conflict marker encountered.

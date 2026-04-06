@@ -1,0 +1,107 @@
+# ── Frontend ─────────────────────────────────────────────────
+Schools24-frontend/.git/
+Schools24-frontend/node_modules/
+Schools24-frontend/.next/
+Schools24-frontend/android/build_log.txt
+AI-Tutor-Frontend/node_modules/
+AI-Tutor-Frontend/.next/
+
+# ── AI-Tutor backend build outputs ─────────────────────────────
+AI-Tutor-Backend/target/
+
+# ── schools24-landing (Vite) ──────────────────────────────────
+schools24-landing/node_modules/
+schools24-landing/dist/
+schools24-landing/.env*
+
+# ── Planning & Architecture docs (generated/temp) ──────────────
+COMPLETE_IMPLEMENTATION_GUIDE.md
+DATABASE_SCHEMA_DESIGN.md
+FRONTEND_GIT_SETUP.md
+implementation_plan.md
+IMPLEMENTATION_ROADMAP.md
+spotshot-architectur.md
+spotshot.md
+studybook.md
+z-github-actionns-setup.md
+push-frontend.ps1
+NDEAR_COMPLIANCE_*.md
+DRIVER_TRACKING_*.md
+LANDING_PAGE_COOKIE_COMPLIANCE_GUIDE.md
+CLIENT_APPS_BUILD_PROMPT.md
+GPS_BUS_TRACKING_PLAN.md
+ANDROID_INSTALL_GUIDE.md
+
+# ── Weekly client reports ────────────────────────────────────────
+
+
+# ── Raw 3D model source data ──────────────────────────────────────
+3d-models/
+
+# ── PDF files (proposals, invoices) ──────────────────────────────
+
+# ── Mobile app binaries & APK debug builds ────────────────────────
+Schools24_debug_*.apk
+client/android-mobile/app/build/outputs/apk/debug/app-debug.apk
+client/android-mobile/build_log.txt
+
+# ── Go binaries ──────────────────────────────────────────────────
+server.exe
+*.exe~
+bin/
+cmd/checkpwd/checkpwd
+cmd/migrate_data/migrate_data
+cmd/seed/seed
+cmd/server/server
+cmd/verify_db/verify_db
+cmd/tasks/
+
+# ── Dependencies & module caches ──────────────────────────────────
+client/node_modules/
+Schools24-frontend/node_modules/
+.gocache/
+
+# ── Environment files ────────────────────────────────────────────
+**/.env
+**/.env.local
+**/.env.production
+!.env.example
+
+# ── Local development / Ethernet diagnostics ────────────────────
+ethernet_config.json
+ethernet_ip.json
+eth_ip_check.json
+eth_route_check.json
+fix_ethernet.ps1
+net_adapters.json
+ipconfig*.txt
+auto-ethernet-recover.ps1
+fix-ethernet-captive-portal.ps1
+install-ethernet-autorecover.ps1
+
+# ── PowerShell helper scripts (personal dev automation) ──────────
+start_all.ps1
+**/*.ps1
+
+# ── Misc scratch / test / invoice files ──────────────────────────
+mock_quizzes.txt
+upcraft_solutions_invoice_*
+SpotPic-Proposal*
+StudyBook-Proposal*
+
+# ── IDE & Editor configs ─────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ── Database backups & dumps ─────────────────────────────────────
+backups/
+*.dump
+*.sql.gz
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
+logs/

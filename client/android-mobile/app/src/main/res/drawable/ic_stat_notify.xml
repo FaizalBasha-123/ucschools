@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Notification status-bar icon for Schools24.
+  Rules: pure alpha-channel — Android renders all opaque pixels as white.
+  Design: Minimal filled circle — clean, simple, reads at 24dp status-bar scale.
+  No gradients, no detail — just a solid dot badge.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Simple solid circle expressed as a vector path for Android resource linking -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,4A8,8 0 1,0 12,20A8,8 0 1,0 12,4Z" />
+
+</vector>

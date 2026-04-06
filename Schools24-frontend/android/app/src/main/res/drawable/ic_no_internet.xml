@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="80dp"
+    android:height="80dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Wifi dot (zero-length line with round cap = filled dot) -->
+    <path
+        android:pathData="M12,19 L12,19"
+        android:fillColor="#00000000"
+        android:strokeColor="#2563EB"
+        android:strokeWidth="3"
+        android:strokeLineCap="round" />
+
+    <!-- Small wifi arc -->
+    <path
+        android:pathData="M9.5,17 Q12,14.7 14.5,17"
+        android:fillColor="#00000000"
+        android:strokeColor="#2563EB"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+
+    <!-- Medium wifi arc -->
+    <path
+        android:pathData="M6.5,14.5 Q12,9.7 17.5,14.5"
+        android:fillColor="#00000000"
+        android:strokeColor="#2563EB"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+
+    <!-- Large wifi arc -->
+    <path
+        android:pathData="M3.5,11.5 Q12,4.8 20.5,11.5"
+        android:fillColor="#00000000"
+        android:strokeColor="#2563EB"
+        android:strokeWidth="2"
+        android:strokeLineCap="round" />
+
+    <!-- Diagonal slash (red — indicates off/blocked) -->
+    <path
+        android:pathData="M4,4 L20,20"
+        android:fillColor="#00000000"
+        android:strokeColor="#EF4444"
+        android:strokeWidth="2.2"
+        android:strokeLineCap="round" />
+
+</vector>

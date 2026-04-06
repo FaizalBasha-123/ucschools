@@ -1,0 +1,85 @@
+{
+  "models": [
+    {
+      "id": "brain",
+      "name": "Brain",
+      "filename": "brain.glb",
+      "description": "Interactive 3D model of the brain (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    },
+    {
+      "id": "heart",
+      "name": "Heart",
+      "filename": "heart.glb",
+      "description": "Interactive 3D model of the heart (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    },
+    {
+      "id": "liver",
+      "name": "Liver",
+      "filename": "liver.glb",
+      "description": "Interactive 3D model of the liver (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    },
+    {
+      "id": "right_lung",
+      "name": "Right Lung",
+      "filename": "right_lung.glb",
+      "description": "Interactive 3D model of the right lung (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    },
+    {
+      "id": "left_lung",
+      "name": "Left Lung",
+      "filename": "left_lung.glb",
+      "description": "Interactive 3D model of the left lung (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    },
+    {
+      "id": "right_kidney",
+      "name": "Right Kidney",
+      "filename": "right_kidney.glb",
+      "description": "Interactive 3D model of the right kidney (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    },
+    {
+      "id": "left_kidney",
+      "name": "Left Kidney",
+      "filename": "left_kidney.glb",
+      "description": "Interactive 3D model of the left kidney (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    },
+    {
+      "id": "stomach",
+      "name": "Stomach",
+      "filename": "stomach.glb",
+      "description": "Interactive 3D model of the stomach (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    },
+    {
+      "id": "pancreas",
+      "name": "Pancreas",
+      "filename": "pancreas.glb",
+      "description": "Interactive 3D model of the pancreas (BodyParts3D / DBCLS Japan)",
+      "source": "BodyParts3D / DBCLS Japan",
+      "license": "CC BY-SA 2.1 Japan",
+      "available": true
+    }
+  ]
+}
