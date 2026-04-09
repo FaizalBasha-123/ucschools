@@ -220,6 +220,9 @@ Current implementation slice:
 - `P1` broader OpenAI-compatible provider coverage (Done for config/resolution): provider env/config resolution now supports `groq`, `grok`/`xai`, and `openrouter` aliases through the existing registry/factory path
 - `P2` broader OpenAI-compatible event coverage (Done): the provider parser now accepts message-level tool calls, JSON-valued tool arguments, and `output_text` content arrays without falling back to compatibility chunk reconstruction
 - `C5` deeper multi-pass scientific/PBL generation (Done): interactive HTML now has a repair loop, and project generation now synthesizes collaboration roles plus issue-board tasks after the primary project brief
+- `F2` production edge hardening (Done for current slice): API RBAC token roles (`reader`/`writer`/`admin`), optional HTTPS enforcement at API edge, stricter R2 HTTPS validation, and explicit queue worker-id fencing controls are now implemented and covered by API tests
+- `F3` ops gates documentation (Done for current slice): backend production runbook now exists (`AI-Tutor-Backend/docs/production-ops-runbook.md`) with alerting, canary, rollback, and DR drill procedures tied to `/api/system/status` signals
+- `F4` automated rollout gate (Done for current slice): `/api/system/ops-gate` now exposes machine-checkable canary/rollback checks with strict mode (`AI_TUTOR_OPS_GATE_STRICT=1`) and `/api/system/status` now includes deployment metadata (`deployment_environment`, `deployment_revision`, `rollout_phase`)
 - next: remaining runtime-quality work beyond the now-verified OpenMAIC-style generation/runtime upgrades:
   - richer tutor turn-planning and content quality beyond the current scene-aware + turn-plan prompting
   - broader provider-native streaming coverage beyond the current implemented provider families and normalized OpenAI-compatible variants

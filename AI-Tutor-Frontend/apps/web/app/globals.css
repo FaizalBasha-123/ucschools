@@ -1,15 +1,15 @@
 :root {
-  --bg: #f4efe7;
-  --surface: rgba(255, 252, 247, 0.9);
-  --surface-strong: #fffaf2;
-  --line: rgba(55, 41, 24, 0.12);
-  --text: #261a10;
-  --muted: #705945;
-  --accent: #b2532f;
-  --accent-strong: #8c391d;
-  --success: #21614e;
-  --warning: #8e5b15;
-  --shadow: 0 18px 60px rgba(63, 33, 10, 0.12);
+  --bg: #f4fff7;
+  --surface: rgba(255, 255, 255, 0.94);
+  --surface-strong: #ffffff;
+  --line: rgba(21, 93, 56, 0.15);
+  --text: #0f3d25;
+  --muted: #2f6b49;
+  --accent: #1f9d5a;
+  --accent-strong: #187a46;
+  --success: #167846;
+  --warning: #7a9643;
+  --shadow: 0 16px 50px rgba(18, 91, 56, 0.12);
 }
 
 * {
@@ -25,11 +25,11 @@ body {
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(227, 165, 100, 0.25), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(122, 153, 108, 0.2), transparent 28%),
-    linear-gradient(180deg, #f8f3eb 0%, #efe4d5 100%);
+    radial-gradient(circle at top left, rgba(58, 186, 113, 0.16), transparent 34%),
+    radial-gradient(circle at bottom right, rgba(29, 160, 89, 0.1), transparent 30%),
+    linear-gradient(180deg, #ffffff 0%, #f3fff7 100%);
   color: var(--text);
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Segoe UI", "Trebuchet MS", sans-serif;
 }
 
 a {
@@ -559,17 +559,17 @@ input {
   width: 100%;
   max-width: 100%;
   padding: 0;
-  background: #0b0d13;
-  color: #ecf0ff;
+  background: #ffffff;
+  color: #0f3d25;
 }
 
 .translation-hero {
   min-height: 88vh;
   padding: 24px min(6vw, 72px) 48px;
   background:
-    radial-gradient(circle at 50% -10%, rgba(108, 155, 255, 0.55), transparent 44%),
-    radial-gradient(circle at 50% 66%, rgba(255, 67, 154, 0.96), rgba(255, 103, 32, 0.9) 70%, transparent 100%),
-    linear-gradient(180deg, #0f1320 0%, #0f1320 42%, #1a0f19 100%);
+    radial-gradient(circle at 50% -10%, rgba(84, 207, 136, 0.35), transparent 45%),
+    radial-gradient(circle at 50% 66%, rgba(146, 240, 188, 0.7), rgba(110, 216, 159, 0.6) 60%, transparent 100%),
+    linear-gradient(180deg, #ffffff 0%, #ebfff2 100%);
 }
 
 .translation-nav {
@@ -592,15 +592,17 @@ input {
 }
 
 .translation-nav nav a {
-  color: rgba(244, 247, 255, 0.86);
+  color: rgba(15, 61, 37, 0.86);
 }
 
 .translation-nav-button {
-  border: 1px solid rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(31, 157, 90, 0.42);
   border-radius: 999px;
   padding: 10px 16px;
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 0.86rem;
+  background: #ffffff;
+  color: #0f3d25;
 }
 
 .translation-hero-content {
@@ -614,7 +616,7 @@ input {
   letter-spacing: 0.12em;
   font-size: 0.8rem;
   text-transform: uppercase;
-  color: rgba(244, 247, 255, 0.72);
+  color: rgba(20, 96, 58, 0.68);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
@@ -622,14 +624,14 @@ input {
   margin: 14px 0 0;
   font-size: clamp(2.1rem, 5.4vw, 4.6rem);
   line-height: 1;
-  color: #ffffff;
+  color: #0f3d25;
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
 .translation-copy {
   width: min(780px, 100%);
   margin: 14px auto 0;
-  color: rgba(241, 245, 255, 0.9);
+  color: rgba(18, 79, 47, 0.9);
   line-height: 1.7;
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
 }
@@ -637,7 +639,7 @@ input {
 .translation-copy code {
   padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(31, 157, 90, 0.14);
 }
 
 .translation-hero-actions {
@@ -658,13 +660,14 @@ input {
 }
 
 .translation-primary {
-  background: #ffffff;
-  color: #111321;
+  background: #1f9d5a;
+  color: #ffffff;
 }
 
 .translation-secondary {
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  color: #f3f6ff;
+  border: 1px solid rgba(31, 157, 90, 0.42);
+  color: #15653c;
+  background: #ffffff;
 }
 
 .translation-primary:hover,
@@ -677,8 +680,8 @@ input {
   width: min(700px, 100%);
   padding: 16px 18px;
   border-radius: 20px;
-  background: rgba(20, 24, 37, 0.86);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(31, 157, 90, 0.2);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -687,7 +690,7 @@ input {
 }
 
 .translation-prompt span {
-  color: rgba(243, 246, 255, 0.74);
+  color: rgba(18, 79, 47, 0.72);
 }
 
 .translation-prompt a {
@@ -697,7 +700,7 @@ input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #4f6fff;
+  background: #1f9d5a;
   color: #ffffff;
 }
 
@@ -708,13 +711,13 @@ input {
 .translation-cta,
 .translation-footer {
   padding: 56px min(6vw, 72px);
-  background: #10131d;
+  background: #ffffff;
 }
 
 .translation-strip p {
   margin: 0;
   text-align: center;
-  color: rgba(228, 234, 252, 0.74);
+  color: rgba(20, 96, 58, 0.74);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
@@ -722,7 +725,7 @@ input {
 .translation-grid-head h2,
 .translation-metrics h2 {
   margin: 0 0 24px;
-  color: #f4f6ff;
+  color: #0f3d25;
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: clamp(1.6rem, 2.8vw, 2.4rem);
 }
@@ -738,21 +741,21 @@ input {
   min-height: 320px;
   border-radius: 22px;
   background:
-    radial-gradient(circle at 50% 20%, rgba(124, 165, 255, 0.85), transparent 55%),
-    radial-gradient(circle at 50% 80%, rgba(255, 77, 171, 0.95), rgba(255, 119, 46, 0.9) 60%, transparent 90%),
-    #151a29;
-  border: 1px solid rgba(255, 255, 255, 0.14);
+    radial-gradient(circle at 50% 20%, rgba(111, 222, 163, 0.85), transparent 55%),
+    radial-gradient(circle at 50% 80%, rgba(72, 185, 121, 0.78), rgba(184, 247, 214, 0.9) 60%, transparent 90%),
+    #eafff1;
+  border: 1px solid rgba(31, 157, 90, 0.2);
 }
 
 .translation-feature-copy h3 {
   margin: 0 0 6px;
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
-  color: #ffffff;
+  color: #0f3d25;
 }
 
 .translation-feature-copy p {
   margin: 0 0 18px;
-  color: rgba(229, 235, 252, 0.75);
+  color: rgba(20, 96, 58, 0.75);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
@@ -829,19 +832,19 @@ input {
 .translation-cta {
   text-align: center;
   background:
-    radial-gradient(circle at 50% 0%, rgba(94, 138, 255, 0.45), transparent 55%),
-    #10131d;
+    radial-gradient(circle at 50% 0%, rgba(97, 223, 148, 0.32), transparent 55%),
+    #f7fff9;
 }
 
 .translation-cta p {
   margin: 0 0 18px;
   font-size: clamp(1.4rem, 3.4vw, 2.8rem);
-  color: #ffffff;
+  color: #0f3d25;
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
 }
 
 .translation-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1px solid rgba(31, 157, 90, 0.18);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -851,7 +854,7 @@ input {
 
 .translation-footer p {
   margin: 0;
-  color: rgba(229, 235, 252, 0.66);
+  color: rgba(20, 96, 58, 0.66);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   font-size: 0.86rem;
 }

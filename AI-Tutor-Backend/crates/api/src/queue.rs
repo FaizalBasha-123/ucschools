@@ -69,8 +69,33 @@ pub fn claim_heartbeat_interval_ms() -> u64 {
 }
 
 fn queue_worker_id() -> String {
+    if let Ok(explicit) = std::env::var("AI_TUTOR_QUEUE_WORKER_ID") {
+        let trimmed = explicit.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    let require_explicit = matches!(
+        std::env::var("AI_TUTOR_QUEUE_REQUIRE_EXPLICIT_WORKER_ID")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    );
+    if require_explicit {
+        panic!(
+            "AI_TUTOR_QUEUE_REQUIRE_EXPLICIT_WORKER_ID is enabled but AI_TUTOR_QUEUE_WORKER_ID is missing"
+        );
+    }
+
+    let host = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("COMPUTERNAME"))
+        .unwrap_or_else(|_| "unknown-host".to_string());
     format!(
-        "worker-{}-{}",
+        "worker-{}-{}-{}",
+        host,
         std::process::id(),
         Utc::now().timestamp_millis()
     )
