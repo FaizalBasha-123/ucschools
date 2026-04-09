@@ -4,15 +4,23 @@ import type {
   GenerateLessonResponse,
   Lesson,
   LessonGenerationJob,
+  PlaybackEvent,
   StatelessChatRequest,
   TutorStreamEvent,
 } from "@ai-tutor/types";
 
 function apiBaseUrl() {
-  return (
-    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL?.replace(/\/$/, "") ||
-    "http://127.0.0.1:8099"
-  );
+  const configured = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL?.replace(/\/$/, "");
+  if (configured) {
+    return configured;
+  }
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL.replace(/\/$/, "")}`;
+  }
+  return "http://127.0.0.1:8099";
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -58,13 +66,50 @@ export async function streamTutorChat(
   payload: StatelessChatRequest,
   onEvent: (event: TutorStreamEvent) => void,
 ): Promise<void> {
-  const response = await fetch(`${apiBaseUrl()}/api/runtime/chat/stream`, {
+  return streamSse(`${apiBaseUrl()}/api/runtime/chat/stream`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  }, onEvent);
+}
+
+export async function streamLessonPlayback(
+  lessonId: string,
+  onEvent: (event: PlaybackEvent) => void,
+): Promise<void> {
+  return streamSse(`${apiBaseUrl()}/api/lessons/${lessonId}/events`, {
+    method: "GET",
+  }, onEvent);
+}
+
+export async function acknowledgeRuntimeAction(payload: {
+  session_id: string;
+  runtime_session_id?: string | null;
+  runtime_session_mode?: string | null;
+  execution_id: string;
+  action_name?: string | null;
+  status: "accepted" | "completed" | "failed" | "timed_out";
+  error?: string | null;
+}): Promise<{ accepted: boolean }> {
+  const response = await fetch(`${apiBaseUrl()}/api/runtime/actions/ack`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
   });
+
+  return parseJson<{ accepted: boolean }>(response);
+}
+
+async function streamSse<T>(
+  url: string,
+  init: RequestInit,
+  onEvent: (event: T) => void,
+): Promise<void> {
+  const response = await fetch(url, init);
 
   if (!response.ok || !response.body) {
     const text = await response.text();
@@ -86,7 +131,7 @@ export async function streamTutorChat(
     buffer = chunks.pop() ?? "";
 
     for (const chunk of chunks) {
-      const event = parseSseChunk(chunk);
+      const event = parseSseChunk<T>(chunk);
       if (event) {
         onEvent(event);
       }
@@ -94,7 +139,7 @@ export async function streamTutorChat(
   }
 }
 
-function parseSseChunk(chunk: string): TutorStreamEvent | null {
+function parseSseChunk<T>(chunk: string): T | null {
   const lines = chunk.split("\n");
   let data = "";
 
@@ -108,5 +153,5 @@ function parseSseChunk(chunk: string): TutorStreamEvent | null {
     return null;
   }
 
-  return JSON.parse(data) as TutorStreamEvent;
+  return JSON.parse(data) as T;
 }

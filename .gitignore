@@ -5,6 +5,9 @@ Schools24-frontend/.next/
 Schools24-frontend/android/build_log.txt
 AI-Tutor-Frontend/node_modules/
 AI-Tutor-Frontend/.next/
+AI-Tutor-Frontend/**/node_modules/
+AI-Tutor-Frontend/**/.next/
+AI-Tutor-Frontend/**/*.tsbuildinfo
 
 # ── AI-Tutor backend build outputs ─────────────────────────────
 AI-Tutor-Backend/target/
