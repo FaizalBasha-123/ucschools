@@ -84,11 +84,46 @@ export type SceneContent =
       type: "interactive";
       url: string;
       html?: string | null;
+      scientific_model?: {
+        core_formulas: string[];
+        mechanism: string[];
+        constraints: string[];
+        forbidden_errors: string[];
+        variables: string[];
+        interaction_guidance: string[];
+        experiment_steps: string[];
+        observation_prompts: string[];
+      } | null;
     }
   | {
       type: "project";
       project_config: {
         summary: string;
+        title?: string | null;
+        driving_question?: string | null;
+        final_deliverable?: string | null;
+        target_skills?: string[] | null;
+        milestones?: string[] | null;
+        team_roles?: string[] | null;
+        assessment_focus?: string[] | null;
+        starter_prompt?: string | null;
+        success_criteria?: string[] | null;
+        facilitator_notes?: string[] | null;
+        agent_roles?:
+          | {
+              name: string;
+              responsibility: string;
+              deliverable?: string | null;
+            }[]
+          | null;
+        issue_board?:
+          | {
+              title: string;
+              description: string;
+              owner_role?: string | null;
+              checkpoints: string[];
+            }[]
+          | null;
       };
     };
 
@@ -163,12 +198,222 @@ export type LessonAction =
       element_id: string;
     }
   | {
+      type: "laser";
+      id: string;
+      element_id: string;
+      color?: string | null;
+    }
+  | {
+      type: "play_video";
+      id: string;
+      element_id: string;
+    }
+  | {
       type: "discussion";
       id: string;
       topic: string;
+    }
+  | {
+      type: "whiteboard_open";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+    }
+  | {
+      type: "whiteboard_draw_text";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      element_id?: string | null;
+      content: string;
+      x: number;
+      y: number;
+      width?: number | null;
+      height?: number | null;
+      font_size?: number | null;
+      color?: string | null;
+    }
+  | {
+      type: "whiteboard_draw_shape";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      element_id?: string | null;
+      shape: "rectangle" | "circle" | "triangle";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      fill_color?: string | null;
+    }
+  | {
+      type: "whiteboard_draw_chart";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      element_id?: string | null;
+      chart_type: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      data: {
+        labels: string[];
+        legends: string[];
+        series: number[][];
+      };
+      theme_colors?: string[] | null;
+    }
+  | {
+      type: "whiteboard_draw_latex";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      element_id?: string | null;
+      latex: string;
+      x: number;
+      y: number;
+      width?: number | null;
+      height?: number | null;
+      color?: string | null;
+    }
+  | {
+      type: "whiteboard_draw_table";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      element_id?: string | null;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      data: string[][];
+      outline?: {
+        width: number;
+        style: string;
+        color: string;
+      } | null;
+      theme?: {
+        color: string;
+      } | null;
+    }
+  | {
+      type: "whiteboard_draw_line";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      element_id?: string | null;
+      start_x: number;
+      start_y: number;
+      end_x: number;
+      end_y: number;
+      color?: string | null;
+      width?: number | null;
+      style?: "solid" | "dashed" | null;
+      points?: [string, string] | null;
+    }
+  | {
+      type: "whiteboard_clear";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+    }
+  | {
+      type: "whiteboard_delete";
+      id: string;
+      title?: string | null;
+      description?: string | null;
+      element_id: string;
+    }
+  | {
+      type: "whiteboard_close";
+      id: string;
+      title?: string | null;
+      description?: string | null;
     };
 
 export type RuntimeMode = "autonomous" | "playback" | "live";
+
+export type ActionExecutionMetadata = {
+  surface: "audio" | "discussion" | "slide_overlay" | "video" | "whiteboard";
+  blocks_slide_canvas: boolean;
+  requires_focus_target: boolean;
+};
+
+export type WhiteboardSnapshot = {
+  id: string;
+  is_open: boolean;
+  version: number;
+  objects: WhiteboardObject[];
+};
+
+export type WhiteboardObject =
+  | {
+      kind: "path";
+      id: string;
+      points: { x: number; y: number }[];
+      color: string;
+      stroke_width: number;
+    }
+  | {
+      kind: "text";
+      id: string;
+      position: { x: number; y: number };
+      content: string;
+      font_size: number;
+      color: string;
+    }
+  | {
+      kind: "rectangle";
+      id: string;
+      position: { x: number; y: number };
+      width: number;
+      height: number;
+      color: string;
+      fill?: string | null;
+      stroke_width: number;
+    }
+  | {
+      kind: "circle";
+      id: string;
+      center: { x: number; y: number };
+      radius: number;
+      color: string;
+      fill?: string | null;
+      stroke_width: number;
+    }
+  | {
+      kind: "highlight";
+      id: string;
+      position: { x: number; y: number };
+      width: number;
+      height: number;
+      color: string;
+      opacity: number;
+    }
+  | {
+      kind: "arrow";
+      id: string;
+      start: { x: number; y: number };
+      end: { x: number; y: number };
+      color: string;
+      stroke_width: number;
+    };
+
+export type PlaybackEvent = {
+  lesson_id: string;
+  kind: "session_started" | "scene_started" | "action_started" | "session_completed";
+  scene_id?: string | null;
+  scene_title?: string | null;
+  scene_index?: number | null;
+  action_id?: string | null;
+  action_type?: string | null;
+  action_index?: number | null;
+  action_payload?: LessonAction | null;
+  execution?: ActionExecutionMetadata | null;
+  whiteboard_state?: WhiteboardSnapshot | null;
+  summary: string;
+};
 
 export type ChatMessage = {
   id: string;
@@ -177,6 +422,12 @@ export type ChatMessage = {
 };
 
 export type StatelessChatRequest = {
+  session_id?: string | null;
+  runtime_session?: {
+    mode: "stateless_client_state" | "managed_runtime_session";
+    session_id?: string | null;
+    create_if_missing?: boolean | null;
+  } | null;
   messages: ChatMessage[];
   store_state: {
     stage?: null;
@@ -221,7 +472,9 @@ export type StatelessChatRequest = {
       action_name: string;
       agent_id: string;
       agent_name: string;
+      params?: Record<string, unknown> | null;
     }[];
+    whiteboard_state?: WhiteboardSnapshot | null;
   } | null;
   user_profile?: {
     nickname?: string | null;
@@ -234,43 +487,104 @@ export type StatelessChatRequest = {
   requires_api_key?: boolean | null;
 };
 
+export type ActionAckPolicy = "no_ack_required" | "ack_optional" | "ack_required";
+
+export type RuntimeInterruptionReason =
+  | "user_requested"
+  | "downstream_disconnect"
+  | "provider_cancelled"
+  | "provider_failed"
+  | "runtime_policy";
+
+export type TutorTurnStatus = "running" | "interrupted" | "completed" | "failed";
+
+type TutorStreamEventBase = {
+  session_id: string;
+  runtime_session_id?: string | null;
+  runtime_session_mode?: "stateless_client_state" | "managed_runtime_session" | null;
+  turn_status?: TutorTurnStatus | null;
+  interruption_reason?: RuntimeInterruptionReason | null;
+  resume_allowed?: boolean | null;
+  agent_id?: string | null;
+  agent_name?: string | null;
+  message?: string | null;
+};
+
 export type TutorStreamEvent =
-  | {
+  | (TutorStreamEventBase & {
       kind: "session_started";
-      session_id: string;
-      agent_id?: string | null;
-      agent_name?: string | null;
+      action_name?: null;
+      action_params?: null;
+      execution_id?: null;
+      ack_policy?: null;
+      execution?: null;
+      whiteboard_state?: null;
       content?: string | null;
-      message?: string | null;
       director_state?: null;
-    }
-  | {
+    })
+  | (TutorStreamEventBase & {
       kind: "agent_selected";
-      session_id: string;
-      agent_id?: string | null;
-      agent_name?: string | null;
+      action_name?: null;
+      action_params?: null;
+      execution_id?: null;
+      ack_policy?: null;
+      execution?: null;
+      whiteboard_state?: null;
       content?: string | null;
-      message?: string | null;
       director_state?: null;
-    }
-  | {
+    })
+  | (TutorStreamEventBase & {
       kind: "text_delta";
-      session_id: string;
-      agent_id?: string | null;
-      agent_name?: string | null;
+      action_name?: null;
+      action_params?: null;
+      execution_id?: null;
+      ack_policy?: null;
+      execution?: null;
+      whiteboard_state?: null;
       content?: string | null;
-      message?: string | null;
       director_state?: null;
-    }
-  | {
+    })
+  | (TutorStreamEventBase & {
+      kind: "action_started" | "action_progress" | "action_completed";
+      action_name?: string | null;
+      action_params?: Record<string, unknown> | null;
+      execution_id?: string | null;
+      ack_policy?: ActionAckPolicy | null;
+      execution?: ActionExecutionMetadata | null;
+      whiteboard_state?: WhiteboardSnapshot | null;
+      content?: null;
+      director_state?: null;
+    })
+  | (TutorStreamEventBase & {
+      kind: "interrupted" | "resume_available" | "resume_rejected";
+      action_name?: null;
+      action_params?: null;
+      execution_id?: null;
+      ack_policy?: null;
+      execution?: null;
+      whiteboard_state?: WhiteboardSnapshot | null;
+      content?: string | null;
+      director_state?: StatelessChatRequest["director_state"] | null;
+    })
+  | (TutorStreamEventBase & {
       kind: "cue_user";
-      session_id: string;
-      agent_id?: string | null;
-      agent_name?: string | null;
+      action_name?: null;
+      action_params?: null;
+      execution_id?: null;
+      ack_policy?: null;
+      execution?: null;
+      whiteboard_state?: null;
       content?: string | null;
-      message?: string | null;
       director_state?: null;
-    }
-  | {
+    })
+  | (TutorStreamEventBase & {
       kind: "done" | "error";
-     
+      action_name?: null;
+      action_params?: null;
+      execution_id?: null;
+      ack_policy?: null;
+      execution?: null;
+      whiteboard_state?: WhiteboardSnapshot | null;
+      content?: string | null;
+      director_state?: StatelessChatRequest["director_state"] | null;
+    });

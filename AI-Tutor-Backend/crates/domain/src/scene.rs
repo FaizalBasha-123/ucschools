@@ -19,19 +19,14 @@ pub struct Scene {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SceneContent {
-    Slide {
-        canvas: SlideCanvas,
-    },
-    Quiz {
-        questions: Vec<QuizQuestion>,
-    },
+    Slide { canvas: SlideCanvas },
+    Quiz { questions: Vec<QuizQuestion> },
     Interactive {
         url: String,
         html: Option<String>,
+        scientific_model: Option<ScientificModel>,
     },
-    Project {
-        project_config: ProjectConfig,
-    },
+    Project { project_config: ProjectConfig },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,6 +153,45 @@ pub struct QuizOption {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
     pub summary: String,
+    pub title: Option<String>,
+    pub driving_question: Option<String>,
+    pub final_deliverable: Option<String>,
+    pub target_skills: Option<Vec<String>>,
+    pub milestones: Option<Vec<String>>,
+    pub team_roles: Option<Vec<String>>,
+    pub assessment_focus: Option<Vec<String>>,
+    pub starter_prompt: Option<String>,
+    pub success_criteria: Option<Vec<String>>,
+    pub facilitator_notes: Option<Vec<String>>,
+    pub agent_roles: Option<Vec<ProjectAgentRole>>,
+    pub issue_board: Option<Vec<ProjectIssue>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectAgentRole {
+    pub name: String,
+    pub responsibility: String,
+    pub deliverable: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectIssue {
+    pub title: String,
+    pub description: String,
+    pub owner_role: Option<String>,
+    pub checkpoints: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScientificModel {
+    pub core_formulas: Vec<String>,
+    pub mechanism: Vec<String>,
+    pub constraints: Vec<String>,
+    pub forbidden_errors: Vec<String>,
+    pub variables: Vec<String>,
+    pub interaction_guidance: Vec<String>,
+    pub experiment_steps: Vec<String>,
+    pub observation_prompts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

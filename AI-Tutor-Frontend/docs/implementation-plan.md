@@ -122,6 +122,12 @@ Current progress:
 - guided mode can now auto-advance lesson actions after narration audio finishes
 - guided mode can now auto-advance after focused slide video playback finishes
 - discussion scenes can now call the backend stateless tutor SSE route and render streamed tutor text
+- discussion scenes now also react to streamed runtime action lifecycle events from the backend
+- streamed whiteboard, spotlight, laser, and play-video tutor actions now update the lesson player during discussion sessions
+- lesson playback SSE is now consumed by the web player, and playback action payloads use the same runtime action-application path as live discussion actions
+- runtime execution policy is now centralized in a shared frontend hook instead of being split across separate playback and discussion handlers
+- speech actions now also route through that shared runtime executor path, so manual and guided teacher-audio playback no longer depend on a separate ad hoc audio token branch
+- the whiteboard hook can now hydrate from backend playback whiteboard snapshots instead of only replaying local whiteboard actions
 - playback runtime is not yet implemented
 
 ## Phase F4: Whiteboard and Action UI

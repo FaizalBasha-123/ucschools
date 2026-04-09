@@ -28,6 +28,7 @@ pub enum LessonGenerationJobStatus {
     Running,
     Succeeded,
     Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -43,6 +44,7 @@ pub enum LessonGenerationStep {
     Persisting,
     Completed,
     Failed,
+    Cancelled,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,6 +63,14 @@ pub struct LessonGenerationJobResult {
     pub scenes_count: i32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueuedLessonJobSnapshot {
+    pub lesson_id: String,
+    pub request: LessonGenerationRequest,
+    pub model_string: Option<String>,
+    pub max_attempts: u32,
+}
+
 impl From<&LessonGenerationRequest> for LessonGenerationJobInputSummary {
     fn from(value: &LessonGenerationRequest) -> Self {
         let preview = if value.requirements.requirement.len() > 200 {
@@ -73,7 +83,11 @@ impl From<&LessonGenerationRequest> for LessonGenerationJobInputSummary {
             requirement_preview: preview,
             language: format!("{:?}", value.requirements.language),
             has_pdf: value.pdf_content.is_some(),
-            pdf_text_length: value.pdf_content.as_ref().map(|p| p.text.len()).unwrap_or(0),
+            pdf_text_length: value
+                .pdf_content
+                .as_ref()
+                .map(|p| p.text.len())
+                .unwrap_or(0),
             pdf_image_count: value
                 .pdf_content
                 .as_ref()
