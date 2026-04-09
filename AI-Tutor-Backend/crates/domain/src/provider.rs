@@ -27,7 +27,15 @@ pub struct ModelInfo {
     pub name: String,
     pub context_window: Option<i32>,
     pub output_window: Option<i32>,
+    pub cost_tier: Option<String>,
+    pub pricing: Option<ModelPricing>,
     pub capabilities: ModelCapabilities,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPricing {
+    pub input_cost_per_1m_usd: f64,
+    pub output_cost_per_1m_usd: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

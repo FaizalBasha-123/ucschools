@@ -185,6 +185,7 @@ Current progress:
 - env-based server provider resolution added
 - first outbound LLM client added for OpenAI-compatible providers
 - provider factory added for concrete LLM client construction
+- server-side provider config now also recognizes OpenAI-compatible env aliases for `groq`, `grok`/`xai`, and `openrouter`, so those providers can be wired into the existing resolver/factory path without custom frontend translation
 
 ## Phase 3: File-Backed Job and Lesson Storage
 
@@ -258,9 +259,32 @@ Current progress:
 - slide generation now repairs empty image placeholders by binding them to generated media ids
 - generation adapter now repairs noisy/fenced JSON responses before parsing
 - deterministic fallback outlines, slide content, quiz content, and narration are now used when model output is malformed or empty
+- outline generation now accepts richer OpenMAIC-style metadata (`teaching_objective`, `estimated_duration`, `suggested_image_ids`, `quiz_config`, `interactive_config`, `project_config`) and normalizes those fields into typed Rust scene outlines instead of discarding them
+- slide generation now uses a stronger OpenMAIC-inspired visual contract with richer element support (`chart`, `latex`, `shape`, `line`, `table`, `video`) plus layout/title repair after model output
+- scene action generation now accepts OpenMAIC-style interleaved structured arrays for slide/quiz/interactive/PBL scenes while preserving compatibility with the legacy `{ "actions": [...] }` envelope
+- interactive scene generation now uses a deeper two-step OpenMAIC-style path: generate a scientific model first, then generate constrained HTML using those formulas/mechanisms/constraints
+- project/PBL scene generation now preserves a richer structured project plan (`driving_question`, `final_deliverable`, `target_skills`, `milestones`, `team_roles`, `assessment_focus`, `starter_prompt`) instead of flattening the model output into a short summary only
+- live tutor graph now streams against history-aware provider messages instead of only a flattened prompt string
+- provider contract now supports `generate_text_stream_with_history(...)`
+- OpenAI-compatible, Anthropic, and Google providers now implement history-aware native streaming
+- resilient provider now preserves retry/failover semantics for history-aware streaming
+- the Rust response parser now supports first-pass incremental parsing of streamed structured text/action items
+- the GraphBit-style tutor runtime now uses that streamed structured parser instead of waiting only for final whole-response parsing
+- the tutor SSE route now streams live runtime events through the API path instead of collecting a full `Vec<TutorStreamEvent>` before sending
+- tutor runtime now emits explicit `action_started` / `action_completed` lifecycle events with structured action payloads
+- tutor SSE route now transports those structured runtime action events end to end
+- lesson playback events now carry structured `action_payload` data so playback and live runtime can share one execution surface
+- runtime action events now also carry backend-owned execution metadata describing whether an action belongs to audio, discussion, slide overlay, video, or whiteboard execution
+- lesson playback events now include backend-derived whiteboard snapshots produced from ordered whiteboard action application in the runtime layer
+- live tutor graph events now also carry backend-derived whiteboard snapshots, initialized from prior whiteboard ledger state and updated as streamed `wb_*` actions execute
+- the tutor SSE route now forwards those live whiteboard snapshots to the client instead of only exposing whiteboard state on playback events
 - generation adapter now retries transient LLM/provider failures before falling back to repaired or deterministic generation output
 - non-retryable provider/configuration failures still surface immediately instead of being masked
 - generation adapter verified with typed parsing tests
+- outline generation now accepts richer OpenMAIC-style metadata (`teaching_objective`, `estimated_duration`, `suggested_image_ids`, `quiz_config`, `interactive_config`, `project_config`) and normalizes those fields into typed Rust scene outlines instead of discarding them
+- slide generation now uses a stricter OpenMAIC-style visual contract: concise on-slide text, richer element kinds (`chart`, `latex`, `shape`, `line`, `table`, `video`), and post-generation layout repair that enforces positive dimensions, bounded placement, and title presence
+- offline scene action generation now accepts interleaved OpenMAIC-style structured arrays (`text` + typed `action` items) while preserving backward compatibility with the older `{ "actions": [...] }` envelope
+- slide, quiz, interactive, and PBL action prompts are now scene-type-specific instead of sharing one thin generic action planner prompt, improving narration/action pacing and reducing invalid tool choices
 
 ## Phase 5: Media and TTS Post-Processing
 
@@ -351,11 +375,19 @@ Current progress:
 - queue processing logic is now shared through the `api` crate library and a dedicated `queue_worker` binary exists for separate worker-process execution
 - queue tests now verify persisted queue-file recovery and removal after successful processing
 - queue entries now carry retry metadata and delayed requeue state
+- lesson persistence can now also be switched to SQLite with `AI_TUTOR_LESSON_DB_PATH`, while preserving the existing file-backed lesson path for compatibility and tests
+- lesson job persistence can now also be switched to SQLite with `AI_TUTOR_JOB_DB_PATH`, while preserving the existing file-backed job path for compatibility and tests
+- async lesson queueing can now also be switched to SQLite with `AI_TUTOR_QUEUE_DB_PATH`, while preserving the existing file-backed queue path for compatibility and tests
 - transient queue failures are now retried with backoff instead of failing immediately
 - non-retryable queue failures now remain terminal and are surfaced back into persisted job state
 - stale `.working` queue files can now be reclaimed and resumed after worker crashes/restarts
+- queued async lesson jobs can now be cancelled through `POST /api/lessons/jobs/{id}/cancel`, and cancelled job state is persisted for both file-backed and SQLite-backed queue modes
+- cancelled or failed async lesson jobs can now also be resumed through `POST /api/lessons/jobs/{id}/resume`, backed by persisted queued-request snapshots so the original async request can be requeued without the client resubmitting it
 - first SSE playback stream now exists for persisted lessons, emitting session/scene/action events from stored lesson structure
 - first stateless tutor SSE stream now exists for live chat turns, emitting session/agent/text/done events
+- `/api/system/status` now exposes runtime observability for current model, queue backend, lesson backend, job backend, runtime-session backend, pending queue depth, and provider circuit-breaker/runtime health
+- `/api/system/status` now also reports supported runtime-session modes so operators can verify whether the backend is running client-owned state only or explicit managed-session mode support
+- `/api/system/status` now also exposes runtime native-typed-streaming policy plus per-provider capability-style fields (`native_typed_streaming`, `compatibility_streaming`, `cooperative_cancellation`) so degraded runtime mode is visible directly
 - stateless tutor streaming now includes a first director-style agent selector that:
   - honors the trigger agent on the opening turn
   - rotates away from the most recent speaker when alternatives exist
@@ -392,12 +424,58 @@ Current progress:
 - API now also exposes a first stateless tutor SSE route backed by provider-generated text chunks
 - the stateless tutor route now has a first director-style agent selection layer instead of always defaulting to the trigger or first configured agent
 - the stateless tutor route now also supports a first multi-turn director loop for discussion sessions
+- the provider layer now builds a real server-configured LLM failover chain instead of always wrapping a single provider
+- OpenAI-compatible, Anthropic, and Google text providers are now wired into the Rust backend for LLM generation
+- the resilient provider now tracks per-provider failure health and opens a cooldown-based circuit breaker before retrying the same unhealthy provider again
+- server env/config now supports explicit provider priority ordering for failover (`AI_TUTOR_LLM_PROVIDER_PRIORITY`)
+- the GraphBit-style chat graph now consumes provider runtime health from the resilient LLM layer
+- director prompts now include provider runtime health, mirroring OpenMAIC's habit of routing with current runtime context instead of static agent config alone
+- degraded provider health now shortens discussion turn budgets and biases the fallback selector toward teacher-led routing
+- the LLM provider trait now exposes a graph-level streaming seam (`generate_text_stream`) so the runtime no longer depends directly on full-response generation calls
+- the chat graph now consumes streamed deltas through that seam, matching OpenMAIC's adapter-first streaming architecture more closely
+- the stateless tutor stream now carries structured action lifecycle events instead of collapsing runtime actions into one generic payload type
+- `director_state` now also carries a persisted backend-owned whiteboard snapshot, so seeded live tutor sessions can resume from backend whiteboard state instead of relying only on action-ledger replay
+- live tutor execution now has an explicit runtime-session mode split:
+  - `stateless_client_state` keeps `director_state` client-owned in the runtime path (OpenMAIC-style request/response state transfer), with no backend persistence
+  - `managed_runtime_session` loads/saves `director_state` through the runtime-session repository using explicit API contract fields instead of implicit `session_id` behavior
+- invalid runtime-session combinations now fail at the API boundary instead of silently mixing client-owned and backend-owned state
+- downstream SSE disconnects now cancel the graph/provider path cooperatively even when no further model events have been emitted yet, and the service only falls back to task abort if cooperative shutdown stalls
+- the compatibility streaming fallback path now respects cancellation before full non-streaming generation completes
+- streamed parser finalization now preserves ordered text/action emission and avoids replaying already-emitted partial text or duplicate actions when typed provider tool events and parsed JSON overlap
+- interrupted runtime turns now emit explicit `interrupted` tutor events with the last safe `director_state` / whiteboard boundary, so managed-session persistence can save resume-safe state instead of treating cancellation as an opaque failure
+- action lifecycle tutor events now also carry stable `execution_id` values plus an explicit ack policy (`no_ack_required`, `ack_optional`, `ack_required`), and the API now exposes `POST /api/runtime/actions/ack` so frontend execution outcomes are reported back to the backend
+- runtime action execution records are now persisted through the storage repository layer for both file-backed and SQLite runtime storage, so ack-required actions survive beyond transient process memory
+- backend ack handling now expires stale pending/accepted actions by timeout, enforces monotonic status transitions, and rejects replayed terminal acknowledgements deterministically
+- the frontend lesson player now sends `stateless_client_state` explicitly on live tutor requests and acknowledges runtime action execution outcomes after action application
+- lesson generation now degrades TTS per action instead of failing the whole lesson for one synthesis error, and media/audio asset persistence failures now keep inline/fallback assets in place while surfacing degraded job messages
+- provider runtime status now carries explicit capability metadata (`native_text_streaming`, `native_typed_streaming`, `compatibility_streaming`, `cooperative_cancellation`) instead of inferring typed-stream support only from the active streaming path, and `/api/system/status` reflects those explicit capabilities
+- server provider config now supports explicit per-provider transport capability overrides (`*_NATIVE_TEXT_STREAMING`, `*_NATIVE_TYPED_STREAMING`, `*_COMPATIBILITY_STREAMING`, `*_COOPERATIVE_CANCELLATION`) so broader OpenAI-compatible providers can be represented honestly even before a bespoke native adapter exists
+- file-backed runtime action execution persistence now uses path-safe stable keys instead of raw `execution_id` filenames, fixing Windows-invalid path failures in the durable execution store
+- runtime action execution persistence now uses a stable `runtime_session_id` coordination boundary, so managed runtime-session action acknowledgements survive transport-session changes
+- managed runtime-session resume now fails fast when unresolved ack-required action executions still exist, preventing side-effect replay across interrupted/resumed turns
+- provider-aware live routing is now broader than a simple healthy/degraded split: compatibility-only streaming, missing native typed streaming, and high-latency providers all trigger conservative-turn behavior and teacher-biased fallback selection
+- the frontend live tutor runtime now acknowledges actions against `runtime_session_id` and resets runtime surfaces on interruption events, tightening end-to-end interruption/action coordination
+- live tutor prompting is now more scene-aware: the runtime prompt builder injects scene-specific teaching guidance for slide, quiz, interactive, and project stages so the tutor turn planner is less generic and closer to OpenMAIC's scene-conditioned behavior
+- live tutor prompting now also carries an explicit turn-plan block derived from scene type, learner confusion cues, and recent agent history, so the responding agent gets a clearer OpenMAIC-style teaching objective instead of only generic role instructions
+- provider-native OpenAI-compatible streaming/event coverage is now broader within the existing adapter family: message-level tool calls, non-string tool arguments, and `output_text`-style content arrays are normalized into the same runtime event stream used by the chat graph
+- interactive generation now includes a repair/post-process loop: HTML is post-processed for viewport/title/instructions and, when needed, a second repair pass is requested to add missing controls or feedback behavior
+- the scientific-model pass now preserves richer OpenMAIC-style planning fields (`experiment_steps`, `observation_prompts`) so interactive generation and live tutoring can reference experiment flow instead of only static formulas/mechanisms
+- PBL/project generation now goes beyond one structured blob: after the main project brief, the pipeline generates a collaboration plan (`agent_roles`, `success_criteria`, `facilitator_notes`) plus an issue-board style work breakdown (`issue_board`) before synthesizing the final project scene
+- `/api/system/status` now reports the selected model's operator-facing profile, including provider/model identity, context/output window, tool/vision/thinking support, and a registry-backed cost tier so routing/ops can distinguish economy vs balanced vs premium models
+- resilient provider telemetry now estimates input/output token volume per provider label and tracks estimated cost (`estimated_total_cost_microusd`) using model pricing metadata or env pricing overrides when available
+- `/api/system/status` now aggregates provider-side cost telemetry (`provider_estimated_input_tokens`, `provider_estimated_output_tokens`, `provider_estimated_total_cost_microusd`) so operators can see runtime spend trends, not only health and latency counters
+- provider config now supports explicit pricing overrides (`*_INPUT_COST_PER_1M_USD`, `*_OUTPUT_COST_PER_1M_USD`) so OpenAI-compatible providers without baked-in model pricing can still participate in cost accounting
+- resilient/provider telemetry now also records provider-reported usage tokens where provider transports expose usage metadata (OpenAI-compatible, Anthropic, Google), and `/api/system/status` now exposes aggregated provider-reported counters (`provider_reported_input_tokens`, `provider_reported_output_tokens`, `provider_reported_total_tokens`, `provider_reported_total_cost_microusd`)
+- OpenAI-compatible native stream parsing now also handles responses-style SSE envelopes (`response.output_text.delta`, `response.function_call_arguments.*`, `response.completed`) in addition to chat-completions deltas, with typed-tool + usage extraction on both paths
+- interactive scientific-model generation now includes a critique-and-revision pass: sparse first-draft models are revised before HTML generation and merged to preserve stronger constraints/experiment guidance
+- PBL project-plan generation now includes a critique-and-revision pass on the core project brief before role-plan and issue-board synthesis, improving driving-question/deliverable/milestone completeness
 
 Still missing:
-- richer live tutor turn generation
-- full director-agent orchestration loop
-- interruption/resume semantics
-- per-turn LLM-driven streaming behavior beyond the current chunked single-response stream
+- richer live tutor turn generation beyond the current scene-aware prompting + turn-plan upgrade
+- provider-native token/event streaming coverage beyond the current OpenAI-compatible/Anthropic/Google families and variants already normalized by the Rust adapters
+- deeper provider-aware live routing policies beyond the current degraded/compatibility/high-latency/typed-capability-aware policy
+- deeper OpenMAIC parity for scientific interactive generation and full PBL planning depth beyond the current repaired scientific-model flow and multi-pass structured-project generator
+- provider-billed cost truth (token accounting is now provider-reported when transports expose usage, but USD still comes from configured model pricing rather than billing/invoice APIs)
 
 ## Backend MVP Definition
 
@@ -412,9 +490,11 @@ The backend MVP is complete when it can:
 
 The live tutor graph/SSE layer is phase 2 of backend implementation, not day 1.
 
-## Immediate Next Coding Task
+## Immediate Remaining Gaps
 
-Implement the next backend slice:
-- extend fallback repair beyond first-pass image support and start the video provider path
-- move from file-backed queueing to a stronger production queue backend and worker policy
-- deepen provider-aware retry/fallback behavior closer to OpenMAIC
+The main remaining backend gaps after the verified runtime/session/streaming work are:
+- deepen live tutor response quality and turn-planning beyond the current first-pass director+tutor prompt translation, scene-aware teaching context, and explicit turn-plan guidance
+- expand provider-native streaming/event coverage beyond the current OpenAI-compatible, Anthropic, and Google implementations already normalized by the Rust adapters
+- add richer provider-aware routing policy than the current degraded/compatibility/high-latency/typed-capability-aware policy
+- continue closing whiteboard/action-engine parity so more runtime behavior is backend-owned instead of frontend-light
+- continue closing generation-smartness parity with OpenMAIC for deeper scientific interactives, fuller agentic project-design loops, and more expressive slide layout grammars

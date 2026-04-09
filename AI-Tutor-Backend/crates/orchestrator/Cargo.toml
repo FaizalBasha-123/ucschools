@@ -10,9 +10,13 @@ async-trait.workspace = true
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+reqwest.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
 uuid.workspace = true
 ai_tutor_domain = { path = "../domain" }
 ai_tutor_media = { path = "../media" }
 ai_tutor_providers = { path = "../providers" }
+ai_tutor_runtime = { path = "../runtime" }
 ai_tutor_storage = { path = "../storage" }

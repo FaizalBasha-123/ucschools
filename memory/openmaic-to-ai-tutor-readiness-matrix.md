@@ -62,18 +62,23 @@ Status: `In Progress`
 
 Evidence:
 - [openai.rs](d:/uc-school/AI-Tutor-Backend/crates/providers/src/openai.rs)
+- [anthropic.rs](d:/uc-school/AI-Tutor-Backend/crates/providers/src/anthropic.rs)
+- [google.rs](d:/uc-school/AI-Tutor-Backend/crates/providers/src/google.rs)
 - [factory.rs](d:/uc-school/AI-Tutor-Backend/crates/providers/src/factory.rs)
+- [resilient.rs](d:/uc-school/AI-Tutor-Backend/crates/providers/src/resilient.rs)
 
 What exists:
-- first outbound OpenAI-compatible path
+- outbound OpenAI-compatible path
+- outbound Anthropic text path
+- outbound Google Gemini text path
+- server-configured fallback-chain construction across configured providers
+- cooldown-based per-provider circuit breaker
 - provider factory wiring
 
 What is still missing:
-- Anthropic-native path
-- Google-native path
 - provider-specific streaming behavior
 - provider-specific structured-output hardening
-- richer retry/backoff/circuit-breaker handling
+- richer provider health scoring and live routing
 
 ## 4. File-Backed Persistence Parity
 
@@ -177,10 +182,16 @@ What now exists:
 - a first multi-turn discussion loop for stateless tutor SSE sessions
 - returned `director_state` can now accumulate more than one responding agent in a single streamed tutor session
 - a first explicit `cue_user` tutor runtime event now exists for discussion sessions
+- provider runtime health now flows into the GraphBit-style chat graph and director prompt
+- degraded provider health now shortens discussion turn budgets and biases teacher-led fallback routing
+- the live tutor graph now consumes a dedicated LLM streaming seam instead of only full-response generation calls
 
 Evidence:
 - [session.rs](d:/uc-school/AI-Tutor-Backend/crates/runtime/src/session.rs)
 - [app.rs](d:/uc-school/AI-Tutor-Backend/crates/api/src/app.rs)
+- [chat_graph.rs](d:/uc-school/AI-Tutor-Backend/crates/orchestrator/src/chat_graph.rs)
+- [director_prompt.rs](d:/uc-school/AI-Tutor-Backend/crates/orchestrator/src/director_prompt.rs)
+- [traits.rs](d:/uc-school/AI-Tutor-Backend/crates/providers/src/traits.rs)
 
 Related reference:
 - [openmaic-backend-layer-analysis.md](d:/uc-school/memory/openmaic-backend-layer-analysis.md)

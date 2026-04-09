@@ -177,13 +177,18 @@ Must deliver:
 ### 9. Expand Provider Coverage
 
 Why:
-- current provider runtime is only OpenAI-compatible in practice
+- provider failover is now real, but provider runtime parity is still not complete
 
 Should deliver:
-- Anthropic-native support
-- Google-native support
+- provider-aware live routing that consumes backend health state
 - provider-specific streaming behavior
 - provider-specific request/response hardening
+- stronger health scoring / circuit-breaker telemetry beyond the current cooldown model
+
+Current progress:
+- backend provider health now reaches the GraphBit-style chat graph
+- degraded runtime health can now shorten live discussion routing instead of only failing over invisibly
+- the live tutor graph now has a dedicated streaming seam, so provider-native streaming can be added without rewriting the graph contract
 
 ### 10. Add API Integration Coverage
 

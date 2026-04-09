@@ -1,7 +1,7 @@
+pub mod storage;
 pub mod tasks;
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -12,6 +12,7 @@ use ai_tutor_domain::{
     scene::{Scene, SceneOutline, SlideBackground, SlideElement},
 };
 
+use crate::storage::{infer_content_type, AssetKind, AssetStore};
 use crate::tasks::{MediaTask, TtsTask};
 
 pub fn collect_media_tasks(lesson_id: &str, outlines: &[SceneOutline]) -> Vec<MediaTask> {
@@ -87,10 +88,7 @@ pub fn collect_tts_tasks(lesson_id: &str, scenes: &[Scene]) -> Vec<TtsTask> {
         .collect()
 }
 
-pub fn apply_tts_results(
-    scenes: &mut [Scene],
-    audio_map: &HashMap<String, String>,
-) -> Result<()> {
+pub fn apply_tts_results(scenes: &mut [Scene], audio_map: &HashMap<String, String>) -> Result<()> {
     for scene in scenes {
         for action in &mut scene.actions {
             if let LessonAction::Speech {
@@ -111,15 +109,11 @@ pub fn apply_tts_results(
     Ok(())
 }
 
-pub fn persist_inline_audio_assets(
-    root: &Path,
+pub async fn persist_inline_audio_assets(
+    store: &dyn AssetStore,
     lesson_id: &str,
     scenes: &mut [Scene],
-    base_url: &str,
 ) -> Result<()> {
-    let lesson_audio_dir = root.join("assets").join("audio").join(lesson_id);
-    std::fs::create_dir_all(&lesson_audio_dir)?;
-
     for scene in scenes {
         for action in &mut scene.actions {
             if let LessonAction::Speech {
@@ -131,14 +125,15 @@ pub fn persist_inline_audio_assets(
                 if let Some((mime_type, bytes)) = decode_data_url(audio_url)? {
                     let extension = extension_for_mime(mime_type);
                     let filename = format!("tts_{}.{}", id, extension);
-                    let path = lesson_audio_dir.join(&filename);
-                    std::fs::write(&path, bytes)?;
-                    *audio_url = format!(
-                        "{}/api/assets/audio/{}/{}",
-                        base_url.trim_end_matches('/'),
-                        lesson_id,
-                        filename
-                    );
+                    *audio_url = store
+                        .persist_asset(
+                            AssetKind::Audio,
+                            lesson_id,
+                            &filename,
+                            &infer_content_type(std::path::Path::new(&filename), mime_type),
+                            bytes,
+                        )
+                        .await?;
                 }
             }
         }
@@ -147,32 +142,34 @@ pub fn persist_inline_audio_assets(
     Ok(())
 }
 
-pub fn persist_inline_media_assets(
-    root: &Path,
+pub async fn persist_inline_media_assets(
+    store: &dyn AssetStore,
     lesson_id: &str,
     scenes: &mut [Scene],
-    base_url: &str,
 ) -> Result<()> {
-    let lesson_media_dir = root.join("assets").join("media").join(lesson_id);
-    std::fs::create_dir_all(&lesson_media_dir)?;
-
     for scene in scenes {
         match &mut scene.content {
             ai_tutor_domain::scene::SceneContent::Slide { canvas } => {
                 for element in &mut canvas.elements {
                     match element {
-                        SlideElement::Image { id, src, .. } | SlideElement::Video { id, src, .. } => {
+                        SlideElement::Image { id, src, .. }
+                        | SlideElement::Video { id, src, .. } => {
                             if let Some((mime_type, bytes)) = decode_data_url(src)? {
                                 let extension = extension_for_media_mime(mime_type);
-                                let filename = format!("{}_{}.{}", element_prefix(mime_type), id, extension);
-                                let path = lesson_media_dir.join(&filename);
-                                std::fs::write(&path, bytes)?;
-                                *src = format!(
-                                    "{}/api/assets/media/{}/{}",
-                                    base_url.trim_end_matches('/'),
-                                    lesson_id,
-                                    filename
-                                );
+                                let filename =
+                                    format!("{}_{}.{}", element_prefix(mime_type), id, extension);
+                                *src = store
+                                    .persist_asset(
+                                        AssetKind::Media,
+                                        lesson_id,
+                                        &filename,
+                                        &infer_content_type(
+                                            std::path::Path::new(&filename),
+                                            mime_type,
+                                        ),
+                                        bytes,
+                                    )
+                                    .await?;
                             }
                         }
                         _ => {}
@@ -183,14 +180,15 @@ pub fn persist_inline_media_assets(
                     if let Some((mime_type, bytes)) = decode_data_url(src)? {
                         let extension = extension_for_media_mime(mime_type);
                         let filename = format!("background_{}.{}", scene.id, extension);
-                        let path = lesson_media_dir.join(&filename);
-                        std::fs::write(&path, bytes)?;
-                        *src = format!(
-                            "{}/api/assets/media/{}/{}",
-                            base_url.trim_end_matches('/'),
-                            lesson_id,
-                            filename
-                        );
+                        *src = store
+                            .persist_asset(
+                                AssetKind::Media,
+                                lesson_id,
+                                &filename,
+                                &infer_content_type(std::path::Path::new(&filename), mime_type),
+                                bytes,
+                            )
+                            .await?;
                     }
                 }
             }
@@ -255,6 +253,7 @@ fn element_prefix(mime_type: &str) -> &'static str {
 mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     use ai_tutor_domain::{
         action::LessonAction,
@@ -268,6 +267,7 @@ mod tests {
         apply_tts_results, collect_media_tasks, collect_tts_tasks, persist_inline_audio_assets,
         persist_inline_media_assets, replace_media_placeholders,
     };
+    use crate::storage::LocalFileAssetStore;
 
     #[test]
     fn collects_media_tasks_from_outlines() {
@@ -366,9 +366,18 @@ mod tests {
         }];
 
         let media_map = HashMap::from([
-            ("gen_img_1".to_string(), "https://example.test/image.png".to_string()),
-            ("gen_vid_1".to_string(), "https://example.test/video.mp4".to_string()),
-            ("gen_bg_1".to_string(), "https://example.test/background.png".to_string()),
+            (
+                "gen_img_1".to_string(),
+                "https://example.test/image.png".to_string(),
+            ),
+            (
+                "gen_vid_1".to_string(),
+                "https://example.test/video.mp4".to_string(),
+            ),
+            (
+                "gen_bg_1".to_string(),
+                "https://example.test/background.png".to_string(),
+            ),
         ]);
 
         replace_media_placeholders(&mut scenes, &media_map).unwrap();
@@ -518,7 +527,18 @@ mod tests {
             updated_at: None,
         }];
 
-        persist_inline_audio_assets(&temp_root, "lesson-1", &mut scenes, "http://localhost:8099")
+        let store = Arc::new(LocalFileAssetStore::new(
+            &temp_root,
+            "http://localhost:8099",
+        ));
+
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(persist_inline_audio_assets(
+                store.as_ref(),
+                "lesson-1",
+                &mut scenes,
+            ))
             .unwrap();
 
         let expected_path: PathBuf = temp_root
@@ -586,7 +606,18 @@ mod tests {
             updated_at: None,
         }];
 
-        persist_inline_media_assets(&temp_root, "lesson-1", &mut scenes, "http://localhost:8099")
+        let store = Arc::new(LocalFileAssetStore::new(
+            &temp_root,
+            "http://localhost:8099",
+        ));
+
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(persist_inline_media_assets(
+                store.as_ref(),
+                "lesson-1",
+                &mut scenes,
+            ))
             .unwrap();
 
         let expected_path: PathBuf = temp_root
@@ -597,17 +628,15 @@ mod tests {
         assert!(expected_path.exists());
 
         match &scenes[0].content {
-            SceneContent::Slide { canvas } => {
-                match &canvas.elements[0] {
-                    SlideElement::Image { src, .. } => {
-                        assert_eq!(
-                            src,
-                            "http://localhost:8099/api/assets/media/lesson-1/image_image-1.png"
-                        );
-                    }
-                    _ => panic!("expected image element"),
+            SceneContent::Slide { canvas } => match &canvas.elements[0] {
+                SlideElement::Image { src, .. } => {
+                    assert_eq!(
+                        src,
+                        "http://localhost:8099/api/assets/media/lesson-1/image_image-1.png"
+                    );
                 }
-            }
+                _ => panic!("expected image element"),
+            },
             _ => panic!("expected slide scene"),
         }
     }

@@ -35,6 +35,22 @@ services:
         value: "10000"
       - key: AI_TUTOR_STORAGE_ROOT
         value: "/tmp/ai-tutor"
+      - key: AI_TUTOR_LESSON_DB_PATH
+        value: "/tmp/ai-tutor/runtime/lessons.db"
+      - key: AI_TUTOR_RUNTIME_DB_PATH
+        value: "/tmp/ai-tutor/runtime/runtime-sessions.db"
+      - key: AI_TUTOR_JOB_DB_PATH
+        value: "/tmp/ai-tutor/runtime/lesson-jobs.db"
+      - key: AI_TUTOR_QUEUE_DB_PATH
+        value: "/tmp/ai-tutor/runtime/lesson-queue.db"
+      - key: AI_TUTOR_ASSET_TTL_HOURS
+        value: "24"
+      - key: AI_TUTOR_JOB_TTL_HOURS
+        value: "24"
+      - key: AI_TUTOR_LESSON_TTL_HOURS
+        value: "168"
+      - key: AI_TUTOR_CLEANUP_INTERVAL_MINUTES
+        value: "60"
       - key: AI_TUTOR_LOG_FORMAT
         value: "json"
       - key: RUST_LOG
@@ -60,18 +76,29 @@ services:
       - key: AI_TUTOR_API_SECRET
         sync: false  # Set manually in Render dashboard
 
-      # --- LLM Provider (pick ONE) ---
+      # --- LLM Providers ---
+      # Primary model is chosen by AI_TUTOR_MODEL.
+      # Additional configured providers can be used as fallbacks by the Rust
+      # provider chain when AI_TUTOR_LLM_PROVIDER_PRIORITY is set.
       # Option A: OpenAI (supports LLM + TTS + ASR + Images)
       - key: OPENAI_API_KEY
         sync: false  # Set manually in Render dashboard
 
-      # Option B: OpenRouter (LLM only — 200+ models)
-      - key: OPENROUTER_API_KEY
+      # Option B: Anthropic (LLM fallback)
+      - key: ANTHROPIC_API_KEY
         sync: false
 
-      # Option C: Groq (LLM only — ultra-fast inference)
-      - key: GROQ_API_KEY
+      # Option C: Google Gemini (LLM fallback)
+      - key: GOOGLE_API_KEY
         sync: false
+
+      # Optional failover order across configured providers
+      - key: AI_TUTOR_LLM_PROVIDER_PRIORITY
+        value: "openai,anthropic,google"
+      - key: AI_TUTOR_LLM_CIRCUIT_BREAKER_THRESHOLD
+        value: "2"
+      - key: AI_TUTOR_LLM_CIRCUIT_BREAKER_COOLDOWN_MS
+        value: "30000"
 
       # --- Which model to use for lesson generation ---
       - key: AI_TUTOR_MODEL

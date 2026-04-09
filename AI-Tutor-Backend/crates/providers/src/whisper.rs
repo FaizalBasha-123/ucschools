@@ -13,6 +13,7 @@ use crate::traits::AsrProvider;
 #[derive(Clone)]
 pub struct OpenAiCompatibleAsrProvider {
     model_config: ModelConfig,
+    client: reqwest::Client,
 }
 
 impl OpenAiCompatibleAsrProvider {
@@ -21,7 +22,10 @@ impl OpenAiCompatibleAsrProvider {
             return Err(anyhow!("missing API key for ASR model {}", model_config.model_id));
         }
 
-        Ok(Self { model_config })
+        Ok(Self {
+            model_config,
+            client: reqwest::Client::new(),
+        })
     }
 
     fn endpoint(&self) -> String {
@@ -53,53 +57,30 @@ impl AsrProvider for OpenAiCompatibleAsrProvider {
         };
         let filename = format!("audio.{}", extension);
 
-        // Build multipart form body manually for minreq
-        let boundary = format!("----FormBoundary{}", uuid::Uuid::new_v4().to_string().replace('-', ""));
-        let mut body = Vec::new();
+        // Use reqwest multipart form for clean, async file upload
+        let file_part = reqwest::multipart::Part::bytes(audio_bytes.to_vec())
+            .file_name(filename)
+            .mime_str(content_type)?;
 
-        // Model field
-        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"model\"\r\n\r\n");
-        body.extend_from_slice(self.model_config.model_id.as_bytes());
-        body.extend_from_slice(b"\r\n");
+        let form = reqwest::multipart::Form::new()
+            .text("model", self.model_config.model_id.clone())
+            .text("response_format", "json")
+            .part("file", file_part);
 
-        // File field
-        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-        body.extend_from_slice(
-            format!(
-                "Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n",
-                filename
-            )
-            .as_bytes(),
-        );
-        body.extend_from_slice(format!("Content-Type: {}\r\n\r\n", content_type).as_bytes());
-        body.extend_from_slice(audio_bytes);
-        body.extend_from_slice(b"\r\n");
-
-        // Response format field
-        body.extend_from_slice(format!("--{}\r\n", boundary).as_bytes());
-        body.extend_from_slice(b"Content-Disposition: form-data; name=\"response_format\"\r\n\r\n");
-        body.extend_from_slice(b"json");
-        body.extend_from_slice(b"\r\n");
-
-        // Closing boundary
-        body.extend_from_slice(format!("--{}--\r\n", boundary).as_bytes());
-
-        let response = minreq::post(self.endpoint())
-            .with_header(
+        let response = self
+            .client
+            .post(self.endpoint())
+            .header(
                 "Authorization",
-                &format!("Bearer {}", self.model_config.api_key),
+                format!("Bearer {}", self.model_config.api_key),
             )
-            .with_header(
-                "Content-Type",
-                &format!("multipart/form-data; boundary={}", boundary),
-            )
-            .with_body(body)
-            .send()?;
+            .multipart(form)
+            .send()
+            .await?;
 
-        if response.status_code < 200 || response.status_code >= 300 {
-            let status = response.status_code;
-            let body = response.as_str().unwrap_or_default().to_string();
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
             return Err(anyhow!(
                 "ASR transcription request failed with status {}: {}",
                 status,
@@ -107,7 +88,7 @@ impl AsrProvider for OpenAiCompatibleAsrProvider {
             ));
         }
 
-        let parsed: TranscriptionResponse = response.json()?;
+        let parsed: TranscriptionResponse = response.json().await?;
         Ok(parsed.text)
     }
 }

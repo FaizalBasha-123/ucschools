@@ -72,13 +72,61 @@ pub fn resolve_model(
     })
 }
 
+pub fn resolve_model_chain(
+    config: &ServerProviderConfig,
+    model_string: Option<&str>,
+    api_key: Option<&str>,
+    base_url: Option<&str>,
+    provider_type: Option<ProviderType>,
+    requires_api_key: Option<bool>,
+) -> Result<Vec<ResolvedModel>> {
+    let primary = resolve_model(
+        config,
+        model_string,
+        api_key,
+        base_url,
+        provider_type,
+        requires_api_key,
+    )?;
+
+    let mut chain = vec![primary.clone()];
+    let ordered_provider_ids = config.ordered_llm_provider_ids(Some(&primary.provider.id));
+
+    for provider_id in ordered_provider_ids {
+        if provider_id == primary.provider.id {
+            continue;
+        }
+
+        let Some(provider) = get_provider(&provider_id) else {
+            continue;
+        };
+
+        let server_entry = config.get(&provider_id);
+        let fallback_model_id = server_entry
+            .and_then(|entry| entry.models.first().cloned())
+            .or_else(|| provider.models.first().map(|model| model.id.clone()));
+
+        let Some(fallback_model_id) = fallback_model_id else {
+            continue;
+        };
+
+        let fallback_model_string = format!("{}:{}", provider_id, fallback_model_id);
+        match resolve_model(config, Some(&fallback_model_string), None, None, None, None) {
+            Ok(resolved) => chain.push(resolved),
+            Err(_) => continue,
+        }
+    }
+
+    Ok(chain)
+}
+
 #[cfg(test)]
 mod tests {
     use ai_tutor_domain::provider::ProviderType;
 
     use crate::config::{ServerProviderConfig, ServerProviderEntry};
 
-    use super::{parse_model_string, resolve_model};
+    use super::{parse_model_string, resolve_model, resolve_model_chain};
 
     #[test]
     fn parses_provider_and_model() {
@@ -104,11 +152,12 @@ mod tests {
                 base_url: Some("https://example.test/v1".to_string()),
                 proxy: Some("http://proxy.test".to_string()),
                 models: vec![],
+                transport_override: None,
+                pricing_override: None,
             },
         );
 
-        let resolved =
-            resolve_model(&config, Some("gpt-4o-mini"), None, None, None, None).unwrap();
+        let resolved = resolve_model(&config, Some("gpt-4o-mini"), None, None, None, None).unwrap();
         assert_eq!(resolved.model_config.provider_id, "openai");
         assert_eq!(resolved.model_config.model_id, "gpt-4o-mini");
         assert_eq!(resolved.model_config.api_key, "server-key");
@@ -138,6 +187,68 @@ mod tests {
         assert_eq!(
             resolved.model_config.provider_type,
             Some(ProviderType::OpenAi)
+        );
+    }
+
+    #[test]
+    fn resolves_model_chain_from_priority_order() {
+        let mut config = ServerProviderConfig {
+            llm_provider_priority: vec![
+                "openai".to_string(),
+                "anthropic".to_string(),
+                "google".to_string(),
+            ],
+            ..Default::default()
+        };
+        config.providers.insert(
+            "openai".to_string(),
+            ServerProviderEntry {
+                api_key: Some("openai-key".to_string()),
+                base_url: None,
+                proxy: None,
+                models: vec!["gpt-4o-mini".to_string()],
+                transport_override: None,
+                pricing_override: None,
+            },
+        );
+        config.providers.insert(
+            "anthropic".to_string(),
+            ServerProviderEntry {
+                api_key: Some("anthropic-key".to_string()),
+                base_url: None,
+                proxy: None,
+                models: vec!["claude-sonnet-4-6".to_string()],
+                transport_override: None,
+                pricing_override: None,
+            },
+        );
+        config.providers.insert(
+            "google".to_string(),
+            ServerProviderEntry {
+                api_key: Some("google-key".to_string()),
+                base_url: None,
+                proxy: None,
+                models: vec!["gemini-2.5-flash".to_string()],
+                transport_override: None,
+                pricing_override: None,
+            },
+        );
+
+        let chain =
+            resolve_model_chain(&config, Some("openai:gpt-4o-mini"), None, None, None, None)
+                .unwrap();
+        let chain_models = chain
+            .into_iter()
+            .map(|resolved| resolved.model_string)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            chain_models,
+            vec![
+                "openai:gpt-4o-mini".to_string(),
+                "anthropic:claude-sonnet-4-6".to_string(),
+                "google:gemini-2.5-flash".to_string(),
+            ]
         );
     }
 }

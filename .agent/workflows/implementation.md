@@ -61,6 +61,11 @@ Current AI tutor backend translation status:
 - an explicit async generation route now exists and is covered by queue-and-poll API tests, backed by a durable file queue plus worker loop
 - queue processing is now shared through the API crate library and a dedicated `queue_worker` binary exists for separate worker-process execution
 - the file-backed queue now supports retry metadata, transient retry with backoff, and stale `.working` file reclamation after worker interruption
+- lesson persistence can now also be switched to SQLite through `AI_TUTOR_LESSON_DB_PATH`, so lesson retrieval is no longer limited to per-lesson JSON files
+- lesson job persistence can now also be switched to SQLite through `AI_TUTOR_JOB_DB_PATH`, so queued/running/cancelled/resumed job metadata is no longer limited to per-job JSON files
+- the async lesson queue can now also be switched to SQLite through `AI_TUTOR_QUEUE_DB_PATH`, so queued generation work is no longer limited to per-entry JSON files
+- queued async lesson jobs can now also be cancelled through `POST /api/lessons/jobs/{id}/cancel`, with cancelled job state persisted for both file-backed and SQLite-backed queue modes
+- cancelled or failed async lesson jobs can now also be resumed through `POST /api/lessons/jobs/{id}/resume`, using a persisted queued-request snapshot so the original async request can be requeued without the client resending it
 - a first SSE lesson playback route now exists and streams session/scene/action events from persisted lessons
 - a first stateless tutor SSE route now exists and streams single-turn session/agent/text/done events
 - media task collection and placeholder replacement foundation exists in `AI-Tutor-Backend`
@@ -80,7 +85,7 @@ Current AI tutor backend translation status:
 - lesson player discussion UI now consumes the stateless tutor SSE route and renders streamed tutor text
 - the backend stateless tutor SSE route now has a first director-style selector that honors trigger agents, rotates speakers, and prefers scene-bound agents
 - the backend stateless tutor SSE route now also supports a first multi-turn discussion loop and returns accumulated director state for that streamed session
-- queue cancellation/resume policy, deeper video generation parity, and richer director-loop live tutor orchestration are still pending
+- true in-flight provider abort, broader queue concurrency coordination, deeper video generation parity, and richer director-loop live tutor orchestration are still pending
 
 **Do NOT trust deprecated placeholders over real entry points.**
 For example:
@@ -166,3 +171,22 @@ For example:
 - ❌ Adding API or data assumptions without checking the current backend modules
 - ❌ Copying OpenMAIC concepts blindly without adapting them to Schools24 ownership boundaries
 - ❌ Skipping builds/tests after touching code
+
+## AI-Tutor Translation Reality Check
+
+- The Rust provider layer now has real multi-provider LLM failover and cooldown-based circuit breaking.
+- OpenAI-compatible, Anthropic, and Google text providers are wired for the backend generation/runtime path.
+- The GraphBit-style tutor runtime now reads provider health and can simplify routing when runtime health is degraded.
+- The tutor runtime now also supports history-aware streaming through the provider layer, with native history streaming implemented for OpenAI-compatible, Anthropic, and Google providers.
+- The tutor SSE route now forwards runtime events as they are produced by the graph instead of buffering the whole session first.
+- The tutor runtime now emits explicit `action_started` / `action_completed` events with structured action payloads, and the frontend lesson player consumes those runtime actions during discussion sessions.
+- Lesson playback SSE now carries structured action payloads too, and the web player applies playback and discussion actions through the same whiteboard/spotlight/video execution helper.
+- Backend runtime events now also label execution surface, and the frontend uses a shared runtime action executor hook instead of separate playback/discussion action routing paths.
+- Speech/teacher-audio actions now also run through that shared runtime action executor path, so guided and manual narration playback no longer rely on a separate UI-only token branch.
+- Playback whiteboard semantics are now partly backend-owned: the runtime derives whiteboard snapshots from ordered whiteboard actions and the frontend can hydrate from those snapshots.
+- Live tutor whiteboard semantics are now stronger too: the GraphBit-style chat runtime rebuilds whiteboard state from prior ledger history and attaches updated whiteboard snapshots to streamed `wb_*` tutor events and the final `done` event.
+- `director_state` now also carries a persisted whiteboard snapshot, so seeded live tutor sessions can resume from backend-owned whiteboard state across turns instead of depending only on replaying the whiteboard ledger.
+- Live tutor runtime sessions can now also be resumed by `session_id` through file-backed persistence, so the backend can reload and save `director_state` across stateless chat requests instead of relying on the frontend to resend all runtime state on every turn.
+- Runtime-session persistence can now also be pointed at SQLite through `AI_TUTOR_RUNTIME_DB_PATH`, so live tutor state is no longer locked to JSON files even though lessons/jobs/assets still use the file-backed storage path.
+- The backend now also exposes `/api/system/status` so queue depth, queue/runtime backend mode, current model, and provider runtime/circuit-breaker state are visible through an API surface instead of only logs.
+- This is still not full OpenMAIC parity: true provider-streaming orchestration, tool calling, and channel/gateway integration are still separate remaining work.

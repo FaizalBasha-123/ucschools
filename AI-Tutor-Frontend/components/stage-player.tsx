@@ -29,6 +29,7 @@ import type {
 } from '@/lib/api';
 import { gradeQuiz, streamTutorChat } from '@/lib/api';
 import type { TutorStreamEvent, QuizGradeResponse } from '@/lib/api';
+import { InterleavedParser } from '@/apps/web/lib/stream-parser';
 import { toast } from 'sonner';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,9 @@ export function StagePlayer({ lesson }: { lesson: Lesson }) {
   // Audio ref for speech actions
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // Live Whiteboard Elements
+  const [liveElements, setLiveElements] = useState<SlideElement[]>([]);
 
   // Navigate scenes
   const goScene = useCallback(
@@ -151,6 +155,7 @@ export function StagePlayer({ lesson }: { lesson: Lesson }) {
                 onClick={() => {
                   setSceneIndex(i);
                   setActionIndex(0);
+                  setLiveElements([]);
                 }}
                 className={cn(
                   'w-full text-left rounded-xl px-3 py-2.5 text-[13px] transition-all',
@@ -189,6 +194,7 @@ export function StagePlayer({ lesson }: { lesson: Lesson }) {
                     currentScene.content.canvas && (
                       <SlideView
                         canvas={currentScene.content.canvas}
+                        liveElements={liveElements}
                         highlightedElementId={currentAction?.element_id}
                       />
                     )}
@@ -308,6 +314,41 @@ export function StagePlayer({ lesson }: { lesson: Lesson }) {
                 lessonId={lesson.id}
                 scene={currentScene}
                 currentAction={currentAction}
+                onAction={(action) => {
+                  if (
+                    action.name === 'wb_draw_text' ||
+                    action.name === 'wb_draw_latex' ||
+                    action.name === 'wb_draw_shape' ||
+                    action.name === 'wb_draw_chart'
+                  ) {
+                    setLiveElements((prev) => [
+                      ...prev,
+                      {
+                        id: action.params?.elementId || `wb_el_${Date.now()}`,
+                        kind:
+                          action.name === 'wb_draw_text' ||
+                          action.name === 'wb_draw_latex'
+                            ? 'text'
+                            : action.name === 'wb_draw_shape'
+                              ? 'shape'
+                              : 'image',
+                        x: action.params?.x || 0,
+                        y: action.params?.y || 0,
+                        width: action.params?.width || 200,
+                        height: action.params?.height || 100,
+                        content: action.params?.content || action.params?.latex || '',
+                        background_color: action.params?.backgroundColor,
+                        font_size: action.params?.fontSize,
+                      } as SlideElement,
+                    ]);
+                  } else if (action.name === 'wb_delete') {
+                    setLiveElements((prev) =>
+                      prev.filter((el) => el.id !== action.params?.elementId)
+                    );
+                  } else if (action.name === 'wb_clear') {
+                    setLiveElements([]);
+                  }
+                }}
               />
             </motion.aside>
           )}
@@ -323,9 +364,11 @@ export function StagePlayer({ lesson }: { lesson: Lesson }) {
 
 function SlideView({
   canvas,
+  liveElements,
   highlightedElementId,
 }: {
   canvas: NonNullable<import('@/lib/api').SlideCanvas>;
+  liveElements?: import('@/lib/api').SlideElement[];
   highlightedElementId?: string;
 }) {
   const scale =
@@ -347,7 +390,7 @@ function SlideView({
           backgroundColor: canvas.background_color || '#ffffff',
         }}
       >
-        {canvas.elements.map((el) => (
+        {(liveElements && liveElements.length > 0 ? liveElements : canvas.elements).map((el) => (
           <div
             key={el.id}
             className={cn(
@@ -596,10 +639,12 @@ function DiscussionPanel({
   lessonId,
   scene,
   currentAction,
+  onAction,
 }: {
   lessonId: string;
   scene: Scene;
   currentAction?: LessonAction;
+  onAction?: (action: any) => void;
 }) {
   const [messages, setMessages] = useState<
     { role: 'user' | 'assistant'; content: string }[]
@@ -632,6 +677,25 @@ function DiscussionPanel({
     abortRef.current = abort;
 
     try {
+      const parser = new InterleavedParser({
+        onTextDelta: (delta) => {
+          setMessages((prev) => {
+            const copy = [...prev];
+            const last = copy[copy.length - 1];
+            if (last?.role === 'assistant') {
+              copy[copy.length - 1] = {
+                ...last,
+                content: last.content + delta,
+              };
+            }
+            return copy;
+          });
+        },
+        onAction: (action) => {
+          if (onAction) onAction(action);
+        },
+      });
+
       await streamTutorChat(
         {
           lesson_id: lessonId,
@@ -645,21 +709,24 @@ function DiscussionPanel({
         },
         (event: TutorStreamEvent) => {
           if (event.kind === 'text_delta' && event.content) {
-            setMessages((prev) => {
-              const copy = [...prev];
-              const last = copy[copy.length - 1];
-              if (last?.role === 'assistant') {
-                copy[copy.length - 1] = {
-                  ...last,
-                  content: last.content + event.content,
-                };
+            // Feed text chunks through the parser (handles JSON extraction)
+            parser.push(event.content);
+          } else if (event.kind === 'action' && event.content) {
+            // Direct action events from the backend (already validated)
+            try {
+              const action = JSON.parse(event.content);
+              if (onAction && action.name) {
+                onAction({ type: 'action', ...action });
               }
-              return copy;
-            });
+            } catch {
+              // Ignore malformed action events
+            }
           }
         },
         abort.signal,
       );
+      // Finalize parser to catch plain-text fallback (Gap 6)
+      parser.finalize();
     } catch {
       if (!abort.signal.aborted) {
         toast.error('Chat stream failed.');

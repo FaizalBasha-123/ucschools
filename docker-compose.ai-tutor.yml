@@ -8,6 +8,10 @@ services:
       AI_TUTOR_API_HOST: 0.0.0.0
       AI_TUTOR_API_PORT: "4041"
       AI_TUTOR_STORAGE_ROOT: /app-data
+      AI_TUTOR_ASSET_TTL_HOURS: "24"
+      AI_TUTOR_JOB_TTL_HOURS: "24"
+      AI_TUTOR_LESSON_TTL_HOURS: "168"
+      AI_TUTOR_CLEANUP_INTERVAL_MINUTES: "60"
       AI_TUTOR_BASE_URL: http://localhost:4041
       AI_TUTOR_ALLOWED_ORIGINS: http://localhost:4040
       AI_TUTOR_LOG_FORMAT: pretty
