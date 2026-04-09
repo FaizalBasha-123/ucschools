@@ -469,6 +469,14 @@ Current progress:
 - OpenAI-compatible native stream parsing now also handles responses-style SSE envelopes (`response.output_text.delta`, `response.function_call_arguments.*`, `response.completed`) in addition to chat-completions deltas, with typed-tool + usage extraction on both paths
 - interactive scientific-model generation now includes a critique-and-revision pass: sparse first-draft models are revised before HTML generation and merged to preserve stronger constraints/experiment guidance
 - PBL project-plan generation now includes a critique-and-revision pass on the core project brief before role-plan and issue-board synthesis, improving driving-question/deliverable/milestone completeness
+- API edge now has explicit RBAC middleware with role-scoped bearer tokens (`reader`, `writer`, `admin`) via `AI_TUTOR_API_TOKENS`, while still supporting `AI_TUTOR_API_SECRET` as an admin token for compatibility
+- API edge can now enforce HTTPS forwarding (`AI_TUTOR_REQUIRE_HTTPS=1`) and returns `426 Upgrade Required` for non-health endpoints when requests are not marked as HTTPS by proxy headers
+- R2 asset store startup validation now enforces `https://` endpoints/public URLs by default; insecure transport requires explicit opt-in (`AI_TUTOR_ALLOW_INSECURE_R2=1`)
+- queue worker ownership identity now supports explicit multi-instance worker IDs (`AI_TUTOR_QUEUE_WORKER_ID`) and hardening warnings (`AI_TUTOR_QUEUE_REQUIRE_EXPLICIT_WORKER_ID=1`)
+- production-hardening status warnings can now be surfaced in `/api/system/status` (`AI_TUTOR_PRODUCTION_HARDENING_ALERTS=1`) for auth, HTTPS, asset backend, and worker-id posture
+- automated ops-gate endpoint now exists at `/api/system/ops-gate` with machine-checkable rollout checks and strict mode (`AI_TUTOR_OPS_GATE_STRICT=1`) for canary/rollback automation
+- `/api/system/status` now also exposes deployment metadata (`deployment_environment`, `deployment_revision`, `rollout_phase`) for operator/runbook context
+- a concrete production ops runbook now exists at `docs/production-ops-runbook.md` covering alerting, canary, rollback, and DR drill gates
 
 Still missing:
 - richer live tutor turn generation beyond the current scene-aware prompting + turn-plan upgrade

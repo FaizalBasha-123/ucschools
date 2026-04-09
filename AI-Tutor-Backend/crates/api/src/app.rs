@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -7,6 +7,7 @@ use axum::{
     extract::{Path, State},
     http::header,
     http::StatusCode,
+    middleware::{self, Next},
     response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -66,6 +67,201 @@ use ai_tutor_storage::{
 #[derive(Clone)]
 pub struct AppState {
     pub service: Arc<dyn LessonAppService>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum ApiRole {
+    Reader,
+    Writer,
+    Admin,
+}
+
+#[derive(Clone, Debug)]
+struct ApiAuthConfig {
+    enabled: bool,
+    tokens: HashMap<String, ApiRole>,
+    require_https: bool,
+}
+
+impl ApiAuthConfig {
+    fn from_env() -> Self {
+        let mut tokens = HashMap::new();
+        if let Ok(secret) = std::env::var("AI_TUTOR_API_SECRET") {
+            let trimmed = secret.trim();
+            if !trimmed.is_empty() {
+                tokens.insert(trimmed.to_string(), ApiRole::Admin);
+            }
+        }
+        if let Ok(configured) = std::env::var("AI_TUTOR_API_TOKENS") {
+            for entry in configured.split(',') {
+                let item = entry.trim();
+                if item.is_empty() {
+                    continue;
+                }
+                let mut pair = item.splitn(2, '=');
+                let token = pair.next().unwrap_or_default().trim();
+                let role_raw = pair.next().unwrap_or("reader").trim();
+                if token.is_empty() {
+                    continue;
+                }
+                if let Some(role) = parse_api_role(role_raw) {
+                    tokens.insert(token.to_string(), role);
+                }
+            }
+        }
+
+        let enabled = !tokens.is_empty()
+            || matches!(
+                std::env::var("AI_TUTOR_AUTH_REQUIRED")
+                    .unwrap_or_default()
+                    .trim()
+                    .to_ascii_lowercase()
+                    .as_str(),
+                "1" | "true" | "yes" | "on"
+            );
+        let require_https = matches!(
+            std::env::var("AI_TUTOR_REQUIRE_HTTPS")
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "1" | "true" | "yes" | "on"
+        );
+
+        Self {
+            enabled,
+            tokens,
+            require_https,
+        }
+    }
+}
+
+fn parse_api_role(value: &str) -> Option<ApiRole> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "reader" | "read" => Some(ApiRole::Reader),
+        "writer" | "write" => Some(ApiRole::Writer),
+        "admin" => Some(ApiRole::Admin),
+        _ => None,
+    }
+}
+
+fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<ApiRole> {
+    if path == "/health" || path == "/api/health" {
+        return None;
+    }
+    if path == "/api/system/status" {
+        return Some(ApiRole::Admin);
+    }
+    if path == "/api/system/ops-gate" {
+        return Some(ApiRole::Admin);
+    }
+    if method == axum::http::Method::POST {
+        if path == "/api/lessons/generate"
+            || path == "/api/lessons/generate-async"
+            || path == "/api/runtime/actions/ack"
+            || path == "/api/runtime/chat/stream"
+        {
+            return Some(ApiRole::Writer);
+        }
+        if path.starts_with("/api/lessons/jobs/") && path.ends_with("/cancel") {
+            return Some(ApiRole::Admin);
+        }
+        if path.starts_with("/api/lessons/jobs/") && path.ends_with("/resume") {
+            return Some(ApiRole::Admin);
+        }
+    }
+    if method == axum::http::Method::GET
+        && (path.starts_with("/api/lessons/")
+            || path.starts_with("/api/assets/media/")
+            || path.starts_with("/api/assets/audio/"))
+    {
+        return Some(ApiRole::Reader);
+    }
+    Some(ApiRole::Reader)
+}
+
+fn parse_bearer_token(headers: &axum::http::HeaderMap) -> Option<String> {
+    let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let mut parts = value.splitn(2, ' ');
+    let scheme = parts.next()?.trim();
+    let token = parts.next()?.trim();
+    if !scheme.eq_ignore_ascii_case("bearer") || token.is_empty() {
+        return None;
+    }
+    Some(token.to_string())
+}
+
+fn request_is_https(req: &axum::extract::Request) -> bool {
+    if let Some(value) = req.headers().get("x-forwarded-proto").and_then(|v| v.to_str().ok()) {
+        if value
+            .split(',')
+            .next()
+            .is_some_and(|proto| proto.trim().eq_ignore_ascii_case("https"))
+        {
+            return true;
+        }
+    }
+    if let Some(value) = req.headers().get("forwarded").and_then(|v| v.to_str().ok()) {
+        if value.to_ascii_lowercase().contains("proto=https") {
+            return true;
+        }
+    }
+    false
+}
+
+async fn auth_middleware(
+    State(auth): State<ApiAuthConfig>,
+    req: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let path = req.uri().path().to_string();
+    let method = req.method().clone();
+
+    if auth.require_https && required_role_for_request(&method, &path).is_some() && !request_is_https(&req)
+    {
+        return ApiError {
+            status: StatusCode::UPGRADE_REQUIRED,
+            message: "https is required for this endpoint".to_string(),
+        }
+        .into_response();
+    }
+
+    let Some(required_role) = required_role_for_request(&method, &path) else {
+        return next.run(req).await;
+    };
+
+    if !auth.enabled {
+        return next.run(req).await;
+    }
+
+    let token = match parse_bearer_token(req.headers()) {
+        Some(token) => token,
+        None => {
+            return ApiError {
+                status: StatusCode::UNAUTHORIZED,
+                message: "missing or invalid bearer token".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    let Some(granted_role) = auth.tokens.get(&token) else {
+        return ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            message: "invalid bearer token".to_string(),
+        }
+        .into_response();
+    };
+
+    if granted_role < &required_role {
+        return ApiError {
+            status: StatusCode::FORBIDDEN,
+            message: "token role is not permitted for this endpoint".to_string(),
+        }
+        .into_response();
+    }
+
+    next.run(req).await
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -186,6 +382,9 @@ pub struct GenerationModelPolicyResponse {
 pub struct SystemStatusResponse {
     pub status: &'static str,
     pub current_model: Option<String>,
+    pub deployment_environment: String,
+    pub deployment_revision: Option<String>,
+    pub rollout_phase: String,
     pub generation_model_policy: GenerationModelPolicyResponse,
     pub selected_model_profile: Option<SelectedModelProfileResponse>,
     pub configured_provider_priority: Vec<String>,
@@ -222,6 +421,21 @@ pub struct SystemStatusResponse {
     pub provider_reported_total_cost_microusd: u64,
     pub provider_runtime: Vec<ProviderRuntimeStatusResponse>,
     pub provider_status_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpsGateCheckResponse {
+    pub id: String,
+    pub required: bool,
+    pub passed: bool,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpsGateResponse {
+    pub pass: bool,
+    pub mode: String,
+    pub checks: Vec<OpsGateCheckResponse>,
 }
 
 #[derive(Debug, Serialize)]
@@ -515,6 +729,30 @@ impl LiveLessonAppService {
         let public_base_url = std::env::var("AI_TUTOR_R2_PUBLIC_BASE_URL")
             .map_err(|_| anyhow!("AI_TUTOR_R2_PUBLIC_BASE_URL is required for R2 asset storage"))?;
         let key_prefix = std::env::var("AI_TUTOR_R2_KEY_PREFIX").unwrap_or_default();
+        let allow_insecure = matches!(
+            std::env::var("AI_TUTOR_ALLOW_INSECURE_R2")
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "1" | "true" | "yes" | "on"
+        );
+        if !allow_insecure {
+            if !endpoint.trim().to_ascii_lowercase().starts_with("https://") {
+                return Err(anyhow!(
+                    "AI_TUTOR_R2_ENDPOINT must use https:// unless AI_TUTOR_ALLOW_INSECURE_R2=1"
+                ));
+            }
+            if !public_base_url
+                .trim()
+                .to_ascii_lowercase()
+                .starts_with("https://")
+            {
+                return Err(anyhow!(
+                    "AI_TUTOR_R2_PUBLIC_BASE_URL must use https:// unless AI_TUTOR_ALLOW_INSECURE_R2=1"
+                ));
+            }
+        }
 
         Ok(Arc::new(
             R2AssetStore::new(
@@ -606,6 +844,17 @@ impl LiveLessonAppService {
                 "degraded"
             },
             current_model,
+            deployment_environment: std::env::var("AI_TUTOR_DEPLOYMENT_ENV")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "unknown".to_string()),
+            deployment_revision: std::env::var("AI_TUTOR_DEPLOYMENT_REVISION")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            rollout_phase: std::env::var("AI_TUTOR_ROLLOUT_PHASE")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "stable".to_string()),
             generation_model_policy: GenerationModelPolicyResponse {
                 outlines_model: generation_model_policy.outlines_model,
                 scene_content_model: generation_model_policy.scene_content_model,
@@ -1455,10 +1704,15 @@ fn validate_runtime_session_mode(
 }
 
 pub fn build_router(service: Arc<dyn LessonAppService>) -> Router {
+    build_router_with_auth(service, ApiAuthConfig::from_env())
+}
+
+fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfig) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/api/health", get(health))
         .route("/api/system/status", get(get_system_status))
+        .route("/api/system/ops-gate", get(get_ops_gate))
         .route("/api/lessons/generate", post(generate_lesson))
         .route("/api/lessons/generate-async", post(generate_lesson_async))
         .route("/api/lessons/jobs/{id}/cancel", post(cancel_job))
@@ -1476,6 +1730,7 @@ pub fn build_router(service: Arc<dyn LessonAppService>) -> Router {
             "/api/assets/audio/{lesson_id}/{file_name}",
             get(get_audio_asset),
         )
+        .layer(middleware::from_fn_with_state(auth, auth_middleware))
         .with_state(AppState { service })
 }
 
@@ -1492,6 +1747,15 @@ async fn get_system_status(
         .await
         .map(Json)
         .map_err(ApiError::internal)
+}
+
+async fn get_ops_gate(State(state): State<AppState>) -> Result<Json<OpsGateResponse>, ApiError> {
+    let status = state
+        .service
+        .get_system_status()
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(derive_ops_gate(&status)))
 }
 
 async fn generate_lesson(
@@ -2317,6 +2581,50 @@ fn derive_runtime_alerts(
             ));
         }
     }
+    if production_hardening_alerts_enabled() {
+        let auth_enabled = !std::env::var("AI_TUTOR_API_SECRET")
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+            || !std::env::var("AI_TUTOR_API_TOKENS")
+                .unwrap_or_default()
+                .trim()
+                .is_empty();
+        if !auth_enabled {
+            alerts.push(
+                "auth_disabled: configure AI_TUTOR_API_SECRET or AI_TUTOR_API_TOKENS for production"
+                    .to_string(),
+            );
+        }
+        if !matches!(
+            std::env::var("AI_TUTOR_REQUIRE_HTTPS")
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+                .as_str(),
+            "1" | "true" | "yes" | "on"
+        ) {
+            alerts.push(
+                "https_not_required: set AI_TUTOR_REQUIRE_HTTPS=1 behind TLS termination for production"
+                    .to_string(),
+            );
+        }
+        if asset_backend_label() == "local" {
+            alerts.push(
+                "asset_backend_local: configure R2/object storage for production durability"
+                    .to_string(),
+            );
+        }
+        if std::env::var("AI_TUTOR_QUEUE_WORKER_ID")
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
+            alerts.push(
+                "queue_worker_id_ephemeral: set AI_TUTOR_QUEUE_WORKER_ID for multi-instance ownership fencing".to_string(),
+            );
+        }
+    }
     alerts
 }
 
@@ -2375,6 +2683,159 @@ fn runtime_degraded_single_turn_only() -> bool {
             "1" | "true" | "yes" | "on"
         ),
         Err(_) => true,
+    }
+}
+
+fn production_hardening_alerts_enabled() -> bool {
+    match std::env::var("AI_TUTOR_PRODUCTION_HARDENING_ALERTS") {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
+fn ops_gate_strict_mode() -> bool {
+    match std::env::var("AI_TUTOR_OPS_GATE_STRICT") {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
+fn derive_ops_gate(status: &SystemStatusResponse) -> OpsGateResponse {
+    let strict = ops_gate_strict_mode();
+    let mut checks = Vec::new();
+    let mut add_check = |id: &str, required: bool, passed: bool, detail: String| {
+        checks.push(OpsGateCheckResponse {
+            id: id.to_string(),
+            required,
+            passed,
+            detail,
+        });
+    };
+
+    add_check(
+        "runtime_alert_level_ok",
+        true,
+        status.runtime_alert_level == "ok",
+        format!("runtime_alert_level={}", status.runtime_alert_level),
+    );
+    add_check(
+        "queue_stale_leases_zero",
+        true,
+        status.queue_stale_leases == 0,
+        format!("queue_stale_leases={}", status.queue_stale_leases),
+    );
+    add_check(
+        "queue_status_error_absent",
+        true,
+        status
+            .queue_status_error
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty()),
+        format!(
+            "queue_status_error={}",
+            status
+                .queue_status_error
+                .as_deref()
+                .unwrap_or("<none>")
+                .replace('\n', " ")
+        ),
+    );
+    add_check(
+        "provider_status_error_absent",
+        true,
+        status
+            .provider_status_error
+            .as_deref()
+            .is_none_or(|value| value.trim().is_empty()),
+        format!(
+            "provider_status_error={}",
+            status
+                .provider_status_error
+                .as_deref()
+                .unwrap_or("<none>")
+                .replace('\n', " ")
+        ),
+    );
+
+    let auth_enabled = !std::env::var("AI_TUTOR_API_SECRET")
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+        || !std::env::var("AI_TUTOR_API_TOKENS")
+            .unwrap_or_default()
+            .trim()
+            .is_empty();
+    add_check(
+        "api_auth_configured",
+        true,
+        auth_enabled,
+        if auth_enabled {
+            "auth token(s) configured".to_string()
+        } else {
+            "missing AI_TUTOR_API_SECRET/AI_TUTOR_API_TOKENS".to_string()
+        },
+    );
+    let https_required = matches!(
+        std::env::var("AI_TUTOR_REQUIRE_HTTPS")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "1" | "true" | "yes" | "on"
+    );
+    add_check(
+        "https_required",
+        true,
+        https_required,
+        format!("AI_TUTOR_REQUIRE_HTTPS={}", https_required),
+    );
+    add_check(
+        "asset_backend_non_local",
+        strict,
+        status.asset_backend != "local",
+        format!("asset_backend={}", status.asset_backend),
+    );
+    add_check(
+        "queue_backend_sqlite",
+        strict,
+        status.queue_backend == "sqlite",
+        format!("queue_backend={}", status.queue_backend),
+    );
+    add_check(
+        "runtime_backend_sqlite",
+        strict,
+        status.runtime_session_backend == "sqlite",
+        format!("runtime_session_backend={}", status.runtime_session_backend),
+    );
+    let explicit_worker_id = std::env::var("AI_TUTOR_QUEUE_WORKER_ID")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty());
+    add_check(
+        "queue_worker_id_explicit",
+        true,
+        explicit_worker_id,
+        if explicit_worker_id {
+            "AI_TUTOR_QUEUE_WORKER_ID is set".to_string()
+        } else {
+            "AI_TUTOR_QUEUE_WORKER_ID is missing".to_string()
+        },
+    );
+
+    let pass = checks.iter().all(|check| !check.required || check.passed);
+    OpsGateResponse {
+        pass,
+        mode: if strict {
+            "strict".to_string()
+        } else {
+            "standard".to_string()
+        },
+        checks,
     }
 }
 
@@ -2661,6 +3122,9 @@ mod tests {
             Ok(SystemStatusResponse {
                 status: "ok",
                 current_model: Some("openai:gpt-4o-mini".to_string()),
+                deployment_environment: "test".to_string(),
+                deployment_revision: Some("rev-test".to_string()),
+                rollout_phase: "stable".to_string(),
                 generation_model_policy: GenerationModelPolicyResponse {
                     outlines_model: "openrouter:google/gemini-2.5-flash".to_string(),
                     scene_content_model: "openrouter:openai/gpt-4o-mini".to_string(),
@@ -3801,6 +4265,177 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn auth_middleware_enforces_rbac_for_generate_route() {
+        let app = build_router_with_auth(
+            Arc::new(MockLessonAppService {
+                generate_response: Mutex::new(Some(GenerateLessonResponse {
+                    lesson_id: "lesson-auth".to_string(),
+                    job_id: "job-auth".to_string(),
+                    url: "http://localhost:8099/api/lessons/lesson-auth".to_string(),
+                    scenes_count: 1,
+                })),
+                queued_response: Mutex::new(None),
+                cancel_outcome: Mutex::new(None),
+                resume_outcome: Mutex::new(None),
+                chat_events: Mutex::new(vec![]),
+                action_acks: Mutex::new(vec![]),
+                job: None,
+                lesson: None,
+                audio_asset: None,
+                media_asset: None,
+            }),
+            ApiAuthConfig {
+                enabled: true,
+                tokens: HashMap::from([
+                    ("reader-token".to_string(), ApiRole::Reader),
+                    ("writer-token".to_string(), ApiRole::Writer),
+                ]),
+                require_https: false,
+            },
+        );
+
+        let payload = serde_json::to_vec(&GenerateLessonPayload {
+            requirement: "test auth".to_string(),
+            language: Some("english".to_string()),
+            model: Some("openai:gpt-4o-mini".to_string()),
+            pdf_text: None,
+            enable_web_search: Some(false),
+            enable_image_generation: Some(false),
+            enable_video_generation: Some(false),
+            enable_tts: Some(false),
+            agent_mode: Some("standard".to_string()),
+            user_nickname: None,
+            user_bio: None,
+        })
+        .unwrap();
+
+        let unauthorized = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/lessons/generate")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(payload.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+        let forbidden = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/lessons/generate")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, "Bearer reader-token")
+                    .body(Body::from(payload.clone()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+        let ok = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/lessons/generate")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .header(header::AUTHORIZATION, "Bearer writer-token")
+                    .body(Body::from(payload))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_allows_health_when_auth_enabled() {
+        let app = build_router_with_auth(
+            Arc::new(MockLessonAppService {
+                generate_response: Mutex::new(None),
+                queued_response: Mutex::new(None),
+                cancel_outcome: Mutex::new(None),
+                resume_outcome: Mutex::new(None),
+                chat_events: Mutex::new(vec![]),
+                action_acks: Mutex::new(vec![]),
+                job: None,
+                lesson: None,
+                audio_asset: None,
+                media_asset: None,
+            }),
+            ApiAuthConfig {
+                enabled: true,
+                tokens: HashMap::from([("ops-token".to_string(), ApiRole::Admin)]),
+                require_https: false,
+            },
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn https_requirement_blocks_non_tls_requests_for_protected_routes() {
+        let app = build_router_with_auth(
+            Arc::new(MockLessonAppService {
+                generate_response: Mutex::new(None),
+                queued_response: Mutex::new(None),
+                cancel_outcome: Mutex::new(None),
+                resume_outcome: Mutex::new(None),
+                chat_events: Mutex::new(vec![]),
+                action_acks: Mutex::new(vec![]),
+                job: None,
+                lesson: None,
+                audio_asset: None,
+                media_asset: None,
+            }),
+            ApiAuthConfig {
+                enabled: false,
+                tokens: HashMap::new(),
+                require_https: true,
+            },
+        );
+
+        let blocked = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/system/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(blocked.status(), StatusCode::UPGRADE_REQUIRED);
+
+        let allowed = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/system/status")
+                    .header("x-forwarded-proto", "https")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(allowed.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn system_status_route_returns_runtime_observability_payload() {
         let app = build_router(Arc::new(MockLessonAppService {
             generate_response: Mutex::new(None),
@@ -3829,6 +4464,8 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(parsed["status"], "ok");
+        assert_eq!(parsed["deployment_environment"], "test");
+        assert_eq!(parsed["rollout_phase"], "stable");
         assert_eq!(parsed["runtime_alert_level"], "ok");
         assert_eq!(parsed["runtime_alerts"], serde_json::json!([]));
         assert_eq!(parsed["configured_provider_priority"], serde_json::json!(["openai"]));
@@ -3871,6 +4508,45 @@ mod tests {
             parsed["provider_average_latency_ms"],
             serde_json::Value::Null
         );
+    }
+
+    #[tokio::test]
+    async fn ops_gate_route_returns_required_checks() {
+        let app = build_router_with_auth(
+            Arc::new(MockLessonAppService {
+                generate_response: Mutex::new(None),
+                queued_response: Mutex::new(None),
+                cancel_outcome: Mutex::new(None),
+                resume_outcome: Mutex::new(None),
+                chat_events: Mutex::new(vec![]),
+                action_acks: Mutex::new(vec![]),
+                job: None,
+                lesson: None,
+                audio_asset: None,
+                media_asset: None,
+            }),
+            ApiAuthConfig {
+                enabled: true,
+                tokens: HashMap::from([("ops-token".to_string(), ApiRole::Admin)]),
+                require_https: false,
+            },
+        );
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/system/ops-gate")
+                    .header(header::AUTHORIZATION, "Bearer ops-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(parsed["mode"], "standard");
+        assert!(parsed["checks"].as_array().is_some_and(|items| !items.is_empty()));
     }
 
     #[test]

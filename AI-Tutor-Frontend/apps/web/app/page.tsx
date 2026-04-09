@@ -1,26 +1,4 @@
 export default function HomePage() {
-  const templates = [
-    "Prompt-to-Lesson Starter",
-    "STEM Storyline",
-    "Quiz Sprint",
-    "Interactive Lab Scene",
-    "Tutor Discussion Flow",
-    "Whiteboard Action Deck",
-    "Video-First Lesson",
-    "Narration + Audio Mode",
-  ];
-
-  const apps = [
-    "Physics Momentum Coach",
-    "Biology Cell Explorer",
-    "Algebra Step Builder",
-    "Chemistry Bond Visualizer",
-    "History Timeline Guide",
-    "Language Practice Tutor",
-    "Exam Revision Assistant",
-    "PBL Project Mentor",
-  ];
-
   return (
     <main className="translation-landing">
       <section className="translation-hero">
@@ -28,9 +6,6 @@ export default function HomePage() {
           <div className="translation-logo">AI Tutor</div>
           <nav>
             <a href="#features">Features</a>
-            <a href="#templates">Templates</a>
-            <a href="#apps">Apps</a>
-            <a href="#metrics">Metrics</a>
           </nav>
           <a className="translation-nav-button" href="/generate">
             Open Studio
@@ -76,54 +51,6 @@ export default function HomePage() {
             <h3>Refine and ship quickly</h3>
             <p>Use model-aware generation defaults tuned for quality, reliability, and cost control.</p>
           </div>
-        </div>
-      </section>
-
-      <section className="translation-grid-section" id="templates">
-        <div className="translation-grid-head">
-          <h2>Discover templates</h2>
-        </div>
-        <div className="translation-grid">
-          {templates.map((template) => (
-            <article key={template} className="translation-tile">
-              <div className="translation-thumb" />
-              <h3>{template}</h3>
-              <p>Reusable prompt and scene structure for rapid lesson iteration.</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="translation-grid-section" id="apps">
-        <div className="translation-grid-head">
-          <h2>Discover apps</h2>
-        </div>
-        <div className="translation-grid">
-          {apps.map((app) => (
-            <article key={app} className="translation-tile">
-              <div className="translation-thumb app" />
-              <h3>{app}</h3>
-              <p>Example tutor experiences built on the same runtime and streaming contract.</p>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="translation-metrics" id="metrics">
-        <h2>AI Tutor in numbers</h2>
-        <div className="translation-metric-grid">
-          <article>
-            <h3>3 modes</h3>
-            <p>Stateless client state, managed runtime session, and async generation flow.</p>
-          </article>
-          <article>
-            <h3>4 phases</h3>
-            <p>Outlines, scene content, scene actions, and action fallback policy.</p>
-          </article>
-          <article>
-            <h3>100%</h3>
-            <p>Verified production build for the Next.js app in this workspace.</p>
-          </article>
         </div>
       </section>
 
