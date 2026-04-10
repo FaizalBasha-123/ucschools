@@ -36,6 +36,7 @@ use ai_tutor_domain::{
         DirectorState, RuntimeActionExecutionRecord, RuntimeActionExecutionStatus,
         RuntimeSessionMode, StatelessChatRequest,
     },
+    scene::{ProjectAgentRole, ProjectConfig},
 };
 use ai_tutor_media::storage::{DynAssetStore, LocalFileAssetStore, R2AssetStore};
 use ai_tutor_orchestrator::{
@@ -159,6 +160,7 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
         if path == "/api/lessons/generate"
             || path == "/api/lessons/generate-async"
             || path == "/api/runtime/actions/ack"
+            || path == "/api/runtime/pbl/chat"
             || path == "/api/runtime/chat/stream"
         {
             return Some(ApiRole::Writer);
@@ -303,6 +305,47 @@ pub struct RuntimeActionAckResponse {
     pub accepted: bool,
     pub duplicate: bool,
     pub current_status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PblRuntimeChatRequest {
+    pub message: String,
+    pub project_config: ProjectConfig,
+    pub workspace: PblRuntimeWorkspaceState,
+    pub recent_messages: Vec<PblRuntimeChatMessage>,
+    pub user_role: String,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PblRuntimeWorkspaceState {
+    pub active_issue_id: Option<String>,
+    pub issues: Vec<PblRuntimeIssueState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PblRuntimeIssueState {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub owner_role: Option<String>,
+    pub checkpoints: Vec<String>,
+    pub completed_checkpoint_ids: Vec<String>,
+    pub done: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PblRuntimeChatMessage {
+    pub kind: String,
+    pub agent_name: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PblRuntimeChatResponse {
+    pub messages: Vec<PblRuntimeChatMessage>,
+    pub workspace: Option<PblRuntimeWorkspaceState>,
+    pub resolved_agent: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -483,6 +526,7 @@ pub trait LessonAppService: Send + Sync {
         &self,
         payload: RuntimeActionAckRequest,
     ) -> Result<RuntimeActionAckResponse>;
+    async fn runtime_pbl_chat(&self, payload: PblRuntimeChatRequest) -> Result<PblRuntimeChatResponse>;
     async fn get_system_status(&self) -> Result<SystemStatusResponse>;
 }
 
@@ -1410,6 +1454,96 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
+    async fn runtime_pbl_chat(&self, payload: PblRuntimeChatRequest) -> Result<PblRuntimeChatResponse> {
+        let model_string = std::env::var("AI_TUTOR_PBL_RUNTIME_MODEL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| std::env::var("AI_TUTOR_MODEL").ok())
+            .unwrap_or_else(|| "openai:gpt-4o-mini".to_string());
+
+        let resolved = resolve_model(
+            &self.provider_config,
+            Some(&model_string),
+            None,
+            None,
+            None,
+            Some(false),
+        )?;
+        let llm = self.provider_factory.build(resolved.model_config)?;
+
+        let resolved_agent = resolve_pbl_runtime_agent(
+            &payload.message,
+            &payload.project_config,
+            &payload.workspace,
+        );
+        let system_prompt = build_pbl_runtime_system_prompt(
+            &payload.project_config,
+            &payload.workspace,
+            &payload.recent_messages,
+            &payload.user_role,
+            &resolved_agent,
+        );
+        let clean_message = clean_pbl_runtime_message(&payload.message);
+        let generated = llm.generate_text(&system_prompt, &clean_message).await?;
+
+        let mut messages = vec![PblRuntimeChatMessage {
+            kind: "agent".to_string(),
+            agent_name: resolved_agent.name.clone(),
+            message: generated.clone(),
+        }];
+
+        let mut next_workspace = None;
+        if resolved_agent.kind == PblRuntimeAgentKind::Judge
+            && judge_marks_issue_complete(&generated)
+        {
+            if let Some(progressed) = progress_pbl_workspace(&payload.workspace) {
+                if let Some(completed_title) = payload
+                    .workspace
+                    .issues
+                    .iter()
+                    .find(|issue| Some(&issue.id) == payload.workspace.active_issue_id.as_ref())
+                    .map(|issue| issue.title.clone())
+                {
+                    if let Some(next_issue) = progressed
+                        .issues
+                        .iter()
+                        .find(|issue| Some(&issue.id) == progressed.active_issue_id.as_ref())
+                    {
+                        messages.push(PblRuntimeChatMessage {
+                            kind: "system".to_string(),
+                            agent_name: "System".to_string(),
+                            message: format!(
+                                "Issue complete: {}. Next issue activated: {}.",
+                                completed_title, next_issue.title
+                            ),
+                        });
+                        messages.push(PblRuntimeChatMessage {
+                            kind: "agent".to_string(),
+                            agent_name: "Question Agent".to_string(),
+                            message: build_next_issue_question_prompt(next_issue),
+                        });
+                    } else {
+                        messages.push(PblRuntimeChatMessage {
+                            kind: "system".to_string(),
+                            agent_name: "System".to_string(),
+                            message: format!(
+                                "Issue complete: {}. All project issues are now complete.",
+                                completed_title
+                            ),
+                        });
+                    }
+                }
+                next_workspace = Some(progressed);
+            }
+        }
+
+        Ok(PblRuntimeChatResponse {
+            messages,
+            workspace: next_workspace,
+            resolved_agent: resolved_agent.name,
+        })
+    }
+
     async fn get_system_status(&self) -> Result<SystemStatusResponse> {
         self.system_status().await
     }
@@ -1703,6 +1837,238 @@ fn validate_runtime_session_mode(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PblRuntimeAgentKind {
+    Role,
+    Question,
+    Judge,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedPblRuntimeAgent {
+    kind: PblRuntimeAgentKind,
+    name: String,
+    system_prompt: String,
+}
+
+fn resolve_pbl_runtime_agent(
+    raw_message: &str,
+    project_config: &ProjectConfig,
+    workspace: &PblRuntimeWorkspaceState,
+) -> ResolvedPblRuntimeAgent {
+    let current_issue = workspace
+        .active_issue_id
+        .as_ref()
+        .and_then(|active| workspace.issues.iter().find(|issue| &issue.id == active));
+    let lowered_message = raw_message.trim().to_ascii_lowercase();
+
+    if let Some(mention) = lowered_message.strip_prefix('@') {
+        let mention = mention
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if mention == "question" {
+            return build_question_agent(project_config, current_issue);
+        }
+        if mention == "judge" {
+            return build_judge_agent(project_config, current_issue);
+        }
+
+        if let Some(role) = project_config
+            .agent_roles
+            .as_ref()
+            .and_then(|roles| {
+                roles.iter().find(|role| {
+                    role.name.to_ascii_lowercase().replace(' ', "").contains(&mention)
+                })
+            })
+        {
+            return build_role_agent(role);
+        }
+    }
+
+    if current_issue.is_some() {
+        build_question_agent(project_config, current_issue)
+    } else if let Some(role) = project_config.agent_roles.as_ref().and_then(|roles| roles.first()) {
+        build_role_agent(role)
+    } else {
+        ResolvedPblRuntimeAgent {
+            kind: PblRuntimeAgentKind::Question,
+            name: "Question Agent".to_string(),
+            system_prompt: "You are a project question agent. Ask focused, actionable coaching questions that help the learner progress.".to_string(),
+        }
+    }
+}
+
+fn build_role_agent(role: &ProjectAgentRole) -> ResolvedPblRuntimeAgent {
+    ResolvedPblRuntimeAgent {
+        kind: PblRuntimeAgentKind::Role,
+        name: role.name.clone(),
+        system_prompt: format!(
+            "You are the project role '{}'. Responsibility: {}. Deliverable: {}. Respond as a collaborative teammate helping the student move the project forward with concrete, grounded guidance.",
+            role.name,
+            role.responsibility,
+            role.deliverable.as_deref().unwrap_or("Not specified")
+        ),
+    }
+}
+
+fn build_question_agent(
+    project_config: &ProjectConfig,
+    current_issue: Option<&PblRuntimeIssueState>,
+) -> ResolvedPblRuntimeAgent {
+    let project_title = project_config.title.as_deref().unwrap_or("the project");
+    let issue = current_issue
+        .map(|issue| format!("Current issue: {}. {}", issue.title, issue.description))
+        .unwrap_or_else(|| "No active issue is currently selected.".to_string());
+    ResolvedPblRuntimeAgent {
+        kind: PblRuntimeAgentKind::Question,
+        name: "Question Agent".to_string(),
+        system_prompt: format!(
+            "You are the project question agent for {}. {} Ask 1-3 sharp coaching questions or give a short actionable hint that helps the learner think through the next step. Be concise, supportive, and concrete.",
+            project_title, issue
+        ),
+    }
+}
+
+fn build_judge_agent(
+    project_config: &ProjectConfig,
+    current_issue: Option<&PblRuntimeIssueState>,
+) -> ResolvedPblRuntimeAgent {
+    let issue = current_issue
+        .map(|issue| format!("Current issue: {}. {}", issue.title, issue.description))
+        .unwrap_or_else(|| "No active issue is currently selected.".to_string());
+    let success = project_config
+        .success_criteria
+        .as_ref()
+        .map(|criteria| criteria.join("; "))
+        .filter(|joined| !joined.is_empty())
+        .unwrap_or_else(|| "Use the issue checkpoints and deliverable quality as the standard.".to_string());
+    ResolvedPblRuntimeAgent {
+        kind: PblRuntimeAgentKind::Judge,
+        name: "Judge Agent".to_string(),
+        system_prompt: format!(
+            "You are the project judge agent. {} Success criteria: {} Evaluate whether the learner's latest update is sufficient to mark the current issue complete. If it is sufficient, include the exact token COMPLETE in your response. If it is not sufficient, include the exact token NEEDS_REVISION and explain what is still missing.",
+            issue, success
+        ),
+    }
+}
+
+fn build_pbl_runtime_system_prompt(
+    project_config: &ProjectConfig,
+    workspace: &PblRuntimeWorkspaceState,
+    recent_messages: &[PblRuntimeChatMessage],
+    user_role: &str,
+    agent: &ResolvedPblRuntimeAgent,
+) -> String {
+    let project_title = project_config.title.as_deref().unwrap_or("Untitled project");
+    let project_summary = project_config.summary.as_str();
+    let current_issue = workspace
+        .active_issue_id
+        .as_ref()
+        .and_then(|active| workspace.issues.iter().find(|issue| &issue.id == active));
+    let issue_context = current_issue
+        .map(|issue| {
+            format!(
+                "Current issue:\n- Title: {}\n- Description: {}\n- Owner role: {}\n- Checkpoints: {}\n- Completed checkpoints: {}",
+                issue.title,
+                issue.description,
+                issue.owner_role.as_deref().unwrap_or("Unassigned"),
+                if issue.checkpoints.is_empty() {
+                    "None".to_string()
+                } else {
+                    issue.checkpoints.join(" | ")
+                },
+                if issue.completed_checkpoint_ids.is_empty() {
+                    "None".to_string()
+                } else {
+                    issue.completed_checkpoint_ids.join(" | ")
+                }
+            )
+        })
+        .unwrap_or_else(|| "No active issue.".to_string());
+    let recent_context = if recent_messages.is_empty() {
+        "No recent project chat.".to_string()
+    } else {
+        recent_messages
+            .iter()
+            .rev()
+            .take(6)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .map(|message| format!("{} [{}]: {}", message.agent_name, message.kind, message.message))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    format!(
+        "{}\n\nProject title: {}\nProject summary: {}\nLearner role: {}\n{}\n\nRecent conversation:\n{}\n\nStay grounded in the project structure and do not invent new project roles or issues unless the student explicitly asks for revision planning.",
+        agent.system_prompt, project_title, project_summary, user_role, issue_context, recent_context
+    )
+}
+
+fn clean_pbl_runtime_message(raw_message: &str) -> String {
+    if let Some(rest) = raw_message.trim().strip_prefix('@') {
+        let without_mention = rest.split_once(char::is_whitespace).map(|(_, right)| right).unwrap_or("");
+        let trimmed = without_mention.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    raw_message.trim().to_string()
+}
+
+fn judge_marks_issue_complete(response: &str) -> bool {
+    let upper = response.to_ascii_uppercase();
+    upper.contains("COMPLETE") && !upper.contains("NEEDS_REVISION")
+}
+
+fn progress_pbl_workspace(
+    workspace: &PblRuntimeWorkspaceState,
+) -> Option<PblRuntimeWorkspaceState> {
+    let active_issue_id = workspace.active_issue_id.as_ref()?;
+    let active_index = workspace
+        .issues
+        .iter()
+        .position(|issue| &issue.id == active_issue_id)?;
+    let mut issues = workspace.issues.clone();
+    if let Some(active_issue) = issues.get_mut(active_index) {
+        active_issue.done = true;
+        active_issue.completed_checkpoint_ids = active_issue
+            .checkpoints
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("{}-checkpoint-{}", active_issue.id, index))
+            .collect();
+    }
+    let next_active_issue_id = issues
+        .iter()
+        .find(|issue| !issue.done)
+        .map(|issue| issue.id.clone());
+    Some(PblRuntimeWorkspaceState {
+        active_issue_id: next_active_issue_id,
+        issues,
+    })
+}
+
+fn build_next_issue_question_prompt(issue: &PblRuntimeIssueState) -> String {
+    if issue.checkpoints.is_empty() {
+        return format!(
+            "Let's move to '{}'. Start by identifying the first concrete action you should take and the evidence you need.",
+            issue.title
+        );
+    }
+
+    format!(
+        "New active issue: {}. Focus on these checkpoints next: {}.",
+        issue.title,
+        issue.checkpoints.join(" | ")
+    )
+}
+
 pub fn build_router(service: Arc<dyn LessonAppService>) -> Router {
     build_router_with_auth(service, ApiAuthConfig::from_env())
 }
@@ -1718,6 +2084,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/lessons/jobs/{id}/cancel", post(cancel_job))
         .route("/api/lessons/jobs/{id}/resume", post(resume_job))
         .route("/api/runtime/actions/ack", post(acknowledge_runtime_action))
+        .route("/api/runtime/pbl/chat", post(runtime_pbl_chat))
         .route("/api/runtime/chat/stream", post(stream_stateless_chat))
         .route("/api/lessons/jobs/{id}", get(get_job))
         .route("/api/lessons/{id}", get(get_lesson))
@@ -1870,6 +2237,29 @@ async fn acknowledge_runtime_action(
     state
         .service
         .acknowledge_runtime_action(payload)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn runtime_pbl_chat(
+    State(state): State<AppState>,
+    Json(payload): Json<PblRuntimeChatRequest>,
+) -> Result<Json<PblRuntimeChatResponse>, ApiError> {
+    if payload.message.trim().is_empty() {
+        return Err(ApiError::bad_request(
+            "pbl runtime chat requires a non-empty message".to_string(),
+        ));
+    }
+    if payload.user_role.trim().is_empty() {
+        return Err(ApiError::bad_request(
+            "pbl runtime chat requires user_role".to_string(),
+        ));
+    }
+
+    state
+        .service
+        .runtime_pbl_chat(payload)
         .await
         .map(Json)
         .map_err(ApiError::internal)
@@ -3118,6 +3508,18 @@ mod tests {
             })
         }
 
+        async fn runtime_pbl_chat(&self, _payload: PblRuntimeChatRequest) -> Result<PblRuntimeChatResponse> {
+            Ok(PblRuntimeChatResponse {
+                messages: vec![PblRuntimeChatMessage {
+                    kind: "agent".to_string(),
+                    agent_name: "Question Agent".to_string(),
+                    message: "Let's break the issue into the next concrete step.".to_string(),
+                }],
+                workspace: None,
+                resolved_agent: "Question Agent".to_string(),
+            })
+        }
+
         async fn get_system_status(&self) -> Result<SystemStatusResponse> {
             Ok(SystemStatusResponse {
                 status: "ok",
@@ -3526,6 +3928,91 @@ mod tests {
             multi_agent: None,
             created_at: None,
             updated_at: None,
+        }
+    }
+
+    fn sample_project_config() -> ProjectConfig {
+        ProjectConfig {
+            summary: "Build a classroom recycling improvement plan".to_string(),
+            title: Some("Recycling Project".to_string()),
+            driving_question: Some("How can we reduce waste in our classroom?".to_string()),
+            final_deliverable: Some("A proposal and implementation checklist".to_string()),
+            target_skills: Some(vec!["research".to_string(), "planning".to_string()]),
+            milestones: Some(vec!["audit".to_string(), "proposal".to_string()]),
+            team_roles: Some(vec!["Research Lead".to_string(), "Presenter".to_string()]),
+            assessment_focus: None,
+            starter_prompt: Some("Start by inspecting the current recycling flow.".to_string()),
+            success_criteria: Some(vec![
+                "Evidence is cited".to_string(),
+                "Proposal is feasible".to_string(),
+            ]),
+            facilitator_notes: Some(vec!["Push for measurable outcomes.".to_string()]),
+            agent_roles: Some(vec![
+                ProjectAgentRole {
+                    name: "Research Lead".to_string(),
+                    responsibility: "Gather evidence about current classroom waste.".to_string(),
+                    deliverable: Some("Waste audit summary".to_string()),
+                },
+                ProjectAgentRole {
+                    name: "Presenter".to_string(),
+                    responsibility: "Turn findings into a persuasive proposal.".to_string(),
+                    deliverable: Some("Presentation deck".to_string()),
+                },
+            ]),
+            issue_board: Some(vec![
+                ai_tutor_domain::scene::ProjectIssue {
+                    title: "Audit current waste".to_string(),
+                    description: "Identify what is being thrown away and why.".to_string(),
+                    owner_role: Some("Research Lead".to_string()),
+                    checkpoints: vec!["Collect examples".to_string(), "Summarize patterns".to_string()],
+                },
+                ai_tutor_domain::scene::ProjectIssue {
+                    title: "Prepare proposal".to_string(),
+                    description: "Create the improvement proposal.".to_string(),
+                    owner_role: Some("Presenter".to_string()),
+                    checkpoints: vec!["Draft recommendations".to_string()],
+                },
+            ]),
+        }
+    }
+
+    fn sample_pbl_runtime_chat_request() -> PblRuntimeChatRequest {
+        PblRuntimeChatRequest {
+            message: "@question What should I do first?".to_string(),
+            project_config: sample_project_config(),
+            workspace: PblRuntimeWorkspaceState {
+                active_issue_id: Some("issue-1".to_string()),
+                issues: vec![
+                    PblRuntimeIssueState {
+                        id: "issue-1".to_string(),
+                        title: "Audit current waste".to_string(),
+                        description: "Identify what is being thrown away and why.".to_string(),
+                        owner_role: Some("Research Lead".to_string()),
+                        checkpoints: vec![
+                            "Collect examples".to_string(),
+                            "Summarize patterns".to_string(),
+                        ],
+                        completed_checkpoint_ids: vec![],
+                        done: false,
+                    },
+                    PblRuntimeIssueState {
+                        id: "issue-2".to_string(),
+                        title: "Prepare proposal".to_string(),
+                        description: "Create the improvement proposal.".to_string(),
+                        owner_role: Some("Presenter".to_string()),
+                        checkpoints: vec!["Draft recommendations".to_string()],
+                        completed_checkpoint_ids: vec![],
+                        done: false,
+                    },
+                ],
+            },
+            recent_messages: vec![PblRuntimeChatMessage {
+                kind: "user".to_string(),
+                agent_name: "Research Lead".to_string(),
+                message: "I inspected the bins yesterday.".to_string(),
+            }],
+            user_role: "Research Lead".to_string(),
+            session_id: Some("project-scene-1".to_string()),
         }
     }
 
@@ -5568,6 +6055,48 @@ mod tests {
             .unwrap()
             .expect("timed out record should still exist");
         assert_eq!(persisted.status, RuntimeActionExecutionStatus::TimedOut);
+    }
+
+    #[tokio::test]
+    async fn live_service_runtime_pbl_chat_routes_question_mentions() {
+        let root = temp_root();
+        let storage = Arc::new(FileStorage::new(&root));
+        let service = build_live_chat_service_with_response(
+            Arc::clone(&storage),
+            vec!["Start with a quick waste audit of one day and compare categories.".to_string()],
+        );
+
+        let response = service
+            .runtime_pbl_chat(sample_pbl_runtime_chat_request())
+            .await
+            .unwrap();
+
+        assert_eq!(response.resolved_agent, "Question Agent");
+        assert_eq!(response.messages.len(), 1);
+        assert!(response.messages[0].message.contains("waste audit"));
+        assert!(response.workspace.is_none());
+    }
+
+    #[tokio::test]
+    async fn live_service_runtime_pbl_chat_advances_issue_on_judge_complete() {
+        let root = temp_root();
+        let storage = Arc::new(FileStorage::new(&root));
+        let service = build_live_chat_service_with_response(
+            Arc::clone(&storage),
+            vec!["COMPLETE. The evidence is strong enough to move forward.".to_string()],
+        );
+
+        let mut payload = sample_pbl_runtime_chat_request();
+        payload.message = "@judge I finished the audit and summarized the evidence.".to_string();
+
+        let response = service.runtime_pbl_chat(payload).await.unwrap();
+
+        assert_eq!(response.resolved_agent, "Judge Agent");
+        assert!(response.messages.iter().any(|message| message.agent_name == "System"));
+        let workspace = response.workspace.expect("workspace should advance");
+        assert_eq!(workspace.active_issue_id.as_deref(), Some("issue-2"));
+        assert!(workspace.issues[0].done);
+        assert!(!workspace.issues[1].done);
     }
 
     #[tokio::test]

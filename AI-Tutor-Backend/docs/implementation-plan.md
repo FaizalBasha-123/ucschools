@@ -484,6 +484,10 @@ Still missing:
 - deeper provider-aware live routing policies beyond the current degraded/compatibility/high-latency/typed-capability-aware policy
 - deeper OpenMAIC parity for scientific interactive generation and full PBL planning depth beyond the current repaired scientific-model flow and multi-pass structured-project generator
 - provider-billed cost truth (token accounting is now provider-reported when transports expose usage, but USD still comes from configured model pricing rather than billing/invoice APIs)
+- frontend live session/runtime parity is now meaningfully advanced, but still lacks OpenMAIC-style text pacing/message sealing depth
+- frontend scene-rendering parity for `interactive` and `project/pbl` lesson surfaces is now meaningfully advanced, but still lacks deeper runtime/editor integration
+- frontend PBL workspace parity is now meaningfully advanced for role selection, issueboard, and learner worklog flow, but still lacks backend agent-chat/runtime progression parity
+- deeper end-to-end classroom-product integration so generation, playback, live tutor runtime, interactive scenes, and PBL all behave as one coherent user-facing system
 
 ## Backend MVP Definition
 
@@ -500,9 +504,141 @@ The live tutor graph/SSE layer is phase 2 of backend implementation, not day 1.
 
 ## Immediate Remaining Gaps
 
-The main remaining backend gaps after the verified runtime/session/streaming work are:
+The main remaining production/parity gaps after the verified runtime/session/streaming work are:
+- deepen the new frontend live session engine toward OpenMAIC's `useChatSessions` buffering/pacing and resumed-message behavior
+- deepen the new scene-renderer layer so runtime/editor surfaces are unified rather than just rendered cleanly
+- add backend-supported PBL runtime agent chat/progression so the new frontend project workspace is not local-only
 - deepen live tutor response quality and turn-planning beyond the current first-pass director+tutor prompt translation, scene-aware teaching context, and explicit turn-plan guidance
 - expand provider-native streaming/event coverage beyond the current OpenAI-compatible, Anthropic, and Google implementations already normalized by the Rust adapters
 - add richer provider-aware routing policy than the current degraded/compatibility/high-latency/typed-capability-aware policy
 - continue closing whiteboard/action-engine parity so more runtime behavior is backend-owned instead of frontend-light
 - continue closing generation-smartness parity with OpenMAIC for deeper scientific interactives, fuller agentic project-design loops, and more expressive slide layout grammars
+
+## Next Implementation Program: OpenMAIC Product-Surface Parity
+
+Goal:
+- close the layer gap that now remains mostly outside the Rust backend core
+- use OpenMAIC's real code as the reference architecture, not as inspiration-only
+- finish the user-facing runtime layers required to honestly claim OpenMAIC-class product parity
+
+Reference sources to follow:
+- [`OpenMAIC/components/chat/use-chat-sessions.ts`](/d:/uc-school/OpenMAIC/components/chat/use-chat-sessions.ts)
+- [`OpenMAIC/components/stage/scene-renderer.tsx`](/d:/uc-school/OpenMAIC/components/stage/scene-renderer.tsx)
+- [`OpenMAIC/components/scene-renderers/pbl-renderer.tsx`](/d:/uc-school/OpenMAIC/components/scene-renderers/pbl-renderer.tsx)
+- [`OpenMAIC/lib/pbl/generate-pbl.ts`](/d:/uc-school/OpenMAIC/lib/pbl/generate-pbl.ts)
+
+### Program A: Frontend Live Session Engine
+
+Target:
+- replace the current discussion/player shell with a dedicated client-side session runtime closer to OpenMAIC's `useChatSessions`
+
+Build:
+- session store for active/interrupted/completed live tutor sessions
+- streaming buffer with message sealing, text pacing, and cue-user transitions
+- client abort/resume controls wired to backend interruption events
+- session persistence across route reloads and lesson-scene transitions
+- unified runtime event reducer for playback + live tutor state
+
+Verification:
+- frontend unit tests for session reducer/buffer behavior
+- browser tests for abort/resume/cue-user paths
+- end-to-end tests against the real Rust SSE runtime
+
+### Program B: Scene Renderer Parity
+
+Target:
+- move from the current lesson-player shell to a true typed scene renderer surface comparable to OpenMAIC's stage renderer
+
+Build:
+- dedicated renderer routing for `slide`, `quiz`, `interactive`, and `project/pbl`
+- interactive iframe/html renderer with resize, sandbox, and error boundaries
+- typed runtime action overlays integrated with the scene renderer instead of ad hoc shell-only rendering
+- lesson-scene navigation/state tied cleanly into runtime and playback events
+
+Verification:
+- renderer tests per scene type
+- interactive rendering tests for stored/generated HTML
+- action overlay tests under playback and live-tutor events
+
+### Program C: PBL Workspace Parity
+
+Target:
+- implement a real project-based-learning workspace, not just generated project data
+
+Build:
+- frontend project role-selection surface
+- issueboard/work-item renderer
+- agent chat/workspace panel
+- issue completion/progression flow
+- persisted local runtime state for in-progress PBL sessions
+- backend route additions only where the frontend workspace needs them
+
+Verification:
+- frontend tests for role/issue/chat transitions
+- end-to-end tests for PBL flow from generated lesson into live workspace use
+
+Current status:
+- implemented in AI-Tutor frontend for role selection, issueboard navigation, checkpoint progression, and learner worklog persistence
+- still missing backend-driven project agent chat and issue-completion progression semantics from OpenMAIC's `use-pbl-chat.ts` + `/api/pbl/chat`
+
+### Program D: Deeper Agentic PBL Backend
+
+Target:
+- bring AI-Tutor's project generation closer to OpenMAIC's tool-driven `generatePBLContent(...)`
+
+Build:
+- Rust-native agentic PBL design loop with explicit project-info/agent/issueboard stages
+- structured intermediate state instead of one-shot project-blob synthesis
+- critique/revision between PBL planning stages
+- stronger mapping from generated project plan to frontend PBL workspace schema
+
+Verification:
+- orchestrator tests for intermediate PBL planner stages
+- regression tests comparing generated project structure completeness against current output
+
+### Program F: PBL Runtime Agent Chat Parity
+
+Target:
+- translate OpenMAIC's PBL runtime chat loop into Rust-backed API/runtime contracts so project scenes are interactive, not only locally stateful
+
+Reference sources to follow:
+- [`OpenMAIC/app/api/pbl/chat/route.ts`](/d:/uc-school/OpenMAIC/app/api/pbl/chat/route.ts)
+- [`OpenMAIC/components/scene-renderers/pbl/use-pbl-chat.ts`](/d:/uc-school/OpenMAIC/components/scene-renderers/pbl/use-pbl-chat.ts)
+- [`OpenMAIC/lib/pbl/types.ts`](/d:/uc-school/OpenMAIC/lib/pbl/types.ts)
+
+Build:
+- add Rust domain types for runtime PBL project config, agents, issues, and chat messages
+- extend lesson/project scene schema so generated project scenes can carry a runtime-ready issueboard/agent-chat contract
+- add `POST /api/runtime/pbl/chat` in Rust with:
+  - target-agent resolution from `@question` / `@judge` / direct role mention
+  - current-issue context injection
+  - recent-message context injection
+  - explicit user-role context
+- add issue completion / next-issue activation semantics in Rust runtime helpers instead of frontend-only mutation
+- update AI-Tutor frontend project workspace to call the Rust PBL runtime route instead of local-only worklog behavior
+
+Verification:
+- API tests for target-agent resolution and invalid request handling
+- orchestrator/domain tests for issue progression semantics
+- frontend integration tests for project workspace chat + issue advancement against the real Rust route
+
+### Program E: Production Completion Gates
+
+Target:
+- define what must be true before claiming OpenMAIC-class production readiness
+
+Required gates:
+- live session engine shipped and used by the main lesson runtime
+- interactive renderer shipped for generated HTML scenes
+- PBL workspace shipped for generated project scenes
+- end-to-end tests for generation -> lesson retrieval -> playback -> live tutoring -> interruption/resume
+- production runbooks updated for frontend/runtime operational failure modes
+- remaining known parity gaps explicitly documented if any still remain
+
+Recommended execution order:
+1. Program A: Frontend Live Session Engine
+2. Program B: Scene Renderer Parity
+3. Program C: PBL Workspace Parity
+4. Program F: PBL Runtime Agent Chat Parity
+5. Program D: Deeper Agentic PBL Backend
+6. Program E: Production Completion Gates
