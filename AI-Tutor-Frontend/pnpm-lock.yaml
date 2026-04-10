@@ -174,8 +174,8 @@ importers:
         specifier: ^0.1.7
         version: 0.1.7
       pptxgenjs:
-        specifier: ^3.12.0
-        version: 3.12.0
+        specifier: workspace:*
+        version: link:../../packages/pptxgenjs
       pptxtojson:
         specifier: ^1.11.0
         version: 1.12.1
@@ -7915,9 +7915,6 @@ packages:
   powershell-utils@0.1.0:
     resolution: {integrity: sha512-dM0jVuXJPsDN6DvRpea484tCUaMiXWjuCn++HGTqUWzGDjv5tZkEZldAJ/UMlqRYGFrD/etByo4/xOuC/snX2A==}
     engines: {node: '>=20'}
-
-  pptxgenjs@3.12.0:
-    resolution: {integrity: sha512-ZozkYKWb1MoPR4ucw3/aFYlHkVIJxo9czikEclcUVnS4Iw/M+r+TEwdlB3fyAWO9JY1USxJDt0Y0/r15IR/RUA==}
 
   pptxtojson@1.12.1:
     resolution: {integrity: sha512-zCqtmUgFRxAdxIMMpkVmi7axhJFA75THAi7b4bGEikuHR4EsqcTV84TtD4CRbzPVMb+gv3ZaM8sogzsOVEMdfw==}
@@ -18174,13 +18171,6 @@ snapshots:
       - debug
 
   powershell-utils@0.1.0: {}
-
-  pptxgenjs@3.12.0:
-    dependencies:
-      '@types/node': 18.19.130
-      https: 1.0.0
-      image-size: 1.2.1
-      jszip: 3.10.1
 
   pptxtojson@1.12.1:
     dependencies:
