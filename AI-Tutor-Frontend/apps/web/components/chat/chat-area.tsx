@@ -24,7 +24,7 @@ interface ChatAreaProps {
   onActiveBubble?: (messageId: string | null) => void;
   onLiveSpeech?: (text: string | null, agentId?: string | null) => void;
   onSpeechProgress?: (ratio: number | null) => void;
-  onThinking?: (state: { stage: string; agentId?: string } | null) => void;
+  onThinking?: (state: { stage: string; agentId?: string; detail?: string } | null) => void;
   onCueUser?: (fromAgentId?: string, prompt?: string) => void;
   onLiveSessionError?: () => void;
   onStopSession?: () => void;
@@ -97,6 +97,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
       endActiveSession,
       softPauseActiveSession,
       resumeActiveSession,
+      resumeSession,
       sendMessage,
       startDiscussion,
       startLecture,
@@ -324,6 +325,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
                       activeBubbleId={activeBubbleId}
                       onToggleExpand={toggleSessionExpand}
                       onEndSession={handleEndSession}
+                      onResumeSession={resumeSession}
                     />
                     <div ref={bottomRef} />
                   </>

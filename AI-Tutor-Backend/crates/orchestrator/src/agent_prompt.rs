@@ -746,6 +746,13 @@ fn build_turn_planning_context(
         _ => "React briefly and naturally rather than lecturing.",
     };
 
+    let repetition_guard = if repeated_ideas.is_empty() {
+        "Recent repetition guard: none".to_string()
+    } else {
+        format!("Recent repetition guard:\n{}", repeated_ideas)
+    };
+    let avoid_line = format!("Avoid: {avoid}");
+
     format!(
         "## Turn Plan\nPrimary goal: {}\nRecommended move: {}\nRole bias: {}\n{}\n{}\n{}\n",
         goal,
@@ -756,12 +763,8 @@ fn build_turn_planning_context(
         } else {
             "Learner state: no explicit confusion cue detected. Keep momentum and invite thinking rather than over-explaining."
         },
-        if repeated_ideas.is_empty() {
-            "Recent repetition guard: none".to_string()
-        } else {
-            format!("Recent repetition guard:\n{}", repeated_ideas)
-        },
-        format!("Avoid: {}", avoid)
+        repetition_guard,
+        avoid_line
     )
 }
 
@@ -779,7 +782,7 @@ pub fn build_structured_prompt(
     let scene_teaching_context = build_scene_teaching_context(&payload.store_state);
     let turn_planning_context = build_turn_planning_context(agent_config, payload);
     let virtual_wb_context = build_virtual_whiteboard_context(
-        &payload
+        payload
             .director_state
             .as_ref()
             .map(|d| d.whiteboard_ledger.as_slice())

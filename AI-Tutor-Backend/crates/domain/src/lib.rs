@@ -1,6 +1,11 @@
 pub mod action;
+pub mod auth;
+pub mod billing;
+pub mod credits;
 pub mod generation;
 pub mod job;
+pub mod lesson_adaptive;
+pub mod lesson_shelf;
 pub mod lesson;
 pub mod provider;
 pub mod runtime;

@@ -109,6 +109,10 @@ impl R2AssetStore {
     }
 
     fn asset_key(&self, kind: AssetKind, lesson_id: &str, file_name: &str) -> String {
+        let lesson_id = sanitize_asset_segment(lesson_id, "lesson_id")
+            .expect("lesson_id should be validated by persist_asset");
+        let file_name = sanitize_asset_segment(file_name, "file_name")
+            .expect("file_name should be validated by persist_asset");
         let base = format!("{}/{}/{}", kind.folder_name(), lesson_id, file_name);
         if self.key_prefix.is_empty() {
             base
@@ -128,6 +132,9 @@ impl AssetStore for R2AssetStore {
         content_type: &str,
         bytes: Vec<u8>,
     ) -> Result<String> {
+        sanitize_asset_segment(lesson_id, "lesson_id")?;
+        sanitize_asset_segment(file_name, "file_name")?;
+
         let key = self.asset_key(kind, lesson_id, file_name);
         let action = self
             .bucket
@@ -148,6 +155,32 @@ impl AssetStore for R2AssetStore {
             key
         ))
     }
+}
+
+fn sanitize_asset_segment(value: &str, label: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow::anyhow!("{} must not be empty", label));
+    }
+    if trimmed == "." || trimmed == ".." || trimmed.contains("../") || trimmed.contains("..\\") {
+        return Err(anyhow::anyhow!(
+            "{} contains a disallowed path traversal segment",
+            label
+        ));
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        return Err(anyhow::anyhow!(
+            "{} must be a single path segment",
+            label
+        ));
+    }
+    if trimmed.chars().any(|ch| ch.is_control()) {
+        return Err(anyhow::anyhow!(
+            "{} must not contain control characters",
+            label
+        ));
+    }
+    Ok(trimmed.to_string())
 }
 
 fn normalize_prefix(prefix: String) -> String {
@@ -195,5 +228,19 @@ mod tests {
             "school/assets"
         );
         assert_eq!(normalize_prefix("".to_string()), "");
+    }
+
+    #[test]
+    fn sanitize_asset_segment_rejects_traversal_and_nested_paths() {
+        assert!(sanitize_asset_segment("../x", "file_name").is_err());
+        assert!(sanitize_asset_segment("..\\x", "file_name").is_err());
+        assert!(sanitize_asset_segment("nested/path", "file_name").is_err());
+        assert!(sanitize_asset_segment("nested\\path", "file_name").is_err());
+    }
+
+    #[test]
+    fn sanitize_asset_segment_accepts_safe_values() {
+        let safe = sanitize_asset_segment("lesson-01", "lesson_id").unwrap();
+        assert_eq!(safe, "lesson-01");
     }
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   Clock,
+  CreditCard,
   Copy,
   ImagePlus,
   Pencil,
@@ -16,7 +17,6 @@ import {
   Sun,
   Moon,
   Monitor,
-  BotOff,
   ChevronUp,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
@@ -32,7 +32,15 @@ import { useTheme } from '@/lib/hooks/use-theme';
 import { nanoid } from 'nanoid';
 import { storePdfBlob } from '@/lib/utils/image-storage';
 import type { UserRequirements } from '@/lib/types/generation';
-import { useSettingsStore } from '@/lib/store/settings';
+import {
+  archiveShelfItem,
+  fetchShelf,
+  markShelfOpened,
+  reopenShelfItem,
+  retryShelfItem,
+  renameShelfItem,
+  type LessonShelfItem,
+} from '@/lib/lesson/shelf-client';
 import { useUserProfileStore, AVATAR_OPTIONS } from '@/lib/store/user-profile';
 import {
   StageListItem,
@@ -44,16 +52,21 @@ import {
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
 import type { Slide } from '@/lib/types/slides';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
+import { useSettingsStore } from '@/lib/store/settings';
 import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDraftCache } from '@/lib/hooks/use-draft-cache';
 import { SpeechButton } from '@/components/audio/speech-button';
+import { clearAuthSession, getAuthSession, verifyAuthSession } from '@/lib/auth/session';
 
 const log = createLogger('Home');
 
 const WEB_SEARCH_STORAGE_KEY = 'webSearchEnabled';
 const LANGUAGE_STORAGE_KEY = 'generationLanguage';
 const RECENT_OPEN_STORAGE_KEY = 'recentClassroomsOpen';
+const LESSON_SHELF_OPEN_STORAGE_KEY = 'lessonShelfOpen';
+
+type LessonShelfFilter = 'all' | 'in-progress' | 'completed' | 'archived';
 
 interface FormState {
   pdfFile: File | null;
@@ -83,16 +96,20 @@ function HomePage() {
   const { cachedValue: cachedRequirement, updateCache: updateRequirementCache } =
     useDraftCache<string>({ key: 'requirementDraft' });
 
-  // Model setup state
-  const currentModelId = useSettingsStore((s) => s.modelId);
   const [recentOpen, setRecentOpen] = useState(true);
 
   // Hydrate client-only state after mount (avoids SSR mismatch)
-  /* eslint-disable react-hooks/set-state-in-effect -- Hydration from localStorage must happen in effect */
+   
   useEffect(() => {
     try {
       const saved = localStorage.getItem(RECENT_OPEN_STORAGE_KEY);
       if (saved !== null) setRecentOpen(saved !== 'false');
+    } catch {
+      /* localStorage unavailable */
+    }
+    try {
+      const saved = localStorage.getItem(LESSON_SHELF_OPEN_STORAGE_KEY);
+      if (saved !== null) setLessonShelfOpen(saved !== 'false');
     } catch {
       /* localStorage unavailable */
     }
@@ -114,7 +131,7 @@ function HomePage() {
       /* localStorage unavailable */
     }
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
+   
 
   // Restore requirement draft from cache (derived state pattern — no effect needed)
   const [prevCachedRequirement, setPrevCachedRequirement] = useState(cachedRequirement);
@@ -128,10 +145,28 @@ function HomePage() {
   const [themeOpen, setThemeOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [classrooms, setClassrooms] = useState<StageListItem[]>([]);
+  const [lessonShelf, setLessonShelf] = useState<LessonShelfItem[]>([]);
+  const [lessonShelfOpen, setLessonShelfOpen] = useState(true);
+  const [lessonShelfLoading, setLessonShelfLoading] = useState(false);
+  const [lessonShelfFilter, setLessonShelfFilter] = useState<LessonShelfFilter>('all');
   const [thumbnails, setThumbnails] = useState<Record<string, Slide>>({});
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingShelfAction, setPendingShelfAction] = useState<string | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const dashboardMetrics = useMemo(() => {
+    const totalClassrooms = classrooms.length;
+    const totalLessons = lessonShelf.length;
+    const inProgress = lessonShelf.filter((item) => item.status === 'generating').length;
+    const completed = lessonShelf.filter(
+      (item) => item.status === 'ready' && item.progress_pct >= 100,
+    ).length;
+    return { totalClassrooms, totalLessons, inProgress, completed };
+  }, [classrooms, lessonShelf]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -159,6 +194,18 @@ function HomePage() {
     }
   };
 
+  const loadLessonShelf = async () => {
+    setLessonShelfLoading(true);
+    try {
+      const response = await fetchShelf();
+      setLessonShelf(response.items);
+    } catch (err) {
+      log.error('Failed to load lesson shelf:', err);
+    } finally {
+      setLessonShelfLoading(false);
+    }
+  };
+
   useEffect(() => {
     // Clear stale media store to prevent cross-course thumbnail contamination.
     // The store may hold tasks from a previously visited classroom whose elementIds
@@ -166,9 +213,65 @@ function HomePage() {
     useMediaGenerationStore.getState().revokeObjectUrls();
     useMediaGenerationStore.setState({ tasks: {} });
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Store hydration on mount
+     
     loadClassrooms();
+    loadLessonShelf();
   }, []);
+
+  useEffect(() => {
+    const hydrateAuth = async () => {
+      const session = getAuthSession();
+      if (!session?.token) {
+        setIsAuthenticated(false);
+        setAccountEmail(null);
+        setAuthChecking(false);
+        return;
+      }
+
+      try {
+        const ok = await verifyAuthSession();
+        if (!ok) {
+          clearAuthSession();
+          setIsAuthenticated(false);
+          setAccountEmail(null);
+        } else {
+          setIsAuthenticated(true);
+          setAccountEmail(session.email || null);
+        }
+      } catch {
+        clearAuthSession();
+        setIsAuthenticated(false);
+        setAccountEmail(null);
+      } finally {
+        setAuthChecking(false);
+      }
+    };
+
+    hydrateAuth();
+  }, []);
+
+  const persistLessonShelfOpen = (next: boolean) => {
+    setLessonShelfOpen(next);
+    try {
+      localStorage.setItem(LESSON_SHELF_OPEN_STORAGE_KEY, String(next));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const visibleLessonShelf = lessonShelf.filter((item) => {
+    switch (lessonShelfFilter) {
+      case 'in-progress':
+        return item.status === 'generating' || (item.status === 'ready' && item.progress_pct < 100);
+      case 'completed':
+        return item.status === 'ready' && item.progress_pct >= 100;
+      case 'archived':
+        return item.status === 'archived';
+      case 'all':
+      default:
+        return true;
+    }
+  });
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -193,6 +296,71 @@ function HomePage() {
     } catch (err) {
       log.error('Failed to rename classroom:', err);
       toast.error(t('classroom.renameFailed'));
+    }
+  };
+
+  const handleOpenShelfItem = async (item: LessonShelfItem) => {
+    try {
+      if (item.status !== 'archived') {
+        await markShelfOpened(item.lesson_id, item.id);
+      }
+    } catch (err) {
+      log.warn('Failed to mark lesson shelf item opened:', err);
+    }
+    router.push(`/classroom/${item.lesson_id}`);
+  };
+
+  const handleRenameShelfItem = async (item: LessonShelfItem) => {
+    const nextName = window.prompt(t('classroom.shelf.renamePrompt'), item.title)?.trim();
+    if (!nextName || nextName === item.title) return;
+    setPendingShelfAction(item.id);
+    try {
+      await renameShelfItem(item.id, nextName);
+      await loadLessonShelf();
+    } catch (err) {
+      log.error('Failed to rename lesson shelf item:', err);
+      toast.error(t('classroom.shelf.renameFailed'));
+    } finally {
+      setPendingShelfAction(null);
+    }
+  };
+
+  const handleArchiveShelfItem = async (item: LessonShelfItem) => {
+    setPendingShelfAction(item.id);
+    try {
+      await archiveShelfItem(item.id);
+      await loadLessonShelf();
+    } catch (err) {
+      log.error('Failed to archive lesson shelf item:', err);
+      toast.error(t('classroom.shelf.archiveFailed'));
+    } finally {
+      setPendingShelfAction(null);
+    }
+  };
+
+  const handleReopenShelfItem = async (item: LessonShelfItem) => {
+    setPendingShelfAction(item.id);
+    try {
+      await reopenShelfItem(item.id);
+      await loadLessonShelf();
+    } catch (err) {
+      log.error('Failed to reopen lesson shelf item:', err);
+      toast.error(t('classroom.shelf.reopenFailed'));
+    } finally {
+      setPendingShelfAction(null);
+    }
+  };
+
+  const handleRetryShelfItem = async (item: LessonShelfItem) => {
+    setPendingShelfAction(item.id);
+    try {
+      await retryShelfItem(item.id);
+      await loadLessonShelf();
+    } catch (err) {
+      log.error('Failed to retry lesson shelf item:', err);
+      toast.error(t('classroom.shelf.retryFailed'));
+    } finally {
+      setPendingShelfAction(null);
     }
   };
 
@@ -238,19 +406,30 @@ function HomePage() {
   };
 
   const handleGenerate = async () => {
-    // Validate setup before proceeding
-    if (!currentModelId) {
-      showSetupToast(
-        <BotOff className="size-4.5 text-amber-600 dark:text-amber-400" />,
-        t('settings.modelNotConfigured'),
-        t('settings.setupNeeded'),
-      );
-      setSettingsOpen(true);
+    if (authChecking) return;
+
+    if (!isAuthenticated) {
+      router.push('/auth?next=/');
+      return;
+    }
+
+    const verified = await verifyAuthSession();
+    if (!verified) {
+      clearAuthSession();
+      setIsAuthenticated(false);
+      setAccountEmail(null);
+      router.push('/auth?next=/');
       return;
     }
 
     if (!form.requirement.trim()) {
       setError(t('upload.requirementRequired'));
+      return;
+    }
+
+    // Language selection is mandatory for deterministic generation behavior.
+    if (!form.language) {
+      setError(t('toolbar.languageHint'));
       return;
     }
 
@@ -338,6 +517,18 @@ function HomePage() {
       >
         {/* Language Selector */}
         <LanguageSwitcher onOpen={() => setThemeOpen(false)} />
+
+        <button
+          onClick={() => {
+            setThemeOpen(false);
+            router.push('/billing');
+          }}
+          className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
+          title="Open billing"
+          aria-label="Open billing"
+        >
+          <CreditCard className="w-4 h-4" />
+        </button>
 
         <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
 
@@ -432,6 +623,76 @@ function HomePage() {
           className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse"
           style={{ animationDuration: '6s' }}
         />
+      </div>
+
+      <div className="relative z-20 mb-6 w-full max-w-6xl rounded-2xl border border-border/60 bg-white/70 p-4 backdrop-blur-xl dark:bg-slate-900/70">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground/70">Workspace</p>
+            <p className="text-sm font-medium text-foreground/80">
+              {authChecking
+                ? 'Verifying session...'
+                : isAuthenticated
+                  ? `Authenticated${accountEmail ? ` as ${accountEmail}` : ''}`
+                  : 'Not authenticated'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isAuthenticated ? (
+              <button
+                type="button"
+                onClick={() => {
+                  clearAuthSession();
+                  setIsAuthenticated(false);
+                  setAccountEmail(null);
+                }}
+                className="rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-medium hover:bg-muted/60"
+              >
+                Sign out
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => router.push('/auth?next=/')}
+                className="rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-medium hover:bg-muted/60"
+              >
+                Sign in
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => router.push('/billing')}
+              className="rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-medium hover:bg-muted/60"
+            >
+              Billing
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push('/admin')}
+              className="rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-medium hover:bg-muted/60"
+            >
+              Admin
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-border/60 bg-background p-3">
+            <p className="text-xs text-muted-foreground">Classrooms</p>
+            <p className="mt-1 text-xl font-semibold">{dashboardMetrics.totalClassrooms}</p>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background p-3">
+            <p className="text-xs text-muted-foreground">Lessons</p>
+            <p className="mt-1 text-xl font-semibold">{dashboardMetrics.totalLessons}</p>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background p-3">
+            <p className="text-xs text-muted-foreground">In Progress</p>
+            <p className="mt-1 text-xl font-semibold">{dashboardMetrics.inProgress}</p>
+          </div>
+          <div className="rounded-xl border border-border/60 bg-background p-3">
+            <p className="text-xs text-muted-foreground">Completed</p>
+            <p className="mt-1 text-xl font-semibold">{dashboardMetrics.completed}</p>
+          </div>
+        </div>
       </div>
 
       {/* ═══ Hero section: title + input (centered, wider) ═══ */}
@@ -529,10 +790,10 @@ function HomePage() {
               {/* Send button */}
               <button
                 onClick={handleGenerate}
-                disabled={!canGenerate}
+                disabled={!canGenerate || authChecking}
                 className={cn(
                   'shrink-0 h-8 rounded-lg flex items-center justify-center gap-1.5 transition-all px-3',
-                  canGenerate
+                  canGenerate && !authChecking
                     ? 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm cursor-pointer'
                     : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
                 )}
@@ -558,6 +819,175 @@ function HomePage() {
           )}
         </AnimatePresence>
       </motion.div>
+
+      {/* ═══ Lesson shelf ═══ */}
+      {(lessonShelfLoading || lessonShelf.length > 0) && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.42 }}
+          className="relative z-10 mt-8 w-full max-w-6xl flex flex-col items-center"
+        >
+          <button
+            onClick={() => persistLessonShelfOpen(!lessonShelfOpen)}
+            className="group w-full flex items-center gap-4 py-2 cursor-pointer"
+          >
+            <div className="flex-1 h-px bg-border/40 group-hover:bg-border/70 transition-colors" />
+            <span className="shrink-0 flex items-center gap-2 text-[13px] text-muted-foreground/60 group-hover:text-foreground/70 transition-colors select-none">
+              <Check className="size-3.5" />
+              {t('classroom.shelf.title')}
+              <span className="text-[11px] tabular-nums opacity-60">{lessonShelf.length}</span>
+              <motion.div
+                animate={{ rotate: lessonShelfOpen ? 180 : 0 }}
+                transition={{ duration: 0.3, ease: 'easeInOut' }}
+              >
+                <ChevronUp className="size-3.5" />
+              </motion.div>
+            </span>
+            <div className="flex-1 h-px bg-border/40 group-hover:bg-border/70 transition-colors" />
+          </button>
+
+          {lessonShelfOpen && (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {(['all', 'in-progress', 'completed', 'archived'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setLessonShelfFilter(filter)}
+                  className={cn(
+                    'rounded-full px-3 py-1.5 text-xs font-medium transition-colors border',
+                    lessonShelfFilter === filter
+                      ? 'bg-foreground text-background border-foreground'
+                      : 'bg-background/80 text-muted-foreground border-border/60 hover:bg-muted/60',
+                  )}
+                >
+                  {filter === 'in-progress'
+                    ? t('classroom.shelf.filterInProgress')
+                    : filter === 'all'
+                      ? t('classroom.shelf.filterAll')
+                      : filter === 'completed'
+                        ? t('classroom.shelf.filterCompleted')
+                        : t('classroom.shelf.filterArchived')}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <AnimatePresence>
+            {lessonShelfOpen && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
+                className="w-full overflow-hidden"
+              >
+                {lessonShelfLoading ? (
+                  <div className="pt-8 text-center text-sm text-muted-foreground/60">
+                    {t('classroom.shelf.loading')}
+                  </div>
+                ) : (
+                  <div className="pt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {visibleLessonShelf.map((item, index) => (
+                      <motion.div
+                        key={item.id}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.04, duration: 0.35, ease: 'easeOut' }}
+                        className="rounded-2xl border border-border/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-sm shadow-black/[0.03] dark:shadow-black/20 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-foreground truncate">{item.title}</p>
+                            <p className="mt-1 text-xs text-muted-foreground/60">
+                              {item.subject || t('classroom.shelf.generalSubject')}
+                              {item.language ? ` · ${item.language}` : ''}
+                            </p>
+                          </div>
+                          <span className={cn(
+                            'shrink-0 rounded-full px-2 py-1 text-[11px] font-medium capitalize',
+                            item.status === 'ready' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+                            item.status === 'generating' && 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+                            item.status === 'failed' && 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
+                            item.status === 'archived' && 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
+                          )}>
+                            {item.status}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-500"
+                            style={{ width: `${Math.max(4, Math.min(100, item.progress_pct || 0))}%` }}
+                          />
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between gap-2 text-[11px] text-muted-foreground/50">
+                          <span>
+                            {item.updated_at
+                              ? new Date(item.updated_at).toLocaleDateString()
+                              : t('classroom.shelf.justNow')}
+                          </span>
+                          {item.failure_reason ? <span className="truncate max-w-[60%]">{item.failure_reason}</span> : null}
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+                          <button
+                            onClick={() => handleOpenShelfItem(item)}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+                          >
+                            {t('classroom.shelf.open')}
+                          </button>
+                          <button
+                            onClick={() => handleRenameShelfItem(item)}
+                            disabled={pendingShelfAction === item.id}
+                            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs font-medium text-foreground/80 hover:bg-muted/60 transition-colors disabled:opacity-50"
+                          >
+                            <Pencil className="size-3.5" />
+                            {t('classroom.shelf.rename')}
+                          </button>
+                          {item.status === 'archived' ? (
+                            <button
+                              onClick={() => handleReopenShelfItem(item)}
+                              disabled={pendingShelfAction === item.id}
+                              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs font-medium text-foreground/80 hover:bg-muted/60 transition-colors disabled:opacity-50"
+                            >
+                              {t('classroom.shelf.reopen')}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleArchiveShelfItem(item)}
+                              disabled={pendingShelfAction === item.id}
+                              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-xs font-medium text-foreground/80 hover:bg-muted/60 transition-colors disabled:opacity-50"
+                            >
+                              <Trash2 className="size-3.5" />
+                              {t('classroom.shelf.archive')}
+                            </button>
+                          )}
+                          {item.status === 'failed' ? (
+                            <button
+                              onClick={() => handleRetryShelfItem(item)}
+                              disabled={pendingShelfAction === item.id}
+                              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-500/15 transition-colors disabled:opacity-50"
+                            >
+                              {t('classroom.shelf.retry')}
+                            </button>
+                          ) : null}
+                        </div>
+                      </motion.div>
+                    ))}
+                    {visibleLessonShelf.length === 0 ? (
+                      <div className="col-span-full rounded-2xl border border-dashed border-border/60 bg-white/60 dark:bg-slate-900/60 p-8 text-center text-sm text-muted-foreground/60">
+                        {t('classroom.shelf.empty')}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
 
       {/* ═══ Recent classrooms — collapsible ═══ */}
       {classrooms.length > 0 && (

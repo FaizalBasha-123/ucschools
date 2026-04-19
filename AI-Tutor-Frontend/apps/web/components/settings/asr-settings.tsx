@@ -72,7 +72,7 @@ export function ASRSettings({ selectedProviderId }: ASRSettingsProps) {
           setTestMessage(t('settings.asrNotSupported'));
           return;
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Vendor-prefixed API without standard typings
+         
         const recognition = new (SpeechRecognitionCtor as new () => any)();
         recognition.lang = asrLanguage || 'zh-CN';
         recognition.onresult = (event: {

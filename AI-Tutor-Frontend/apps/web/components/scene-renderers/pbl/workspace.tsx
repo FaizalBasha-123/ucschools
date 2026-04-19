@@ -10,6 +10,7 @@ import { PBLGuidePanel } from './guide';
 import { useI18n } from '@/lib/hooks/use-i18n';
 
 interface PBLWorkspaceProps {
+  readonly sceneId: string;
   readonly projectConfig: PBLProjectConfig;
   readonly userRole: string;
   readonly onConfigUpdate: (config: PBLProjectConfig) => void;
@@ -17,6 +18,7 @@ interface PBLWorkspaceProps {
 }
 
 export function PBLWorkspace({
+  sceneId,
   projectConfig,
   userRole,
   onConfigUpdate,
@@ -26,6 +28,7 @@ export function PBLWorkspace({
   const [showConfirm, setShowConfirm] = useState(false);
 
   const { messages, isLoading, sendMessage, currentIssue } = usePBLChat({
+    sessionId: `scene:${sceneId}`,
     projectConfig,
     userRole,
     onConfigUpdate,

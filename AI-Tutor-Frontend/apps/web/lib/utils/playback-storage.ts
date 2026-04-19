@@ -29,7 +29,7 @@ export async function savePlaybackState(
     consumedDiscussions: snapshot.consumedDiscussions,
     sceneId: snapshot.sceneId,
     updatedAt: Date.now(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
   } as any);
 }
 
@@ -45,7 +45,7 @@ export async function loadPlaybackState(stageId: string): Promise<PlaybackSnapsh
     sceneIndex: record.sceneIndex,
     actionIndex: record.actionIndex,
     consumedDiscussions: record.consumedDiscussions,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     sceneId: (record as any).sceneId as string | undefined,
   };
 }

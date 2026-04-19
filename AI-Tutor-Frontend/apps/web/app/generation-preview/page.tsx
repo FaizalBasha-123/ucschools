@@ -27,6 +27,7 @@ import type { Stage } from '@/lib/types/stage';
 import type { SceneOutline, PdfImage, ImageMapping } from '@/lib/types/generation';
 import { AgentRevealModal } from '@/components/agent/agent-reveal-modal';
 import { createLogger } from '@/lib/logger';
+import { getSessionToken } from '@/lib/auth/session';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
 import { StepVisualizer } from './components/visualizers';
 
@@ -82,6 +83,13 @@ function GenerationPreviewContent() {
     setSessionLoaded(true);
   }, []);
 
+  useEffect(() => {
+    if (!sessionLoaded) return;
+    if (!getSessionToken()) {
+      router.replace('/auth?next=/');
+    }
+  }, [sessionLoaded, router]);
+
   // Abort all in-flight requests on unmount
   useEffect(() => {
     return () => {
@@ -95,9 +103,10 @@ function GenerationPreviewContent() {
     const settings = useSettingsStore.getState();
     const imageProviderConfig = settings.imageProvidersConfig?.[settings.imageProviderId];
     const videoProviderConfig = settings.videoProvidersConfig?.[settings.videoProviderId];
+    const token = getSessionToken();
     return {
       'Content-Type': 'application/json',
-      'x-model': modelConfig.modelString,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       'x-api-key': modelConfig.apiKey,
       'x-base-url': modelConfig.baseUrl,
       'x-provider-type': modelConfig.providerType || '',
@@ -192,6 +201,12 @@ function GenerationPreviewContent() {
 
         const parseResponse = await fetch('/api/parse-pdf', {
           method: 'POST',
+          headers: (() => {
+            const token = getSessionToken();
+            const headers: Record<string, string> = {};
+            if (token) headers.Authorization = `Bearer ${token}`;
+            return headers;
+          })(),
           body: parseFormData,
           signal,
         });

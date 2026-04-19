@@ -31,7 +31,7 @@ const log = createLogger('ChatSessions');
 interface UseChatSessionsOptions {
   onLiveSpeech?: (text: string | null, agentId?: string | null) => void;
   onSpeechProgress?: (ratio: number | null) => void;
-  onThinking?: (state: { stage: string; agentId?: string } | null) => void;
+  onThinking?: (state: { stage: string; agentId?: string; detail?: string } | null) => void;
   onCueUser?: (fromAgentId?: string, prompt?: string) => void;
   onActiveBubble?: (messageId: string | null) => void;
   onLiveSessionError?: () => void;
@@ -96,6 +96,7 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
   const [isStreaming, setIsStreaming] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingSessionIdRef = useRef<string | null>(null);
+  const resumeInFlightSessionIdRef = useRef<string | null>(null);
   const sessionsRef = useRef<ChatSession[]>(sessions);
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -451,7 +452,6 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
         userProfile?: { nickname?: string; bio?: string };
         apiKey: string;
         baseUrl?: string;
-        model?: string;
         providerType?: string;
         requiresApiKey?: boolean;
       },
@@ -831,8 +831,24 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
    */
   const resumeSession = useCallback(
     async (sessionId: string): Promise<void> => {
+      if (resumeInFlightSessionIdRef.current) return;
+
       const session = sessionsRef.current.find((s) => s.id === sessionId);
-      if (!session || session.status !== 'active') return;
+      if (!session || (session.status !== 'active' && session.status !== 'interrupted')) return;
+
+      resumeInFlightSessionIdRef.current = sessionId;
+
+      if (session.status === 'interrupted') {
+        const now = Date.now();
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === sessionId ? { ...s, status: 'active' as SessionStatus, updatedAt: now } : s,
+          ),
+        );
+      }
+
+      setActiveSessionId(sessionId);
+      setExpandedSessionIds((prev) => new Set([...prev, sessionId]));
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -873,7 +889,6 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
             },
             apiKey: mc.apiKey,
             baseUrl: mc.baseUrl,
-            model: mc.modelString,
             providerType: mc.providerType,
             requiresApiKey: mc.requiresApiKey,
           },
@@ -895,6 +910,9 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
           abortControllerRef.current = null;
           streamingSessionIdRef.current = null;
           setIsStreaming(false);
+        }
+        if (resumeInFlightSessionIdRef.current === sessionId) {
+          resumeInFlightSessionIdRef.current = null;
         }
       }
     },
@@ -958,10 +976,6 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
 
       // Validate model configuration before sending
       const modelConfig = getCurrentModelConfig();
-      if (!modelConfig.modelId) {
-        toast.error(t('settings.modelNotConfigured'));
-        return;
-      }
       if (modelConfig.requiresApiKey && !modelConfig.apiKey && !modelConfig.isServerConfigured) {
         toast.error(t('settings.setupNeeded'), {
           description: t('settings.apiKeyDesc'),
@@ -1085,7 +1099,6 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
             },
             apiKey: mc.apiKey,
             baseUrl: mc.baseUrl,
-            model: mc.modelString,
             providerType: mc.providerType,
             requiresApiKey: mc.requiresApiKey,
           },
@@ -1136,10 +1149,6 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
 
       // Validate model configuration before starting discussion
       const modelConfig = getCurrentModelConfig();
-      if (!modelConfig.modelId) {
-        toast.error(t('settings.modelNotConfigured'));
-        return;
-      }
       if (modelConfig.requiresApiKey && !modelConfig.apiKey && !modelConfig.isServerConfigured) {
         toast.error(t('settings.setupNeeded'), {
           description: t('settings.apiKeyDesc'),
@@ -1228,7 +1237,6 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
             },
             apiKey: mc.apiKey,
             baseUrl: mc.baseUrl,
-            model: mc.modelString,
             providerType: mc.providerType,
             requiresApiKey: mc.requiresApiKey,
           },
@@ -1492,5 +1500,6 @@ export function useChatSessions(options: UseChatSessionsOptions = {}) {
     resumeBuffer,
     pauseActiveLiveBuffer,
     resumeActiveLiveBuffer,
+    resumeSession,
   };
 }

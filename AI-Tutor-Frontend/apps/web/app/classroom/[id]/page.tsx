@@ -5,26 +5,34 @@ import { ThemeProvider } from '@/lib/hooks/use-theme';
 import { useStageStore } from '@/lib/store';
 import { loadImageMapping } from '@/lib/utils/image-storage';
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { Download } from 'lucide-react';
 import { useSceneGenerator } from '@/lib/hooks/use-scene-generator';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
 import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
 import { createLogger } from '@/lib/logger';
 import { MediaStageProvider } from '@/lib/contexts/media-stage-context';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
+import { markShelfOpened } from '@/lib/lesson/shelf-client';
+import { useI18n } from '@/lib/hooks/use-i18n';
+import { getSessionToken } from '@/lib/auth/session';
 
 const log = createLogger('Classroom');
 
 export default function ClassroomDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const classroomId = params?.id as string;
+  const { t } = useI18n();
 
   const { loadFromStorage } = useStageStore();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const generationStartedRef = useRef(false);
+  const shelfOpenedRef = useRef(false);
 
   const { generateRemaining, retrySingleOutline, stop } = useSceneGenerator({
     onComplete: () => {
@@ -93,18 +101,23 @@ export default function ClassroomDetailPage() {
         useSettingsStore
           .getState()
           .setSelectedAgentIds(
-            cleanIds && cleanIds.length > 0 ? cleanIds : ['default-1', 'default-2', 'default-3'],
+            cleanIds && cleanIds.length > 0 ? cleanIds : ['default-1'],
           );
       }
     } catch (error) {
       log.error('Failed to load classroom:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load classroom');
+      setError(error instanceof Error ? error.message : t('classroom.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [classroomId, loadFromStorage]);
+  }, [classroomId, loadFromStorage, t]);
 
   useEffect(() => {
+    if (!getSessionToken()) {
+      router.replace(`/auth?next=${encodeURIComponent(`/classroom/${classroomId}`)}`);
+      return;
+    }
+
     // Reset loading state on course switch to unmount Stage during transition,
     // preventing stale data from syncing back to the new course
     setLoading(true);
@@ -127,7 +140,15 @@ export default function ClassroomDetailPage() {
     return () => {
       stop();
     };
-  }, [classroomId, loadClassroom, stop]);
+  }, [classroomId, loadClassroom, router, stop]);
+
+  useEffect(() => {
+    if (loading || error || shelfOpenedRef.current) return;
+    shelfOpenedRef.current = true;
+    markShelfOpened(classroomId).catch((err) => {
+      log.warn('Failed to mark lesson shelf opened:', err);
+    });
+  }, [classroomId, loading, error]);
 
   // Auto-resume generation for pending outlines
   useEffect(() => {
@@ -177,20 +198,61 @@ export default function ClassroomDetailPage() {
     }
   }, [loading, error, generateRemaining]);
 
+  const handleExportVideo = async () => {
+    setExporting(true);
+    try {
+      const response = await fetch(`/api/lessons/${encodeURIComponent(classroomId)}/export/video`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status}`);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `lesson-${classroomId}.mp4`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      log.error('Failed to export lesson video:', err);
+      setError(t('classroom.exportVideoFailed'));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <ThemeProvider>
       <MediaStageProvider value={classroomId}>
         <div className="h-screen flex flex-col overflow-hidden">
+          {!loading && !error && (
+            <div className="fixed right-3 bottom-3 z-40 flex flex-col gap-2 md:right-4 md:bottom-4">
+              <button
+                onClick={handleExportVideo}
+                disabled={exporting}
+                className="rounded-lg border border-border/70 bg-white/95 px-3 py-2 text-xs font-medium shadow-sm backdrop-blur hover:bg-muted disabled:opacity-60"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Download className="size-3.5" />
+                  {exporting ? t('classroom.exportingVideo') : t('classroom.exportVideo')}
+                </span>
+              </button>
+            </div>
+          )}
           {loading ? (
             <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
               <div className="text-center text-muted-foreground">
-                <p>Loading classroom...</p>
+                <p>{t('classroom.loading')}</p>
               </div>
             </div>
           ) : error ? (
             <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
               <div className="text-center">
-                <p className="text-destructive mb-4">Error: {error}</p>
+                <p className="text-destructive mb-4">{t('classroom.errorPrefix')}: {error}</p>
                 <button
                   onClick={() => {
                     setError(null);
@@ -199,7 +261,7 @@ export default function ClassroomDetailPage() {
                   }}
                   className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                 >
-                  Retry
+                  {t('classroom.retry')}
                 </button>
               </div>
             </div>

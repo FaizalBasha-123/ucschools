@@ -34,28 +34,23 @@ pub struct ServerProviderConfig {
 
 impl ServerProviderConfig {
     pub fn from_env() -> Self {
-        let mut config = Self::default();
-        config.llm_provider_priority = env::var("AI_TUTOR_LLM_PROVIDER_PRIORITY")
-            .ok()
-            .map(|raw| {
-                raw.split(',')
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|provider| provider.to_ascii_lowercase())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        config.llm_circuit_breaker_threshold = env::var("AI_TUTOR_LLM_CIRCUIT_BREAKER_THRESHOLD")
+        let llm_circuit_breaker_threshold = env::var("AI_TUTOR_LLM_CIRCUIT_BREAKER_THRESHOLD")
             .ok()
             .and_then(|value| value.parse::<u32>().ok())
             .filter(|value| *value > 0)
             .unwrap_or(2);
-        config.llm_circuit_breaker_cooldown_ms =
-            env::var("AI_TUTOR_LLM_CIRCUIT_BREAKER_COOLDOWN_MS")
-                .ok()
-                .and_then(|value| value.parse::<u64>().ok())
-                .filter(|value| *value > 0)
-                .unwrap_or(30_000);
+        let llm_circuit_breaker_cooldown_ms = env::var("AI_TUTOR_LLM_CIRCUIT_BREAKER_COOLDOWN_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(30_000);
+
+        let mut config = Self {
+            llm_provider_priority: Vec::new(),
+            llm_circuit_breaker_threshold,
+            llm_circuit_breaker_cooldown_ms,
+            ..Self::default()
+        };
 
         for (prefix, provider_id) in provider_prefixes() {
             let api_key = env::var(format!("{prefix}_API_KEY")).ok();
@@ -103,26 +98,11 @@ impl ServerProviderConfig {
     }
 
     pub fn ordered_llm_provider_ids(&self, primary_provider_id: Option<&str>) -> Vec<String> {
-        let mut ordered = Vec::new();
-
         if let Some(primary) = primary_provider_id {
-            ordered.push(primary.to_ascii_lowercase());
+            return vec![primary.to_ascii_lowercase()];
         }
 
-        for provider_id in &self.llm_provider_priority {
-            if self.providers.contains_key(provider_id) && !ordered.contains(provider_id) {
-                ordered.push(provider_id.clone());
-            }
-        }
-
-        for (_, provider_id) in provider_prefixes() {
-            let normalized = provider_id.to_ascii_lowercase();
-            if self.providers.contains_key(&normalized) && !ordered.contains(&normalized) {
-                ordered.push(normalized);
-            }
-        }
-
-        ordered
+        Vec::new()
     }
 }
 

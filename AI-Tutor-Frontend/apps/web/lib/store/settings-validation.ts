@@ -18,21 +18,15 @@ export function isProviderUsable(cfg: ProviderCfgLike | undefined): boolean {
 
 /**
  * Validate current provider selection against updated config.
- * Returns the current ID if still usable, otherwise the first usable
- * provider from fallbackOrder, or defaultId if provided, or ''.
+ * Returns the current ID if still usable, otherwise defaultId if provided, or ''.
  */
 export function validateProvider<T extends string>(
   currentId: T | '',
   configMap: Partial<Record<T, ProviderCfgLike>>,
-  fallbackOrder: T[],
   defaultId?: T,
 ): T | '' {
   if (!currentId) return currentId;
   if (isProviderUsable(configMap[currentId])) return currentId;
-
-  for (const id of fallbackOrder) {
-    if (isProviderUsable(configMap[id])) return id;
-  }
   return defaultId ?? '';
 }
 

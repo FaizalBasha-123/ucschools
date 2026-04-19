@@ -90,7 +90,6 @@ async function gradeShortAnswerQuestion(
     const modelConfig = getCurrentModelConfig();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'x-model': modelConfig.modelString,
       'x-api-key': modelConfig.apiKey,
     };
     if (modelConfig.baseUrl) headers['x-base-url'] = modelConfig.baseUrl;

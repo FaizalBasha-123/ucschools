@@ -180,7 +180,7 @@ export async function getFirstSlideByStages(
 
           // Resolve gen_img_* placeholders from mediaFiles
           const placeholderEls = slide.elements.filter(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             (el: any) => el.type === 'image' && /^gen_(img|vid)_[\w-]+$/i.test(el.src as string),
           );
           if (placeholderEls.length > 0) {

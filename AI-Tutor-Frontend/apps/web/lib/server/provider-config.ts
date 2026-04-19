@@ -38,6 +38,7 @@ interface ServerConfig {
 // ---------------------------------------------------------------------------
 
 const LLM_ENV_MAP: Record<string, string> = {
+  OPENROUTER: 'openrouter',
   OPENAI: 'openai',
   ANTHROPIC: 'anthropic',
   GOOGLE: 'google',

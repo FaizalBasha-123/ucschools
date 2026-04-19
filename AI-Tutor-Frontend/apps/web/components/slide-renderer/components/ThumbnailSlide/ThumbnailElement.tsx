@@ -22,7 +22,7 @@ interface ThumbnailElementProps {
  */
 export function ThumbnailElement({ elementInfo, elementIndex }: ThumbnailElementProps) {
   const CurrentElementComponent = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- element components have varying prop signatures
+     
     const elementTypeMap: Record<string, any> = {
       [ElementTypes.IMAGE]: BaseImageElement,
       [ElementTypes.TEXT]: BaseTextElement,

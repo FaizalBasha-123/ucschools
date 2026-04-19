@@ -68,7 +68,12 @@ Schools24-frontend/node_modules/
 **/.env
 **/.env.local
 **/.env.production
+**/.env.development
+**/.env.staging
+**/.env.test
+**/.env.*.local
 !.env.example
+!.env.template
 
 # ── Local development / Ethernet diagnostics ────────────────────
 ethernet_config.json
@@ -108,3 +113,8 @@ backups/
 # ── Logs ─────────────────────────────────────────────────────────
 *.log
 logs/
+
+# ── Local payment gateway package artifacts ───────────────────────
+tmp_easebuzz_pkg/
+easebuzz-*.html
+easebuzz-*.json

@@ -38,7 +38,6 @@ function getApiHeaders(): HeadersInit {
 
   return {
     'Content-Type': 'application/json',
-    'x-model': config.modelString || '',
     'x-api-key': config.apiKey || '',
     'x-base-url': config.baseUrl || '',
     'x-provider-type': config.providerType || '',

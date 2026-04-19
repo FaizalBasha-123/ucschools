@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "pnpm --filter mathml2omml build && next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
     "@ai-tutor/types": "workspace:*",

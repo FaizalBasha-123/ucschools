@@ -16,10 +16,10 @@ use ai_tutor_domain::{
     action::LessonAction,
     generation::{Language, LessonGenerationRequest},
     scene::{
-        InteractiveConfig, MediaGenerationRequest, MediaType, ProjectConfig,
-        ProjectIssue, ProjectAgentRole, ProjectOutlineConfig, QuizConfig, QuizOption,
-        QuizQuestion, QuizQuestionType, ScientificModel, SceneContent, SceneOutline, SceneType,
-        SlideCanvas, SlideElement, SlideTheme,
+        InteractiveConfig, MediaGenerationRequest, MediaType, ProjectAgentRole, ProjectConfig,
+        ProjectIssue, ProjectOutlineConfig, QuizConfig, QuizOption, QuizQuestion, QuizQuestionType,
+        SceneContent, SceneOutline, SceneType, ScientificModel, SlideCanvas, SlideElement,
+        SlideTheme,
     },
 };
 use ai_tutor_providers::traits::LlmProvider;
@@ -38,6 +38,7 @@ pub struct LlmGenerationPipeline {
 
 struct WebSearchConfig {
     api_key: String,
+    base_url: String,
     max_results: usize,
     client: reqwest::Client,
 }
@@ -56,7 +57,7 @@ struct TavilySource {
     title: String,
     #[serde(default)]
     url: String,
-    #[serde(default)]
+    #[serde(default, alias = "content")]
     content: String,
 }
 
@@ -101,10 +102,12 @@ impl LlmGenerationPipeline {
     pub fn with_tavily_web_search(
         mut self,
         api_key: impl Into<String>,
+        base_url: impl Into<String>,
         max_results: usize,
     ) -> Self {
         self.web_search = Some(WebSearchConfig {
             api_key: api_key.into(),
+            base_url: base_url.into(),
             max_results: max_results.max(1),
             client: reqwest::Client::new(),
         });
@@ -258,13 +261,13 @@ impl LlmGenerationPipeline {
         query = query.chars().take(TAVILY_SOFT_MAX_QUERY_LENGTH).collect();
         let response = config
             .client
-            .post("https://api.tavily.com/search")
-            .bearer_auth(&config.api_key)
+            .post(&config.base_url)
+            .header("Authorization", format!("Bearer {}", config.api_key))
             .json(&serde_json::json!({
                 "query": query,
                 "search_depth": "basic",
                 "max_results": config.max_results,
-                "include_answer": "basic"
+                "include_answer": "basic",
             }))
             .send()
             .await?;
@@ -272,11 +275,7 @@ impl LlmGenerationPipeline {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(anyhow!(
-                "tavily search failed: status={} body={}",
-                status,
-                body
-            ));
+            return Err(anyhow!("tavily search failed: status={} body={}", status, body));
         }
 
         let result: TavilySearchResponse = response.json().await?;
@@ -375,7 +374,8 @@ impl LlmGenerationPipeline {
         research_context: &Option<String>,
     ) -> Option<ScientificModel> {
         let config = outline.interactive_config.as_ref()?;
-        let system = "You revise scientific models for educational interactives. Return strict JSON only.";
+        let system =
+            "You revise scientific models for educational interactives. Return strict JSON only.";
         let user = format!(
             "Revise this scientific model so it is complete and classroom-usable.\n\
              Requirement: {}\n\
@@ -416,7 +416,7 @@ impl LlmGenerationPipeline {
 
 const MAX_LLM_ATTEMPTS: usize = 3;
 const RETRY_BACKOFF_MS: u64 = 150;
-const TAVILY_SOFT_MAX_QUERY_LENGTH: usize = 350;
+const TAVILY_SOFT_MAX_QUERY_LENGTH: usize = 400;
 const SEARCH_QUERY_REWRITE_EXCERPT_LENGTH: usize = 7000;
 
 #[derive(Deserialize)]
@@ -445,7 +445,12 @@ struct OutlineDto {
     quiz_config: Option<QuizConfigDto>,
     #[serde(default, alias = "interactiveConfig", alias = "interactive_config")]
     interactive_config: Option<InteractiveConfigDto>,
-    #[serde(default, alias = "pblConfig", alias = "projectConfig", alias = "project_config")]
+    #[serde(
+        default,
+        alias = "pblConfig",
+        alias = "projectConfig",
+        alias = "project_config"
+    )]
     project_config: Option<ProjectOutlineConfigDto>,
 }
 
@@ -776,7 +781,8 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         let primary_response = self
             .generate_with_retry_using(self.scene_actions_llm(), &system, &user)
             .await?;
-        let mut actions = parse_actions_from_generation_response(&primary_response, outline, content);
+        let mut actions =
+            parse_actions_from_generation_response(&primary_response, outline, content);
 
         let needs_escalation = actions.is_empty();
         if needs_escalation {
@@ -1120,14 +1126,17 @@ impl LlmGenerationPipeline {
                     .filter(|value| !value.trim().is_empty()),
                 success_criteria: role_plan
                     .as_ref()
-                    .and_then(|plan| (!plan.success_criteria.is_empty()).then(|| plan.success_criteria.clone()))
+                    .and_then(|plan| {
+                        (!plan.success_criteria.is_empty()).then(|| plan.success_criteria.clone())
+                    })
                     .or_else(|| payload.success_criteria.filter(|value| !value.is_empty())),
                 facilitator_notes: role_plan
                     .as_ref()
-                    .and_then(|plan| (!plan.facilitator_notes.is_empty()).then(|| plan.facilitator_notes.clone()))
+                    .and_then(|plan| {
+                        (!plan.facilitator_notes.is_empty()).then(|| plan.facilitator_notes.clone())
+                    })
                     .or_else(|| payload.facilitator_notes.filter(|value| !value.is_empty())),
-                agent_roles: role_plan
-                    .and_then(|plan| map_project_agent_roles(plan.agent_roles)),
+                agent_roles: role_plan.and_then(|plan| map_project_agent_roles(plan.agent_roles)),
                 issue_board: issue_board.and_then(|plan| map_project_issue_board(plan.issue_board)),
             },
         })
@@ -1266,7 +1275,8 @@ impl LlmGenerationPipeline {
             .and_then(|config| config.issue_count)
             .unwrap_or(3)
             .clamp(2, 5);
-        let system = "You are a project issue-board planner for classroom PBL. Return strict JSON only.";
+        let system =
+            "You are a project issue-board planner for classroom PBL. Return strict JSON only.";
         let user = format!(
             "Create a small issue board for this classroom project.\n\
              Requirement: {}\n\
@@ -1299,8 +1309,8 @@ fn parse_actions_from_generation_response(
 ) -> Vec<LessonAction> {
     let mut actions = parse_structured_actions(response, outline, content).unwrap_or_default();
     if actions.is_empty() {
-        let legacy_payload: ActionsEnvelope =
-            parse_json_with_repair(response).unwrap_or_else(|_| ActionsEnvelope { actions: vec![] });
+        let legacy_payload: ActionsEnvelope = parse_json_with_repair(response)
+            .unwrap_or_else(|_| ActionsEnvelope { actions: vec![] });
         actions = legacy_payload
             .actions
             .into_iter()
@@ -1320,7 +1330,10 @@ fn map_scene_type(value: &str) -> SceneType {
     }
 }
 
-fn normalize_quiz_config(config: Option<QuizConfigDto>, scene_type: &SceneType) -> Option<QuizConfig> {
+fn normalize_quiz_config(
+    config: Option<QuizConfigDto>,
+    scene_type: &SceneType,
+) -> Option<QuizConfig> {
     if !matches!(scene_type, SceneType::Quiz) {
         return None;
     }
@@ -1355,7 +1368,9 @@ fn normalize_interactive_config(
     let config = config.unwrap_or(InteractiveConfigDto {
         concept_name: Some(title.to_string()),
         concept_overview: Some(description.to_string()),
-        design_idea: Some("Interactive exploration with guided manipulation and immediate feedback".to_string()),
+        design_idea: Some(
+            "Interactive exploration with guided manipulation and immediate feedback".to_string(),
+        ),
         subject: None,
     });
     Some(InteractiveConfig {
@@ -1370,7 +1385,10 @@ fn normalize_interactive_config(
         design_idea: config
             .design_idea
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| "Interactive exploration with guided manipulation and immediate feedback".to_string()),
+            .unwrap_or_else(|| {
+                "Interactive exploration with guided manipulation and immediate feedback"
+                    .to_string()
+            }),
         subject: config.subject,
     })
 }
@@ -1435,7 +1453,9 @@ fn map_media_generation(media: MediaGenerationDto) -> Option<MediaGenerationRequ
 }
 
 fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
-    let id = element.id.unwrap_or_else(|| format!("element-{}", index + 1));
+    let id = element
+        .id
+        .unwrap_or_else(|| format!("element-{}", index + 1));
     match element.kind.trim().to_ascii_lowercase().as_str() {
         "image" => SlideElement::Image {
             id,
@@ -1808,10 +1828,7 @@ fn scientific_model_revision_notes(model: &ScientificModel) -> Option<String> {
     (!issues.is_empty()).then(|| issues.join("\n"))
 }
 
-fn merge_scientific_models(
-    current: ScientificModel,
-    revised: ScientificModel,
-) -> ScientificModel {
+fn merge_scientific_models(current: ScientificModel, revised: ScientificModel) -> ScientificModel {
     ScientificModel {
         core_formulas: if revised.core_formulas.is_empty() {
             current.core_formulas
@@ -1932,7 +1949,10 @@ fn extract_html_document(response: &str) -> Option<String> {
         return Some(trimmed.to_string());
     }
 
-    if let Some(start) = response.find("<!DOCTYPE html").or_else(|| response.find("<html")) {
+    if let Some(start) = response
+        .find("<!DOCTYPE html")
+        .or_else(|| response.find("<html"))
+    {
         if let Some(end) = response.rfind("</html>") {
             return Some(response[start..end + 7].to_string());
         }
@@ -1998,7 +2018,9 @@ fn post_process_interactive_html(
             1,
         );
     }
-    if !processed.to_ascii_lowercase().contains("class=\"instructions\"")
+    if !processed
+        .to_ascii_lowercase()
+        .contains("class=\"instructions\"")
         && processed.to_ascii_lowercase().contains("<body>")
     {
         let instructions = scientific_model
@@ -2016,7 +2038,10 @@ fn post_process_interactive_html(
     processed
 }
 
-fn fallback_interactive_html(outline: &SceneOutline, scientific_model: Option<&ScientificModel>) -> String {
+fn fallback_interactive_html(
+    outline: &SceneOutline,
+    scientific_model: Option<&ScientificModel>,
+) -> String {
     let constraints = scientific_model
         .map(|model| {
             model
@@ -2149,16 +2174,12 @@ fn slide_focus_targets(content: &SceneContent) -> String {
                 SlideElement::Text { id, content, .. } => format!("{}:text:{}", id, content),
                 SlideElement::Image { id, src, .. } => format!("{}:image:{}", id, src),
                 SlideElement::Video { id, src, .. } => format!("{}:video:{}", id, src),
-                SlideElement::Shape { id, shape_name, .. } => format!(
-                    "{}:shape:{}",
-                    id,
-                    shape_name.as_deref().unwrap_or("shape")
-                ),
-                SlideElement::Chart { id, chart_type, .. } => format!(
-                    "{}:chart:{}",
-                    id,
-                    chart_type.as_deref().unwrap_or("chart")
-                ),
+                SlideElement::Shape { id, shape_name, .. } => {
+                    format!("{}:shape:{}", id, shape_name.as_deref().unwrap_or("shape"))
+                }
+                SlideElement::Chart { id, chart_type, .. } => {
+                    format!("{}:chart:{}", id, chart_type.as_deref().unwrap_or("chart"))
+                }
                 SlideElement::Latex { id, latex, .. } => format!("{}:latex:{}", id, latex),
                 SlideElement::Line { id, .. } => format!("{}:line", id),
                 SlideElement::Table { id, .. } => format!("{}:table", id),
@@ -2181,9 +2202,8 @@ fn interactive_scene_summary(content: &SceneContent) -> String {
                         .then(|| format!("variables={}", model.variables.join(" | "))),
                     (!model.constraints.is_empty())
                         .then(|| format!("constraints={}", model.constraints.join(" | "))),
-                    (!model.interaction_guidance.is_empty()).then(|| {
-                        format!("guidance={}", model.interaction_guidance.join(" | "))
-                    }),
+                    (!model.interaction_guidance.is_empty())
+                        .then(|| format!("guidance={}", model.interaction_guidance.join(" | "))),
                 ]
                 .into_iter()
                 .flatten()
@@ -2407,10 +2427,13 @@ fn enforce_discussion_last(actions: &mut Vec<LessonAction>) {
     }
 }
 
-fn validate_slide_elements(elements: Vec<SlideElement>, outline: &SceneOutline) -> Vec<SlideElement> {
+fn validate_slide_elements(
+    elements: Vec<SlideElement>,
+    outline: &SceneOutline,
+) -> Vec<SlideElement> {
     let mut normalized = elements
         .into_iter()
-        .filter_map(|element| normalize_slide_element(element))
+        .filter_map(normalize_slide_element)
         .collect::<Vec<_>>();
 
     if !normalized
@@ -2647,6 +2670,7 @@ fn format_search_results_as_context(result: &TavilySearchResponse) -> String {
     }
 
     let mut lines = Vec::new();
+
     if !result.answer.trim().is_empty() {
         lines.push(result.answer.trim().to_string());
         lines.push(String::new());
@@ -3154,6 +3178,7 @@ mod tests {
             enable_video_generation: false,
             enable_tts: false,
             agent_mode: AgentMode::Default,
+            account_id: None,
         }
     }
 
@@ -3398,14 +3423,23 @@ mod tests {
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
         let content = pipeline
-            .generate_scene_content(&sample_request(), &pipeline.generate_outlines(&sample_request()).await.unwrap()[0])
+            .generate_scene_content(
+                &sample_request(),
+                &pipeline.generate_outlines(&sample_request()).await.unwrap()[0],
+            )
             .await
             .unwrap();
 
         match content {
             SceneContent::Slide { canvas } => {
-                assert!(canvas.elements.iter().any(|element| matches!(element, SlideElement::Chart { .. })));
-                assert!(canvas.elements.iter().any(|element| matches!(element, SlideElement::Latex { .. })));
+                assert!(canvas
+                    .elements
+                    .iter()
+                    .any(|element| matches!(element, SlideElement::Chart { .. })));
+                assert!(canvas
+                    .elements
+                    .iter()
+                    .any(|element| matches!(element, SlideElement::Latex { .. })));
                 assert!(canvas.elements.iter().any(|element| match element {
                     SlideElement::Text { content, .. } => content.contains("Fraction Models"),
                     _ => false,
@@ -3439,8 +3473,13 @@ mod tests {
 
         assert!(matches!(actions[0], LessonAction::Spotlight { .. }));
         assert!(matches!(actions[1], LessonAction::Speech { .. }));
-        assert!(actions.iter().any(|action| matches!(action, LessonAction::PlayVideo { .. })));
-        assert!(matches!(actions.last(), Some(LessonAction::Discussion { .. })));
+        assert!(actions
+            .iter()
+            .any(|action| matches!(action, LessonAction::PlayVideo { .. })));
+        assert!(matches!(
+            actions.last(),
+            Some(LessonAction::Discussion { .. })
+        ));
     }
 
     #[tokio::test]

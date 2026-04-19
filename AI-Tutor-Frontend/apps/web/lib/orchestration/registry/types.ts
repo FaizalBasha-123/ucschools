@@ -77,8 +77,6 @@ export const SLIDE_ACTIONS = ['spotlight', 'laser', 'play_video'];
  */
 export const ROLE_ACTIONS: Record<string, string[]> = {
   teacher: [...SLIDE_ACTIONS, ...WHITEBOARD_ACTIONS],
-  assistant: [...WHITEBOARD_ACTIONS],
-  student: [...WHITEBOARD_ACTIONS],
 };
 
 /**
@@ -86,5 +84,5 @@ export const ROLE_ACTIONS: Record<string, string[]> = {
  * Falls back to whiteboard-only actions for unknown roles.
  */
 export function getActionsForRole(role: string): string[] {
-  return ROLE_ACTIONS[role] || [...WHITEBOARD_ACTIONS];
+  return ROLE_ACTIONS[role] || [...ROLE_ACTIONS.teacher];
 }

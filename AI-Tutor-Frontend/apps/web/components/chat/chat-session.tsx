@@ -26,6 +26,7 @@ interface ChatSessionProps {
   readonly isStreaming?: boolean;
   readonly activeBubbleId?: string | null;
   readonly onEndSession?: (sessionId: string) => void;
+  readonly onResumeSession?: (sessionId: string) => Promise<void> | void;
 }
 
 const AVATARS = {
@@ -160,6 +161,7 @@ export function ChatSessionComponent({
   isStreaming,
   activeBubbleId,
   onEndSession,
+  onResumeSession,
 }: ChatSessionProps) {
   const { t } = useI18n();
   const userProfileAvatar = useUserProfileStore((s) => s.avatar);
@@ -169,6 +171,8 @@ export function ChatSessionComponent({
   const isDiscussion = session.type === 'discussion';
   const isQA = session.type === 'qa';
   const canEnd = (isDiscussion || isQA) && session.status === 'active';
+  const canResumeInterrupted =
+    (isDiscussion || isQA) && session.status === 'interrupted' && !!onResumeSession;
   const isEnded = session.status === 'completed' && (isDiscussion || isQA);
 
   // Track whether user is at the bottom of the scroll container.
@@ -211,7 +215,7 @@ export function ChatSessionComponent({
     }
   }, [activeBubbleId]);
 
-  if (session.messages.length === 0 && !isActive) {
+  if (session.messages.length === 0 && !isActive && !canResumeInterrupted) {
     return (
       <div className="h-20 flex items-center justify-center text-center px-2">
         <p className="text-[10px] text-gray-400 dark:text-gray-500">{t('chat.noMessages')}</p>
@@ -322,6 +326,35 @@ export function ChatSessionComponent({
 
         {/* Session ended indicator */}
         <AnimatePresence>
+
+        <AnimatePresence>
+          {canResumeInterrupted && onResumeSession && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 5 }}
+              className="mt-2 mx-2 rounded-xl border border-blue-200/60 dark:border-blue-800/60 bg-blue-50/70 dark:bg-blue-900/20 backdrop-blur-md px-3 py-2 shadow-sm"
+            >
+              <div className="flex items-center gap-2 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 dark:bg-blue-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500 dark:bg-blue-400"></span>
+                </span>
+                {t('chat.interrupted')}
+              </div>
+              <p className="mt-1 text-[10px] leading-relaxed text-blue-600/80 dark:text-blue-300/80">
+                {t('chat.resumeHint')}
+              </p>
+              <button
+                type="button"
+                onClick={() => onResumeSession(session.id)}
+                className="mt-2 inline-flex items-center justify-center gap-1.5 rounded-full border border-blue-200/70 dark:border-blue-800/70 bg-white/80 dark:bg-gray-950/40 px-3 py-1.5 text-[11px] font-semibold text-blue-700 dark:text-blue-300 transition-all hover:shadow-md"
+              >
+                {t('chat.resume')}
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
           {isEnded && (
             <motion.div
               initial={{ opacity: 0, scaleX: 0 }}

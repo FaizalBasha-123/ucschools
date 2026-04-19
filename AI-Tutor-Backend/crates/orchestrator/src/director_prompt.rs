@@ -21,6 +21,7 @@ pub struct DirectorDecision {
 /// This mirrors OpenMAIC's `buildDirectorPrompt()` — giving the LLM
 /// full awareness of available agents, conversation context, whiteboard
 /// state, and routing quality rules.
+#[allow(clippy::too_many_arguments)]
 pub fn build_director_prompt(
     agents: &[GeneratedChatAgentConfig],
     agent_responses: &[AgentTurnSummary],

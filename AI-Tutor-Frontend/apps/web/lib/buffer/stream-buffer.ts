@@ -57,6 +57,7 @@ export interface ThinkingItem {
   kind: 'thinking';
   stage: string;
   agentId?: string;
+  detail?: string;
 }
 
 export interface CueUserItem {
@@ -180,6 +181,7 @@ export class StreamBuffer {
   /** True when a text item's post-delay has elapsed and we're waiting for TTS to finish. */
   private _holdingForTTS = false;
   private _holdSegmentSnapshot = -1;
+  private _drained = false;
 
   // Config
   private readonly tickMs: number;
@@ -253,7 +255,7 @@ export class StreamBuffer {
     this.items.push({ kind: 'action', ...data });
   }
 
-  pushThinking(data: { stage: string; agentId?: string }): void {
+  pushThinking(data: { stage: string; agentId?: string; detail?: string }): void {
     if (this._disposed) return;
     this.items.push({ kind: 'thinking', ...data });
   }
@@ -311,6 +313,9 @@ export class StreamBuffer {
     if (this._disposed) {
       return Promise.reject(new Error('Buffer already disposed'));
     }
+    if (this._drained) {
+      return Promise.resolve();
+    }
     return new Promise<void>((resolve, reject) => {
       this._drainResolve = resolve;
       this._drainReject = reject;
@@ -362,6 +367,7 @@ export class StreamBuffer {
           this.cb.onCueUser(item.fromAgentId, item.prompt);
           break;
         case 'done':
+          this._drained = true;
           this.cb.onLiveSpeech(null, null);
           this.cb.onSpeechProgress(null);
           this.cb.onThinking(null);
@@ -384,6 +390,7 @@ export class StreamBuffer {
   dispose(): void {
     if (this._disposed) return;
     this._disposed = true;
+    this._drained = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -405,6 +412,7 @@ export class StreamBuffer {
   shutdown(): void {
     if (this._disposed) return;
     this._disposed = true;
+    this._drained = true;
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
@@ -583,6 +591,7 @@ export class StreamBuffer {
         break;
 
       case 'done':
+        this._drained = true;
         this.cb.onLiveSpeech(null, null);
         this.cb.onSpeechProgress(null);
         this.cb.onThinking(null);

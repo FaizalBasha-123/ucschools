@@ -116,23 +116,22 @@ async function generateAgentProfiles(
   aiCall: AICallFn,
 ): Promise<AgentInfo[]> {
   const systemPrompt =
-    'You are an expert instructional designer. Generate agent profiles for a multi-agent classroom simulation. Return ONLY valid JSON, no markdown or explanation.';
+    'You are an expert instructional designer. Generate exactly one teacher profile for a classroom simulation. Return ONLY valid JSON, no markdown or explanation.';
 
   const userPrompt = `Generate agent profiles for a course with this requirement:
 ${requirement}
 
 Requirements:
-- Decide the appropriate number of agents based on the course content (typically 3-5)
-- Exactly 1 agent must have role "teacher", the rest can be "assistant" or "student"
-- Each agent needs: name, role, persona (2-3 sentences describing personality and teaching/learning style)
-- Names and personas must be in language: ${language}
+- Generate exactly 1 agent with role "teacher"
+- The agent needs: name, role, persona (2-3 sentences describing teaching style)
+- Name and persona must be in language: ${language}
 
 Return a JSON object with this exact structure:
 {
   "agents": [
     {
       "name": "string",
-      "role": "teacher" | "assistant" | "student",
+      "role": "teacher",
       "persona": "string (2-3 sentences)"
     }
   ]
@@ -144,8 +143,8 @@ Return a JSON object with this exact structure:
     agents: Array<{ name: string; role: string; persona: string }>;
   };
 
-  if (!parsed.agents || !Array.isArray(parsed.agents) || parsed.agents.length < 2) {
-    throw new Error(`Expected at least 2 agents, got ${parsed.agents?.length ?? 0}`);
+  if (!parsed.agents || !Array.isArray(parsed.agents) || parsed.agents.length !== 1) {
+    throw new Error(`Expected exactly 1 teacher agent, got ${parsed.agents?.length ?? 0}`);
   }
 
   const teacherCount = parsed.agents.filter((a) => a.role === 'teacher').length;
@@ -186,7 +185,7 @@ export async function generateClassroom(
   if (!apiKey) {
     throw new Error(
       `No API key configured for provider "${providerId}". ` +
-        `Set the appropriate key in .env.local or server-providers.yml (e.g. ${providerId.toUpperCase()}_API_KEY).`,
+        `Set the appropriate key in .env or server-providers.yml (e.g. ${providerId.toUpperCase()}_API_KEY).`,
     );
   }
 
@@ -337,7 +336,7 @@ export async function generateClassroom(
       persona: a.persona || '',
       avatar: AGENT_DEFAULT_AVATARS[i % AGENT_DEFAULT_AVATARS.length],
       color: AGENT_COLOR_PALETTE[i % AGENT_COLOR_PALETTE.length],
-      priority: a.role === 'teacher' ? 10 : a.role === 'assistant' ? 7 : 5,
+      priority: 10,
     })),
   };
 

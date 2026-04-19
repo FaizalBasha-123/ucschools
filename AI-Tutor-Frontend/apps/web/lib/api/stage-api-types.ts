@@ -73,8 +73,8 @@ export interface StageStore {
     currentSceneId: string | null;
     mode: StageMode;
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   setState: (partial: any) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   subscribe: (listener: (state: any, prevState: any) => void) => () => void;
 }

@@ -45,6 +45,49 @@ async function ensureDir(dir: string) {
   await fs.mkdir(dir, { recursive: true });
 }
 
+type ReplayManifest = {
+  updated_at: string;
+  media: Record<string, string>;
+  audio: Record<string, string>;
+};
+
+const EMPTY_REPLAY_MANIFEST: ReplayManifest = {
+  updated_at: new Date(0).toISOString(),
+  media: {},
+  audio: {},
+};
+
+function replayManifestPath(classroomId: string): string {
+  return path.join(CLASSROOMS_DIR, classroomId, 'replay-manifest.json');
+}
+
+async function loadReplayManifest(classroomId: string): Promise<ReplayManifest> {
+  try {
+    const raw = await fs.readFile(replayManifestPath(classroomId), 'utf-8');
+    const parsed = JSON.parse(raw) as Partial<ReplayManifest>;
+    return {
+      updated_at: parsed.updated_at || new Date().toISOString(),
+      media: parsed.media || {},
+      audio: parsed.audio || {},
+    };
+  } catch {
+    return { ...EMPTY_REPLAY_MANIFEST };
+  }
+}
+
+async function persistReplayManifest(
+  classroomId: string,
+  partial: Partial<Pick<ReplayManifest, 'media' | 'audio'>>,
+): Promise<void> {
+  const manifest = await loadReplayManifest(classroomId);
+  const merged: ReplayManifest = {
+    updated_at: new Date().toISOString(),
+    media: { ...manifest.media, ...(partial.media || {}) },
+    audio: { ...manifest.audio, ...(partial.audio || {}) },
+  };
+  await fs.writeFile(replayManifestPath(classroomId), JSON.stringify(merged, null, 2), 'utf-8');
+}
+
 const DOWNLOAD_TIMEOUT_MS = 120_000; // 2 minutes
 const DOWNLOAD_MAX_SIZE = 100 * 1024 * 1024; // 100 MB
 
@@ -165,6 +208,10 @@ export async function generateMediaForClassroom(
 
   await Promise.all([generateImages(), generateVideos()]);
 
+  if (Object.keys(mediaMap).length > 0) {
+    await persistReplayManifest(classroomId, { media: mediaMap });
+  }
+
   return mediaMap;
 }
 
@@ -227,6 +274,7 @@ export async function generateTTSForClassroom(
   const ttsBaseUrl = resolveTTSBaseUrl(providerId) || TTS_PROVIDERS[providerId]?.defaultBaseUrl;
   const voice = DEFAULT_TTS_VOICES[providerId] || 'default';
   const format = TTS_PROVIDERS[providerId]?.supportedFormats?.[0] || 'mp3';
+  const audioMap: Record<string, string> = {};
 
   for (const scene of scenes) {
     if (!scene.actions) continue;
@@ -258,10 +306,15 @@ export async function generateTTSForClassroom(
 
         speechAction.audioId = audioId;
         speechAction.audioUrl = mediaServingUrl(baseUrl, classroomId, `audio/${filename}`);
+        audioMap[audioId] = speechAction.audioUrl;
         log.info(`Generated TTS: ${filename} (${result.audio.length} bytes)`);
       } catch (err) {
         log.warn(`TTS generation failed for action ${action.id}:`, err);
       }
     }
+  }
+
+  if (Object.keys(audioMap).length > 0) {
+    await persistReplayManifest(classroomId, { audio: audioMap });
   }
 }

@@ -4,7 +4,7 @@ import type { AICallFn } from '@/lib/generation/pipeline-types';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('SearchQueryBuilder');
-const TAVILY_SOFT_MAX_QUERY_LENGTH = 350;
+const BRAVE_SOFT_MAX_QUERY_LENGTH = 350;
 export const SEARCH_QUERY_REWRITE_EXCERPT_LENGTH = 7000;
 
 interface SearchQueryRewriteResponse {
@@ -80,7 +80,7 @@ export async function buildSearchQuery(
     const parsed = parseJsonResponse<SearchQueryRewriteResponse>(response);
     const rewrittenQuery = normalizeSearchRequirement(parsed?.query || '').slice(
       0,
-      TAVILY_SOFT_MAX_QUERY_LENGTH,
+      BRAVE_SOFT_MAX_QUERY_LENGTH,
     );
     if (!rewrittenQuery) {
       log.warn('Query rewrite returned empty output, falling back to raw requirement');

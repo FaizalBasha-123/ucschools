@@ -44,6 +44,7 @@ pub struct LessonGenerationRequest {
     pub enable_video_generation: bool,
     pub enable_tts: bool,
     pub agent_mode: AgentMode,
+    pub account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

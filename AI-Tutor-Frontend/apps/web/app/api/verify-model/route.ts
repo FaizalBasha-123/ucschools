@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Model name is required');
     }
 
-    // Parse model string and resolve server-side fallback
+    // Parse model string and resolve server-side model selection
     let languageModel;
     try {
       const result = resolveModel({

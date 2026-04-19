@@ -4,6 +4,16 @@
 **Status**: Ready for immediate implementation  
 **Estimation**: Phase 1 = 2 weeks (40 hours)
 
+## MVP Policy Override (Authoritative)
+
+This implementation is constrained for MVP cost and UX:
+
+1. Adaptation is **lesson-scoped**, not globally adaptive across all lessons.
+2. Maximum diagnostics per lesson is **2** (one micro-check + one checkpoint).
+3. Persist only lesson adaptive state required for continuity and quality.
+4. Keep only lightweight user interests (topic/language), not deep long-term cognitive profiling.
+5. Prefer fast deterministic orchestration over expensive repeated model calls.
+
 ---
 
 ## Pre-Implementation: Project Structure
@@ -119,19 +129,35 @@ CREATE TABLE IF NOT EXISTS misconception_kb_stats (
 );
 ```
 
-**Migration 2**: Extend `students` table with learning profile
+**Migration 2 (MVP-revised)**: Add lesson adaptive state table and lightweight user interests
 ```sql
--- File: AI-Tutor-Backend/migrations/002_add_learning_profile_to_students.sql
+-- File: AI-Tutor-Backend/migrations/002_create_lesson_adaptive_state.sql
 
-ALTER TABLE students ADD COLUMN IF NOT EXISTS (
-    learning_preference_visual FLOAT NOT NULL DEFAULT 0.5,
-    learning_preference_kinesthetic FLOAT NOT NULL DEFAULT 0.5,
-    learning_preference_linguistic FLOAT NOT NULL DEFAULT 0.5,
-    learning_preference_logical FLOAT NOT NULL DEFAULT 0.5,
-    
-    adaptive_learning_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    last_error_diagnosis_json JSONB,
-    learning_profile_updated_at TIMESTAMP DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS lesson_adaptive_state (
+    lesson_id UUID PRIMARY KEY,
+    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    topic VARCHAR(160) NOT NULL,
+    diagnostic_count SMALLINT NOT NULL DEFAULT 0,
+    max_diagnostics SMALLINT NOT NULL DEFAULT 2,
+    confidence_score FLOAT NOT NULL DEFAULT 0.5,
+    current_strategy VARCHAR(64),
+    misconception_id VARCHAR(100),
+    status VARCHAR(32) NOT NULL DEFAULT 'teaching',
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lesson_adaptive_account
+ON lesson_adaptive_state(account_id, updated_at DESC);
+
+-- File: AI-Tutor-Backend/migrations/003_create_user_interest_profile.sql
+
+CREATE TABLE IF NOT EXISTS user_interest_profile (
+    account_id UUID PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    preferred_topics JSONB NOT NULL DEFAULT '[]'::jsonb,
+    preferred_language VARCHAR(16),
+    last_active_subject VARCHAR(120),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
@@ -279,7 +305,7 @@ impl MisconceptionMatch {
 }
 ```
 
-**File**: `crates/adaptive-learning/src/models/student_profile.rs`
+**File**: `crates/adaptive-learning/src/models/student_profile.rs` (MVP-revised to lesson scope)
 ```rust
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -304,10 +330,15 @@ impl Default for LearningPreferences {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StudentProfile {
-    pub student_id: Uuid,
-    pub learning_preferences: LearningPreferences,
-    pub strategy_history: Vec<StrategyOutcome>,
+pub struct LessonAdaptiveState {
+    pub lesson_id: Uuid,
+    pub account_id: Uuid,
+    pub topic: String,
+    pub diagnostic_count: u8,
+    pub max_diagnostics: u8,
+    pub confidence_score: f32,
+    pub current_strategy: Option<super::ExplanationStrategy>,
+    pub misconception_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -357,9 +388,11 @@ impl StudentProfile {
 }
 ```
 
+MVP note: keep `StudentProfile` minimal or optional; use `LessonAdaptiveState` as primary adaptive memory in phase 1.
+
 ### Step 5: Persistence Layer (Repository)
 
-**File**: `crates/adaptive-learning/src/persistence/student_profile_repo.rs`
+**File**: `crates/adaptive-learning/src/persistence/student_profile_repo.rs` (MVP-revised behavior)
 ```rust
 use sqlx::PgPool;
 use super::super::models::StudentProfile;
@@ -434,9 +467,54 @@ impl StudentProfileRepository {
 }
 ```
 
+Add new repository for lesson-scoped adaptation:
+
+**File**: `crates/adaptive-learning/src/persistence/lesson_adaptive_repo.rs`
+```rust
+use anyhow::Result;
+use sqlx::PgPool;
+use uuid::Uuid;
+use crate::models::LessonAdaptiveState;
+
+pub struct LessonAdaptiveRepository {
+    db: PgPool,
+}
+
+impl LessonAdaptiveRepository {
+    pub fn new(db: PgPool) -> Self { Self { db } }
+
+    pub async fn get_or_create(&self, lesson_id: Uuid, account_id: Uuid, topic: &str) -> Result<LessonAdaptiveState> {
+        // upsert/select for lesson-scoped state
+        todo!()
+    }
+
+    pub async fn record_diagnostic(
+        &self,
+        lesson_id: Uuid,
+        confidence_score: f32,
+        strategy: Option<&str>,
+        misconception_id: Option<&str>,
+    ) -> Result<()> {
+        // increment diagnostic_count, enforce max_diagnostics <= 2
+        todo!()
+    }
+}
+```
+
 ---
 
 ## Phase 1: Agent Implementation (Days 4-14)
+
+### MVP orchestration rule (must implement)
+
+Use this strict progression per lesson:
+
+`teach_initial -> diagnostic_1 -> adapt_segment -> optional_diagnostic_2 -> reinforce_and_close`
+
+Hard constraints:
+- never run diagnostic_3
+- if `diagnostic_count == 2`, continue teaching without extra checks
+- if confidence after diagnostic_1 is high, skip diagnostic_2
 
 ### Agent 1: Error Detective
 
@@ -569,6 +647,15 @@ impl ErrorDetective {
             error_markers: vec![],
         })
     }
+}
+```
+
+MVP guardrail in orchestrator:
+
+```rust
+if lesson_state.diagnostic_count >= lesson_state.max_diagnostics {
+    // Continue with reinforcement; do not ask another question
+    return Ok(NextStep::Reinforce);
 }
 ```
 

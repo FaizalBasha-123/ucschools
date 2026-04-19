@@ -287,23 +287,28 @@ impl FileBackedLessonQueue {
             .build_orchestrator(&queued.request, queued.model_string.as_deref())
             .await
         {
-            Ok(orchestrator) => orchestrator
-                .generate_lesson_for_job(
-                    queued.request.clone(),
-                    queued.lesson_id.clone(),
-                    queued.job.clone(),
-                    service.base_url(),
-                    false,
-                )
-                .await
-                .map(|_| ()),
+            Ok(orchestrator) => {
+                orchestrator
+                    .generate_lesson_for_job(
+                        queued.request.clone(),
+                        queued.lesson_id.clone(),
+                        queued.job.clone(),
+                        service.base_url(),
+                        false,
+                    )
+                    .await
+            }
             Err(err) => Err(err),
         };
         let _ = heartbeat_stop.send(());
         let _ = heartbeat_handle.await;
 
         match processing_result {
-            Ok(_) => {
+            Ok(output) => {
+                service
+                    .apply_credit_debit_for_output(&queued.request, &output.lesson)
+                    .await
+                    .map_err(|err| anyhow!(err))?;
                 fs::remove_file(path).await?;
                 Ok(())
             }
@@ -516,23 +521,28 @@ impl FileBackedLessonQueue {
                 .build_orchestrator(&queued.request, queued.model_string.as_deref())
                 .await
             {
-                Ok(orchestrator) => orchestrator
-                    .generate_lesson_for_job(
-                        queued.request.clone(),
-                        queued.lesson_id.clone(),
-                        queued.job.clone(),
-                        service.base_url(),
-                        false,
-                    )
-                    .await
-                    .map(|_| ()),
+                Ok(orchestrator) => {
+                    orchestrator
+                        .generate_lesson_for_job(
+                            queued.request.clone(),
+                            queued.lesson_id.clone(),
+                            queued.job.clone(),
+                            service.base_url(),
+                            false,
+                        )
+                        .await
+                }
                 Err(err) => Err(err),
             };
             let _ = heartbeat_stop.send(());
             let _ = heartbeat_handle.await;
 
             match processing_result {
-                Ok(_) => {
+                Ok(output) => {
+                    service
+                        .apply_credit_debit_for_output(&queued.request, &output.lesson)
+                        .await
+                        .map_err(|err| anyhow!(err))?;
                     Self::delete_sqlite_entry(db_path.clone(), &queued.job.id).await?;
                 }
                 Err(err) => {
@@ -1208,6 +1218,7 @@ mod tests {
             enable_video_generation: false,
             enable_tts: true,
             agent_mode: AgentMode::Default,
+            account_id: None,
         }
     }
 
