@@ -442,10 +442,8 @@ where
                         error = %err,
                         "Persisting generated media assets failed; keeping inline or fallback media references"
                     );
-                    state.job.message = format!(
-                        "{}; media asset persistence degraded",
-                        state.job.message
-                    );
+                    state.job.message =
+                        format!("{}; media asset persistence degraded", state.job.message);
                     state.job.updated_at = Utc::now();
                     self.jobs
                         .update_job(&state.job)
@@ -520,10 +518,8 @@ where
                             error = %err,
                             "Persisting generated audio assets failed; keeping inline audio references"
                         );
-                        state.job.message = format!(
-                            "{}; audio asset persistence degraded",
-                            state.job.message
-                        );
+                        state.job.message =
+                            format!("{}; audio asset persistence degraded", state.job.message);
                         state.job.updated_at = Utc::now();
                         self.jobs
                             .update_job(&state.job)
@@ -1177,6 +1173,7 @@ mod tests {
             enable_video_generation: false,
             enable_tts: false,
             agent_mode: AgentMode::Default,
+            account_id: None,
         }
     }
 
@@ -1269,9 +1266,9 @@ mod tests {
         }
 
         let messages = jobs.messages_for_job(&output.job.id);
-        assert!(messages.iter().any(|message| {
-            message.contains("Teacher audio completed with partial fallback")
-        }));
+        assert!(messages
+            .iter()
+            .any(|message| { message.contains("Teacher audio completed with partial fallback") }));
     }
 
     #[tokio::test]

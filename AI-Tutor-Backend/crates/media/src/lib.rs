@@ -34,8 +34,7 @@ pub fn replace_media_placeholders(
     media_map: &HashMap<String, String>,
 ) -> Result<()> {
     for scene in scenes {
-        match &mut scene.content {
-            ai_tutor_domain::scene::SceneContent::Slide { canvas } => {
+        if let ai_tutor_domain::scene::SceneContent::Slide { canvas } = &mut scene.content {
                 for element in &mut canvas.elements {
                     match element {
                         SlideElement::Image { src, .. } | SlideElement::Video { src, .. } => {
@@ -52,8 +51,6 @@ pub fn replace_media_placeholders(
                         *src = url.clone();
                     }
                 }
-            }
-            _ => {}
         }
     }
 
@@ -148,8 +145,7 @@ pub async fn persist_inline_media_assets(
     scenes: &mut [Scene],
 ) -> Result<()> {
     for scene in scenes {
-        match &mut scene.content {
-            ai_tutor_domain::scene::SceneContent::Slide { canvas } => {
+        if let ai_tutor_domain::scene::SceneContent::Slide { canvas } = &mut scene.content {
                 for element in &mut canvas.elements {
                     match element {
                         SlideElement::Image { id, src, .. }
@@ -191,8 +187,6 @@ pub async fn persist_inline_media_assets(
                             .await?;
                     }
                 }
-            }
-            _ => {}
         }
     }
 

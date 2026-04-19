@@ -69,17 +69,17 @@ fn strip_code_fences(text: &str) -> &str {
     let trimmed = text.trim();
 
     // Remove opening ```json or ```
-    let without_open = if trimmed.starts_with("```json") {
-        trimmed["```json".len()..].trim_start()
-    } else if trimmed.starts_with("```") {
-        trimmed["```".len()..].trim_start()
+    let without_open = if let Some(stripped) = trimmed.strip_prefix("```json") {
+        stripped.trim_start()
+    } else if let Some(stripped) = trimmed.strip_prefix("```") {
+        stripped.trim_start()
     } else {
         trimmed
     };
 
     // Remove closing ```
-    if without_open.ends_with("```") {
-        without_open[..without_open.len() - 3].trim_end()
+    if let Some(stripped) = without_open.strip_suffix("```") {
+        stripped.trim_end()
     } else {
         without_open
     }
@@ -520,6 +520,8 @@ fn extract_objects_manually(input: &str) -> Vec<Value> {
             let mut in_string = false;
             let mut escape_next = false;
             let start = i;
+            let mut found_complete_object = false;
+            let mut next_index = i;
 
             for j in i..bytes.len() {
                 if escape_next {
@@ -544,17 +546,20 @@ fn extract_objects_manually(input: &str) -> Vec<Value> {
                             if let Ok(val) = serde_json::from_str::<Value>(obj_str) {
                                 objects.push(val);
                             }
-                            i = j + 1;
+                            next_index = j + 1;
+                            found_complete_object = true;
                             break;
                         }
                     }
                     _ => {}
                 }
+            }
 
-                if j == bytes.len() - 1 {
-                    // Reached end without closing brace
-                    i = bytes.len();
-                }
+            if found_complete_object {
+                i = next_index;
+            } else {
+                // Reached end without closing brace
+                i = bytes.len();
             }
         } else {
             i += 1;

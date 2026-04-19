@@ -7,6 +7,15 @@ const log = createLogger('ClassroomJob API');
 
 export const dynamic = 'force-dynamic';
 
+function authHeadersFrom(request: NextRequest): HeadersInit {
+  const headers: Record<string, string> = {};
+  const authorization = request.headers.get('authorization');
+  const cookie = request.headers.get('cookie');
+  if (authorization) headers.authorization = authorization;
+  if (cookie) headers.cookie = cookie;
+  return headers;
+}
+
 export async function GET(req: NextRequest, context: { params: Promise<{ jobId: string }> }) {
   let resolvedJobId: string | undefined;
   try {
@@ -20,6 +29,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ jobId: 
     const backendUrl = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
     const backendRes = await fetch(`${backendUrl}/api/lessons/jobs/${jobId}`, {
       method: 'GET',
+      headers: authHeadersFrom(req),
     });
 
     if (backendRes.status === 404) {

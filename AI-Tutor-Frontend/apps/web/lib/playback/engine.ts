@@ -383,6 +383,20 @@ export class PlaybackEngine {
     return true;
   }
 
+  /**
+   * Notify the engine of an external scene change (e.g., via navigation API).
+   * This allows the playback UI and overlays to stay synchronized when the user
+   * navigates to a different scene outside of normal playback progression.
+   * Invokes the onSceneChange callback so dependent UI (markers, overlays, etc.) can update.
+   *
+   * @param sceneId - The ID of the newly selected scene
+   */
+  notifySceneChange(sceneId: string): void {
+    if (this.callbacks.onSceneChange) {
+      this.callbacks.onSceneChange(sceneId);
+    }
+  }
+
   // ==================== Private ====================
 
   private setMode(mode: EngineMode): void {

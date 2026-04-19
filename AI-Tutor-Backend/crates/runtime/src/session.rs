@@ -66,6 +66,7 @@ pub struct PlaybackEvent {
 #[serde(rename_all = "snake_case")]
 pub enum TutorEventKind {
     SessionStarted,
+    Thinking,
     AgentSelected,
     TextDelta,
     ActionStarted,

@@ -57,7 +57,7 @@ interface RoundtableProps {
   readonly speechProgress?: number | null; // StreamBuffer reveal progress (0–1) for auto-scroll
   readonly showEndFlash?: boolean;
   readonly endFlashSessionType?: 'qa' | 'discussion';
-  readonly thinkingState?: { stage: string; agentId?: string } | null;
+  readonly thinkingState?: { stage: string; agentId?: string; detail?: string } | null;
   readonly isCueUser?: boolean;
   readonly isTopicPending?: boolean;
   readonly onMessageSend?: (message: string) => void;
@@ -840,21 +840,28 @@ export function Roundtable({
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
-                className="flex items-center gap-2 px-4 py-2 bg-white/70 dark:bg-black/50 backdrop-blur-xl rounded-full border border-gray-200/60 dark:border-white/10"
+                className="flex flex-col gap-1.5 px-4 py-2 bg-white/70 dark:bg-black/50 backdrop-blur-xl rounded-2xl border border-gray-200/60 dark:border-white/10"
               >
-                <div className="flex gap-1">
-                  {[0, 0.2, 0.4].map((delay) => (
-                    <motion.div
-                      key={delay}
-                      animate={{ opacity: [0.3, 1, 0.3] }}
-                      transition={{ repeat: Infinity, duration: 1.2, delay }}
-                      className="w-1.5 h-1.5 rounded-full bg-purple-400"
-                    />
-                  ))}
+                <div className="flex items-center gap-2">
+                  <div className="flex gap-1">
+                    {[0, 0.2, 0.4].map((delay) => (
+                      <motion.div
+                        key={delay}
+                        animate={{ opacity: [0.3, 1, 0.3] }}
+                        transition={{ repeat: Infinity, duration: 1.2, delay }}
+                        className="w-1.5 h-1.5 rounded-full bg-purple-400"
+                      />
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium uppercase tracking-[0.18em]">
+                    {t('roundtable.thinking')}
+                  </span>
                 </div>
-                <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
-                  {t('roundtable.thinking')}
-                </span>
+                {thinkingState.detail && (
+                  <p className="max-w-[260px] text-[10px] leading-snug text-gray-500 dark:text-gray-400">
+                    {thinkingState.detail}
+                  </p>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

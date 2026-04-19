@@ -39,7 +39,7 @@ export function useBrowserASR(options: UseBrowserASROptions = {}) {
 
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Web Speech API SpeechRecognition not typed
+   
   const recognitionRef = useRef<any>(null);
 
   // Use refs for callbacks to avoid stale closures in recognition event handlers

@@ -1,0 +1,12 @@
+<html>
+  <body>
+    <h2>Payment failed</h2>
+    <p>Hi {{customer_name}},</p>
+    <p>We could not process your payment.</p>
+    <p><strong>Order:</strong> {{order_id}}</p>
+    <p><strong>Amount:</strong> {{amount}}</p>
+    <p><strong>Reason:</strong> {{error_message}}</p>
+    <p><strong>Next retry:</strong> {{next_retry}}</p>
+    <p>Update payment details here: <a href="{{billing_url}}">Billing</a></p>
+  </body>
+</html>

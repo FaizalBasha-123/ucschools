@@ -15,12 +15,21 @@ pub struct ResolvedModel {
     pub model_config: ModelConfig,
 }
 
-pub fn parse_model_string(model_string: &str) -> (String, String) {
-    if let Some((provider_id, model_id)) = model_string.split_once(':') {
-        (provider_id.to_string(), model_id.to_string())
-    } else {
-        ("openai".to_string(), model_string.to_string())
+pub fn parse_model_string(model_string: &str) -> Result<(String, String)> {
+    let trimmed = model_string.trim();
+    if trimmed.is_empty() {
+        return Err(anyhow!("model string is required"));
     }
+
+    let (provider_id, model_id) = trimmed
+        .split_once(':')
+        .ok_or_else(|| anyhow!("model string must include a provider prefix (provider:model)"))?;
+
+    if provider_id.trim().is_empty() || model_id.trim().is_empty() {
+        return Err(anyhow!("model string must include a non-empty provider and model id"));
+    }
+
+    Ok((provider_id.trim().to_string(), model_id.trim().to_string()))
 }
 
 pub fn resolve_model(
@@ -31,8 +40,12 @@ pub fn resolve_model(
     provider_type: Option<ProviderType>,
     requires_api_key: Option<bool>,
 ) -> Result<ResolvedModel> {
-    let model_string = model_string.unwrap_or("gpt-4o-mini").to_string();
-    let (provider_id, model_id) = parse_model_string(&model_string);
+    let model_string = model_string
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("model string is required"))?
+        .to_string();
+    let (provider_id, model_id) = parse_model_string(&model_string)?;
 
     let provider =
         get_provider(&provider_id).ok_or_else(|| anyhow!("unknown provider: {}", provider_id))?;
@@ -89,35 +102,9 @@ pub fn resolve_model_chain(
         requires_api_key,
     )?;
 
-    let mut chain = vec![primary.clone()];
-    let ordered_provider_ids = config.ordered_llm_provider_ids(Some(&primary.provider.id));
-
-    for provider_id in ordered_provider_ids {
-        if provider_id == primary.provider.id {
-            continue;
-        }
-
-        let Some(provider) = get_provider(&provider_id) else {
-            continue;
-        };
-
-        let server_entry = config.get(&provider_id);
-        let fallback_model_id = server_entry
-            .and_then(|entry| entry.models.first().cloned())
-            .or_else(|| provider.models.first().map(|model| model.id.clone()));
-
-        let Some(fallback_model_id) = fallback_model_id else {
-            continue;
-        };
-
-        let fallback_model_string = format!("{}:{}", provider_id, fallback_model_id);
-        match resolve_model(config, Some(&fallback_model_string), None, None, None, None) {
-            Ok(resolved) => chain.push(resolved),
-            Err(_) => continue,
-        }
-    }
-
-    Ok(chain)
+    // Deterministic routing mode: keep exactly one selected model/provider.
+    // No cross-provider or cross-model fallback chain is built here.
+    Ok(vec![primary])
 }
 
 #[cfg(test)]
@@ -130,16 +117,15 @@ mod tests {
 
     #[test]
     fn parses_provider_and_model() {
-        let (provider, model) = parse_model_string("google:gemini-2.5-flash");
+        let (provider, model) = parse_model_string("google:gemini-2.5-flash").unwrap();
         assert_eq!(provider, "google");
         assert_eq!(model, "gemini-2.5-flash");
     }
 
     #[test]
-    fn defaults_to_openai_without_provider_prefix() {
-        let (provider, model) = parse_model_string("gpt-4o-mini");
-        assert_eq!(provider, "openai");
-        assert_eq!(model, "gpt-4o-mini");
+    fn rejects_model_without_provider_prefix() {
+        let err = parse_model_string("gpt-4o-mini").unwrap_err();
+        assert!(err.to_string().contains("provider prefix"));
     }
 
     #[test]
@@ -157,7 +143,7 @@ mod tests {
             },
         );
 
-        let resolved = resolve_model(&config, Some("gpt-4o-mini"), None, None, None, None).unwrap();
+        let resolved = resolve_model(&config, Some("openai:gpt-4o-mini"), None, None, None, None).unwrap();
         assert_eq!(resolved.model_config.provider_id, "openai");
         assert_eq!(resolved.model_config.model_id, "gpt-4o-mini");
         assert_eq!(resolved.model_config.api_key, "server-key");
@@ -191,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_model_chain_from_priority_order() {
+    fn resolve_model_chain_returns_primary_only() {
         let mut config = ServerProviderConfig {
             llm_provider_priority: vec![
                 "openai".to_string(),
@@ -244,11 +230,7 @@ mod tests {
 
         assert_eq!(
             chain_models,
-            vec![
-                "openai:gpt-4o-mini".to_string(),
-                "anthropic:claude-sonnet-4-6".to_string(),
-                "google:gemini-2.5-flash".to_string(),
-            ]
+            vec!["openai:gpt-4o-mini".to_string(),]
         );
     }
 }

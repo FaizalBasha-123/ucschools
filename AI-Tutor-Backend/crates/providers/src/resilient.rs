@@ -1,11 +1,7 @@
 //! ZeroClaw-grade provider resilience layer.
 //!
-//! Ported from `zeroclaw/src/providers/reliable.rs` — implements the same
-//! three-level failover strategy:
-//!
-//!   Outer loop  → model fallback chain (original → fallback models)
-//!   Middle loop → provider chain (primary → secondary providers)
-//!   Inner loop  → retry with exponential backoff + Retry-After parsing
+//! Ported from `zeroclaw/src/providers/reliable.rs` and trimmed to a
+//! single-provider retry path with circuit breaking.
 //!
 //! Additional features:
 //!   - Context window overflow detection + automatic history truncation
@@ -386,12 +382,10 @@ fn validate_response(text: &str) -> bool {
 
 // ── Resilient Provider ────────────────────────────────────────────────────
 
-/// ZeroClaw-grade provider wrapper with retry, fallback, and model failover.
+/// ZeroClaw-grade provider wrapper with retry and circuit breaking.
 ///
-/// Three-level failover strategy:
-///   Outer:  model fallback chain (original model → configured alternatives)
-///   Middle: provider chain (primary → secondary providers in priority order)
-///   Inner:  retry with exponential backoff, respecting Retry-After headers
+/// The wrapper is intentionally single-provider in production. It keeps retry
+/// and validation handling, but it does not switch to a secondary provider.
 pub struct ResilientLlmProvider {
     providers: Vec<ProviderEntry>,
     max_retries: u32,
@@ -400,8 +394,6 @@ pub struct ResilientLlmProvider {
     base_backoff_ms: u64,
     circuit_breaker_threshold: u32,
     circuit_breaker_cooldown_ms: u64,
-    /// Per-model fallback chains: model_name → [fallback1, fallback2, ...]
-    model_fallbacks: HashMap<String, Vec<String>>,
     /// The model this provider was built for (used for model chain resolution)
     model_id: Option<String>,
     health: Arc<Mutex<HashMap<String, ProviderHealth>>>,
@@ -413,6 +405,7 @@ impl ResilientLlmProvider {
         Self {
             providers: providers
                 .into_iter()
+                .take(1)
                 .map(|(label, provider, pricing)| ProviderEntry {
                     label,
                     provider,
@@ -424,7 +417,6 @@ impl ResilientLlmProvider {
             base_backoff_ms: 1000,
             circuit_breaker_threshold: 2,
             circuit_breaker_cooldown_ms: 30_000,
-            model_fallbacks: HashMap::new(),
             model_id: None,
             health: Arc::new(Mutex::new(HashMap::new())),
             telemetry: shared_runtime_telemetry_store(),
@@ -438,11 +430,6 @@ impl ResilientLlmProvider {
 
     pub fn with_validation_retries(mut self, retries: u32) -> Self {
         self.validation_retries = retries;
-        self
-    }
-
-    pub fn with_model_fallbacks(mut self, fallbacks: HashMap<String, Vec<String>>) -> Self {
-        self.model_fallbacks = fallbacks;
         self
     }
 
@@ -1627,7 +1614,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn falls_back_to_secondary_provider_after_primary_failure() {
+    async fn does_not_switch_to_secondary_provider() {
         let primary_calls = Arc::new(AtomicUsize::new(0));
         let secondary_calls = Arc::new(AtomicUsize::new(0));
         let resilient = ResilientLlmProvider::new(vec![
@@ -1653,17 +1640,16 @@ mod tests {
         .with_retries(0)
         .with_circuit_breaker(1, 60_000);
 
-        let result = resilient.generate_text("system", "user").await.unwrap();
+        let result = resilient.generate_text("system", "user").await;
 
-        assert_eq!(result, "{\"ok\":true}");
+        assert!(result.is_err());
         assert_eq!(primary_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(secondary_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(secondary_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
-    async fn skips_provider_while_circuit_is_open() {
+    async fn circuit_breaker_blocks_repeat_calls_on_single_provider() {
         let primary_calls = Arc::new(AtomicUsize::new(0));
-        let secondary_calls = Arc::new(AtomicUsize::new(0));
         let resilient = ResilientLlmProvider::new(vec![
             (
                 "openai:gpt-4o-mini".to_string(),
@@ -1674,24 +1660,14 @@ mod tests {
                 }) as Box<dyn LlmProvider>,
                 None,
             ),
-            (
-                "anthropic:claude-sonnet-4-6".to_string(),
-                Box::new(FakeProvider {
-                    calls: Arc::clone(&secondary_calls),
-                    fail_message: None,
-                    response: "{\"ok\":true}".to_string(),
-                }) as Box<dyn LlmProvider>,
-                None,
-            ),
         ])
         .with_retries(0)
         .with_circuit_breaker(1, 60_000);
 
-        resilient.generate_text("system", "user").await.unwrap();
-        resilient.generate_text("system", "user").await.unwrap();
+        assert!(resilient.generate_text("system", "user").await.is_err());
+        assert!(resilient.generate_text("system", "user").await.is_err());
 
         assert_eq!(primary_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(secondary_calls.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

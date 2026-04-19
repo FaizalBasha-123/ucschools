@@ -1146,7 +1146,7 @@ export function getModel(config: ModelConfig): ModelWithInfo {
       };
       if (config.proxy) {
         // Dynamic require to avoid bundling undici on the client side
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
+         
         const { ProxyAgent, fetch: undiciFetch } = require('undici');
         const agent = new ProxyAgent(config.proxy);
         googleOptions.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>

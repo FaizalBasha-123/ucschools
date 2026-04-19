@@ -2,6 +2,8 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use std::collections::HashMap;
 
+type RoutingFn<State> = dyn Fn(&State) -> String + Send + Sync;
+
 #[async_trait]
 pub trait Node<State>: Send + Sync {
     /// Executes the node logic and mutates the state.
@@ -14,7 +16,7 @@ pub trait Node<State>: Send + Sync {
 pub struct Workflow<State> {
     nodes: HashMap<String, Box<dyn Node<State>>>,
     entry_point: String,
-    conditional_edges: HashMap<String, Box<dyn Fn(&State) -> String + Send + Sync>>,
+    conditional_edges: HashMap<String, Box<RoutingFn<State>>>,
     normal_edges: HashMap<String, String>,
 }
 

@@ -120,6 +120,7 @@ export function PBLRenderer({ content, mode: _mode, sceneId }: PBLRendererProps)
   // Role selected → show workspace
   return (
     <PBLWorkspace
+      sceneId={sceneId}
       projectConfig={projectConfig}
       userRole={selectedRole}
       onConfigUpdate={updateConfig}

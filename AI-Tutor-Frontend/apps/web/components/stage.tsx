@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, useReducer } from 'react';
 import { useStageStore } from '@/lib/store';
 import { PENDING_SCENE_ID } from '@/lib/store/stage';
 import { useCanvasStore } from '@/lib/store/canvas';
@@ -32,6 +32,50 @@ import {
 } from '@/components/ui/alert-dialog';
 import { AlertTriangle } from 'lucide-react';
 import { VisuallyHidden } from 'radix-ui';
+
+type LiveThinkingState = {
+  stage: string;
+  agentId?: string;
+  detail?: string;
+};
+
+type LiveSessionState = {
+  liveSpeech: string | null;
+  speechProgress: number | null;
+  speakingAgentId: string | null;
+  thinkingState: LiveThinkingState | null;
+  isCueUser: boolean;
+  chatIsStreaming: boolean;
+  chatSessionType: string | null;
+  isTopicPending: boolean;
+  isDiscussionPaused: boolean;
+};
+
+type LiveSessionAction =
+  | { type: 'patch'; patch: Partial<LiveSessionState> }
+  | { type: 'reset' };
+
+const initialLiveSessionState: LiveSessionState = {
+  liveSpeech: null,
+  speechProgress: null,
+  speakingAgentId: null,
+  thinkingState: null,
+  isCueUser: false,
+  chatIsStreaming: false,
+  chatSessionType: null,
+  isTopicPending: false,
+  isDiscussionPaused: false,
+};
+
+function liveSessionReducer(state: LiveSessionState, action: LiveSessionAction): LiveSessionState {
+  if (action.type === 'reset') {
+    return initialLiveSessionState;
+  }
+  return {
+    ...state,
+    ...action.patch,
+  };
+}
 
 /**
  * Stage Component
@@ -66,32 +110,67 @@ export function Stage({
   const [engineMode, setEngineMode] = useState<EngineMode>('idle');
   const [playbackCompleted, setPlaybackCompleted] = useState(false); // Distinguishes "never played" idle from "finished" idle
   const [lectureSpeech, setLectureSpeech] = useState<string | null>(null); // From PlaybackEngine (lecture)
-  const [liveSpeech, setLiveSpeech] = useState<string | null>(null); // From buffer (discussion/QA)
-  const [speechProgress, setSpeechProgress] = useState<number | null>(null); // StreamBuffer reveal progress (0–1)
   const [discussionTrigger, setDiscussionTrigger] = useState<TriggerEvent | null>(null);
 
-  // Speaking agent tracking (Issue 2)
-  const [speakingAgentId, setSpeakingAgentId] = useState<string | null>(null);
+  const [liveSession, dispatchLiveSession] = useReducer(
+    liveSessionReducer,
+    initialLiveSessionState,
+  );
+  const {
+    liveSpeech,
+    speechProgress,
+    speakingAgentId,
+    thinkingState,
+    isCueUser,
+    chatIsStreaming,
+    chatSessionType,
+    isTopicPending,
+    isDiscussionPaused,
+  } = liveSession;
 
-  // Thinking state (Issue 5)
-  const [thinkingState, setThinkingState] = useState<{
-    stage: string;
-    agentId?: string;
-  } | null>(null);
+  const patchLiveSession = useCallback((patch: Partial<LiveSessionState>) => {
+    dispatchLiveSession({ type: 'patch', patch });
+  }, []);
 
-  // Cue user state (Issue 7)
-  const [isCueUser, setIsCueUser] = useState(false);
+  const setLiveSpeech = useCallback((value: string | null) => {
+    patchLiveSession({ liveSpeech: value });
+  }, [patchLiveSession]);
+
+  const setSpeechProgress = useCallback((value: number | null) => {
+    patchLiveSession({ speechProgress: value });
+  }, [patchLiveSession]);
+
+  const setSpeakingAgentId = useCallback((value: string | null) => {
+    patchLiveSession({ speakingAgentId: value });
+  }, [patchLiveSession]);
+
+  const setThinkingState = useCallback((value: LiveThinkingState | null) => {
+    patchLiveSession({ thinkingState: value });
+  }, [patchLiveSession]);
+
+  const setIsCueUser = useCallback((value: boolean) => {
+    patchLiveSession({ isCueUser: value });
+  }, [patchLiveSession]);
+
+  const setChatIsStreaming = useCallback((value: boolean) => {
+    patchLiveSession({ chatIsStreaming: value });
+  }, [patchLiveSession]);
+
+  const setChatSessionType = useCallback((value: string | null) => {
+    patchLiveSession({ chatSessionType: value });
+  }, [patchLiveSession]);
+
+  const setIsTopicPending = useCallback((value: boolean) => {
+    patchLiveSession({ isTopicPending: value });
+  }, [patchLiveSession]);
+
+  const setIsDiscussionPaused = useCallback((value: boolean) => {
+    patchLiveSession({ isDiscussionPaused: value });
+  }, [patchLiveSession]);
 
   // End flash state (Issue 3)
   const [showEndFlash, setShowEndFlash] = useState(false);
   const [endFlashSessionType, setEndFlashSessionType] = useState<'qa' | 'discussion'>('discussion');
-
-  // Streaming state for stop button (Issue 1)
-  const [chatIsStreaming, setChatIsStreaming] = useState(false);
-  const [chatSessionType, setChatSessionType] = useState<string | null>(null);
-
-  // Topic pending state: session is soft-paused, bubble stays visible, waiting for user input
-  const [isTopicPending, setIsTopicPending] = useState(false);
 
   // Active bubble ID for playback highlight in chat area (Issue 8)
   const [activeBubbleId, setActiveBubbleId] = useState<string | null>(null);
@@ -138,21 +217,14 @@ export function Stage({
     },
   });
 
-  // Pick a student agent for discussion trigger (prioritize student > non-teacher > fallback)
-  const pickStudentAgent = useCallback((): string => {
+  // Teacher-only routing: always use the lead teacher when opening a proactive discussion.
+  const pickTeacherAgent = useCallback((): string => {
     const registry = useAgentRegistry.getState();
     const agents = selectedAgentIds
       .map((id) => registry.getAgent(id))
       .filter((a): a is AgentConfig => a != null);
-    const students = agents.filter((a) => a.role === 'student');
-    if (students.length > 0) {
-      return students[Math.floor(Math.random() * students.length)].id;
-    }
-    const nonTeachers = agents.filter((a) => a.role !== 'teacher');
-    if (nonTeachers.length > 0) {
-      return nonTeachers[Math.floor(Math.random() * nonTeachers.length)].id;
-    }
-    return agents[0]?.id || 'default-1';
+    const teacher = agents.find((a) => a.role === 'teacher');
+    return teacher?.id || agents[0]?.id || 'default-1';
   }, [selectedAgentIds]);
 
   const engineRef = useRef<PlaybackEngine | null>(null);
@@ -169,9 +241,6 @@ export function Stage({
   const sceneEpochRef = useRef(0);
   // When true, the next engine init will auto-start playback (for auto-play scene advance)
   const autoStartRef = useRef(false);
-  // Discussion buffer-level pause state (distinct from soft-pause which aborts SSE)
-  const [isDiscussionPaused, setIsDiscussionPaused] = useState(false);
-
   /**
    * Resume a soft-paused topic: re-call /chat with existing session messages.
    * The director picks the next agent to continue.
@@ -179,6 +248,7 @@ export function Stage({
   const doResumeTopic = useCallback(async () => {
     // Clear old bubble immediately — no lingering on interrupted text
     setIsTopicPending(false);
+    setIsCueUser(false);
     setLiveSpeech(null);
     setSpeakingAgentId(null);
     setThinkingState({ stage: 'director' });
@@ -192,15 +262,7 @@ export function Stage({
 
   /** Reset all live/discussion state (shared by doSessionCleanup & onDiscussionEnd) */
   const resetLiveState = useCallback(() => {
-    setLiveSpeech(null);
-    setSpeakingAgentId(null);
-    setSpeechProgress(null);
-    setThinkingState(null);
-    setIsCueUser(false);
-    setIsTopicPending(false);
-    setChatIsStreaming(false);
-    setChatSessionType(null);
-    setIsDiscussionPaused(false);
+    dispatchLiveSession({ type: 'reset' });
   }, []);
 
   /** Full scene reset (scene switch) — resetLiveState + lecture/visual state */
@@ -276,7 +338,7 @@ export function Stage({
     try {
       if (document.fullscreenElement === stageElement) {
         // Unlock Escape key before exiting fullscreen
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         (navigator as any).keyboard?.unlock?.();
         await document.exitFullscreen();
         return;
@@ -286,7 +348,7 @@ export function Stage({
       await stageElement.requestFullscreen();
       // Lock Escape key so it doesn't auto-exit fullscreen (#255)
       // Escape is handled manually in our keydown handler instead
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
       await (navigator as any).keyboard?.lock?.(['Escape']).catch(() => {});
       setSidebarCollapsed(true);
       setChatAreaCollapsed(true);
@@ -303,7 +365,7 @@ export function Stage({
 
       if (!active) {
         // Ensure keyboard unlock on any fullscreen exit
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         (navigator as any).keyboard?.unlock?.();
         setControlsVisible(true);
         clearPresentationIdleTimer();
@@ -438,7 +500,7 @@ export function Stage({
         if (!trigger.agentId) {
           // Mutate in-place so engine.currentTrigger also gets the agentId
           // (confirmDiscussion reads agentId from the same object reference)
-          trigger.agentId = pickStudentAgent();
+          trigger.agentId = pickTeacherAgent();
         }
         setDiscussionTrigger(trigger);
       },
@@ -588,6 +650,27 @@ export function Stage({
   }, [playbackSpeed]);
 
   /**
+   * Bind navigation API scene changes to playback engine callbacks.
+   * When the user navigates via the stage API (goTo, next, previous),
+   * the currentSceneId changes in the store but the engine doesn't know about it.
+   * This effect watches for external scene changes and notifies the engine
+   * so it can fire onSceneChange callbacks and synchronize overlays, markers, and live state.
+   */
+  useEffect(() => {
+    if (engineRef.current && currentSceneId) {
+      // When navigation changes the scene ID externally (not from engine),
+      // invoke the engine's notifySceneChange method to update UI and playback state.
+      // The callback will handle any necessary overlays, markers, or session state resets.
+      engineRef.current.notifySceneChange(currentSceneId);
+    }
+    // Note: We intentionally trigger on every currentSceneId change. The engine's
+    // notifySceneChange method will invoke onSceneChange callback which updates overlays,
+    // markers, and any scene-dependent state. This ensures UI stays synchronized with
+    // navigation even when the user uses the scene sidebar or navigation buttons.
+     
+  }, [currentSceneId]);
+
+  /**
    * Handle discussion SSE — POST /api/chat and push events to engine
    */
   const handleDiscussionSSE = useCallback(
@@ -615,12 +698,10 @@ export function Stage({
     [currentScene],
   );
 
-  // Whether the speaking agent is a student (for bubble role derivation)
+  // Teacher-only routing: non-teacher bubble branch is disabled.
   const speakingStudentFlag = useMemo(() => {
-    if (!speakingAgentId) return false;
-    const agent = useAgentRegistry.getState().getAgent(speakingAgentId);
-    return agent?.role !== 'teacher';
-  }, [speakingAgentId]);
+    return false;
+  }, []);
 
   // Centralised derived playback view
   const playbackView = useMemo(

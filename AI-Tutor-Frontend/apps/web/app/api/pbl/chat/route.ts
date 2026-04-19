@@ -6,20 +6,17 @@
  */
 
 import { NextRequest } from 'next/server';
-import { callLLM } from '@/lib/ai/llm';
-import type { PBLAgent, PBLIssue } from '@/lib/pbl/types';
 import { createLogger } from '@/lib/logger';
-import { apiError, apiSuccess } from '@/lib/server/api-response';
-import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
+import { apiError } from '@/lib/server/api-response';
 const log = createLogger('PBL Chat');
 
-interface PBLChatRequest {
-  message: string;
-  agent: PBLAgent;
-  currentIssue: PBLIssue | null;
-  recentMessages: { agent_name: string; message: string }[];
-  userRole: string;
-  agentType?: 'question' | 'judge';
+function authHeadersFrom(request: NextRequest): HeadersInit {
+  const headers: HeadersInit = {};
+  const authorization = request.headers.get('authorization');
+  const cookie = request.headers.get('cookie');
+  if (authorization) headers.authorization = authorization;
+  if (cookie) headers.cookie = cookie;
+  return headers;
 }
 
 export async function POST(req: NextRequest) {
@@ -35,6 +32,16 @@ export async function POST(req: NextRequest) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...authHeadersFrom(req),
+        ...(req.headers.get('x-api-key')
+          ? { 'x-api-key': req.headers.get('x-api-key') as string }
+          : {}),
+        ...(req.headers.get('x-base-url')
+          ? { 'x-base-url': req.headers.get('x-base-url') as string }
+          : {}),
+        ...(req.headers.get('x-requires-api-key')
+          ? { 'x-requires-api-key': req.headers.get('x-requires-api-key') as string }
+          : {}),
       },
       body: JSON.stringify(body),
     });

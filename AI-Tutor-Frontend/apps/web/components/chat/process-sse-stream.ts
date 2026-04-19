@@ -105,7 +105,11 @@ export async function processSSEStream(
               }
 
               case 'thinking': {
-                buffer.pushThinking(eventData);
+                buffer.pushThinking({
+                  stage: eventData.stage ?? 'director',
+                  agentId: eventData.agentId ?? eventData.agent_id,
+                  detail: eventData.detail ?? eventData.message ?? eventData.thinking_detail,
+                });
                 break;
               }
 

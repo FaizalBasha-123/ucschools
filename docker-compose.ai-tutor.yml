@@ -40,7 +40,6 @@ services:
     container_name: ai-tutor-frontend
     environment:
       NEXT_PUBLIC_AI_TUTOR_API_BASE_URL: http://localhost:4041
-      NEXT_PUBLIC_AI_TUTOR_API_TOKEN: ${AI_TUTOR_API_SECRET:-}
     ports:
       - "4040:4040"
     depends_on:

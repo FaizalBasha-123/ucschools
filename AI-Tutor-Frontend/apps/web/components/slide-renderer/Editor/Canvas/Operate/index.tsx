@@ -101,7 +101,7 @@ export function Operate({
   }, [currentSlide]);
 
   const CurrentOperateComponent = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- element operate components have varying prop signatures
+     
     const elementTypeMap: Record<string, any> = {
       [ElementTypes.IMAGE]: ImageElementOperate,
       [ElementTypes.TEXT]: TextElementOperate,
@@ -142,7 +142,7 @@ export function Operate({
         pointerEvents: 'auto', // Enable mouse events for operate controls
       }}
     >
-      {/* eslint-disable @typescript-eslint/no-explicit-any -- dynamic component dispatch requires type widening */}
+      { }
       {isSelected && CurrentOperateComponent && (
         <CurrentOperateComponent
           elementInfo={elementInfo as any}
@@ -153,7 +153,7 @@ export function Operate({
           moveShapeKeypoint={moveShapeKeypoint as any}
         />
       )}
-      {/* eslint-enable @typescript-eslint/no-explicit-any */}
+      { }
 
       {/* Animation index display */}
       {toolbarState === 'elAnimation' && elementIndexListInAnimation.length > 0 && (

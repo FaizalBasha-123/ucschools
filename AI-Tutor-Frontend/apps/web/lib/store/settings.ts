@@ -457,6 +457,29 @@ function ensureBuiltInVideoProviders(state: Partial<SettingsState>): void {
   });
 }
 
+/**
+ * Ensure webSearchProvidersConfig includes all built-in web search providers.
+ * Called on every rehydrate so provider migrations do not leave missing config entries behind.
+ */
+function ensureBuiltInWebSearchProviders(state: Partial<SettingsState>): void {
+  if (!state.webSearchProvidersConfig) return;
+  const defaultConfig = getDefaultWebSearchConfig().webSearchProvidersConfig;
+  Object.keys(WEB_SEARCH_PROVIDERS).forEach((pid) => {
+    const providerId = pid as WebSearchProviderId;
+    if (!state.webSearchProvidersConfig![providerId]) {
+      state.webSearchProvidersConfig![providerId] = defaultConfig[providerId];
+    }
+  });
+}
+
+
+function sanitizeSelectedAgentIds(ids: string[] | undefined): string[] {
+  if (!ids || ids.length === 0) return ['default-1'];
+  const generatedId = ids.find((id) => id.startsWith('gen-'));
+  if (generatedId) return [generatedId];
+  if (ids.includes('default-1')) return ['default-1'];
+  return ['default-1'];
+}
 // Migrate from old localStorage format
 const migrateFromOldStorage = () => {
   if (typeof window === 'undefined') return null;
@@ -500,12 +523,12 @@ const migrateFromOldStorage = () => {
   let ttsModel = 'openai-tts';
   if (oldTtsModel) ttsModel = oldTtsModel;
 
-  let selectedAgentIds = ['default-1', 'default-2', 'default-3'];
+  let selectedAgentIds = ['default-1'];
   if (oldSelectedAgents) {
     try {
       const parsed = JSON.parse(oldSelectedAgents);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        selectedAgentIds = parsed;
+        selectedAgentIds = sanitizeSelectedAgentIds(parsed);
       }
     } catch (e) {
       log.error('Failed to parse old selectedAgentIds:', e);
@@ -542,7 +565,7 @@ export const useSettingsStore = create<SettingsState>()(
         modelId: migratedData?.modelId || '',
         providersConfig: migratedData?.providersConfig || getDefaultProvidersConfig(),
         ttsModel: migratedData?.ttsModel || 'openai-tts',
-        selectedAgentIds: migratedData?.selectedAgentIds || ['default-1', 'default-2', 'default-3'],
+        selectedAgentIds: sanitizeSelectedAgentIds(migratedData?.selectedAgentIds),
         maxTurns: migratedData?.maxTurns?.toString() || '10',
         agentMode: 'auto' as const,
         autoAgentCount: 3,
@@ -609,7 +632,8 @@ export const useSettingsStore = create<SettingsState>()(
 
         setPlaybackSpeed: (speed) => set({ playbackSpeed: speed }),
 
-        setSelectedAgentIds: (ids) => set({ selectedAgentIds: ids }),
+        setSelectedAgentIds: (ids) =>
+          set({ selectedAgentIds: sanitizeSelectedAgentIds(ids) }),
 
         setMaxTurns: (turns) => set({ maxTurns: turns }),
         setAgentMode: (mode) => set({ agentMode: mode }),
@@ -936,73 +960,33 @@ export const useSettingsStore = create<SettingsState>()(
                 }
               }
 
-              // === Validate current selections against updated configs ===
-              // Build fallback: server-configured first, then client-key-only
-              const buildFallback = <T extends string>(
-                config: Record<string, { isServerConfigured?: boolean; apiKey?: string }>,
-              ): T[] => [
-                ...Object.entries(config)
-                  .filter(([, c]) => c.isServerConfigured)
-                  .map(([id]) => id as T),
-                ...Object.entries(config)
-                  .filter(([, c]) => !c.isServerConfigured && !!c.apiKey)
-                  .map(([id]) => id as T),
-              ];
-
-              const llmFallback = buildFallback<ProviderId>(newProvidersConfig);
-              const ttsFallback = buildFallback<TTSProviderId>(newTTSConfig);
-              const asrFallback = buildFallback<ASRProviderId>(newASRConfig);
-              const pdfFallback = buildFallback<PDFProviderId>(newPDFConfig);
-              const imageFallback = buildFallback<ImageProviderId>(newImageConfig);
-              const videoFallback = buildFallback<VideoProviderId>(newVideoConfig);
-
               const validLLMProvider = validateProvider(
                 state.providerId,
                 newProvidersConfig,
-                llmFallback,
               );
               const validTTSProvider = validateProvider(
                 state.ttsProviderId,
                 newTTSConfig,
-                ttsFallback,
                 'browser-native-tts' as TTSProviderId,
               );
               const validASRProvider = validateProvider(
                 state.asrProviderId,
                 newASRConfig,
-                asrFallback,
                 'browser-native' as ASRProviderId,
               );
               const validPDFProvider = validateProvider(
                 state.pdfProviderId,
                 newPDFConfig,
-                pdfFallback,
                 'unpdf' as PDFProviderId,
               );
-              let validImageProvider = validateProvider(
+              const validImageProvider = validateProvider(
                 state.imageProviderId,
                 newImageConfig,
-                imageFallback,
               );
-              let validVideoProvider = validateProvider(
+              const validVideoProvider = validateProvider(
                 state.videoProviderId,
                 newVideoConfig,
-                videoFallback,
               );
-
-              // Auto-recover: when provider is empty but server has available ones
-              let recoveredImageModel = '';
-              if (!validImageProvider && imageFallback.length > 0) {
-                validImageProvider = imageFallback[0];
-                const models = IMAGE_PROVIDERS[validImageProvider as ImageProviderId]?.models;
-                if (models?.length) recoveredImageModel = models[0].id;
-              }
-              let recoveredVideoModel = '';
-              if (!validVideoProvider && videoFallback.length > 0) {
-                validVideoProvider = videoFallback[0];
-                const models = VIDEO_PROVIDERS[validVideoProvider as VideoProviderId]?.models;
-                if (models?.length) recoveredVideoModel = models[0].id;
-              }
 
               const validLLMModel = validLLMProvider
                 ? validateModel(
@@ -1013,19 +997,12 @@ export const useSettingsStore = create<SettingsState>()(
               const imageModels =
                 IMAGE_PROVIDERS[validImageProvider as ImageProviderId]?.models ?? [];
               const validImageModel = validImageProvider
-                ? recoveredImageModel ||
-                  validateModel(state.imageModelId, imageModels) ||
-                  // validateModel('', ...) returns '' — fallback to first model when modelId is empty
-                  imageModels[0]?.id ||
-                  ''
+                ? validateModel(state.imageModelId, imageModels) || imageModels[0]?.id || ''
                 : '';
               const videoModels =
                 VIDEO_PROVIDERS[validVideoProvider as VideoProviderId]?.models ?? [];
               const validVideoModel = validVideoProvider
-                ? recoveredVideoModel ||
-                  validateModel(state.videoModelId, videoModels) ||
-                  videoModels[0]?.id ||
-                  ''
+                ? validateModel(state.videoModelId, videoModels) || videoModels[0]?.id || ''
                 : '';
 
               const validTTSVoice =
@@ -1215,6 +1192,7 @@ export const useSettingsStore = create<SettingsState>()(
         // Ensure image/video configs have all built-in providers
         ensureBuiltInImageProviders(state);
         ensureBuiltInVideoProviders(state);
+        ensureBuiltInWebSearchProviders(state);
 
         // Migrate from old ttsModel to new ttsProviderId
         if (state.ttsModel && !state.ttsProviderId) {
@@ -1345,6 +1323,7 @@ export const useSettingsStore = create<SettingsState>()(
         ensureBuiltInProviders(merged as Partial<SettingsState>);
         ensureBuiltInImageProviders(merged as Partial<SettingsState>);
         ensureBuiltInVideoProviders(merged as Partial<SettingsState>);
+        ensureBuiltInWebSearchProviders(merged as Partial<SettingsState>);
         ensureValidProviderSelections(merged as Partial<SettingsState>);
         return merged as SettingsState;
       },

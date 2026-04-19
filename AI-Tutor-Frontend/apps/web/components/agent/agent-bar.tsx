@@ -549,19 +549,19 @@ export function AgentBar() {
         presetIds.unshift(teacherAgent.id);
       }
       setSelectedAgentIds(
-        presetIds.length > 0 ? presetIds : ['default-1', 'default-2', 'default-3'],
+        presetIds.length > 0 ? presetIds : ['default-1'],
       );
     }
   };
 
   const toggleAgent = (agentId: string) => {
     const agent = agents.find((a) => a.id === agentId);
-    if (agent?.role === 'teacher') return;
-    if (selectedAgentIds.includes(agentId)) {
-      setSelectedAgentIds(selectedAgentIds.filter((id) => id !== agentId));
-    } else {
-      setSelectedAgentIds([...selectedAgentIds, agentId]);
+    if (agent?.role === 'teacher') {
+      setSelectedAgentIds([agentId]);
+      return;
     }
+    // Teacher-only mode: ignore non-teacher role toggles.
+    return;
   };
 
   const getAgentName = (agent: { id: string; name: string }) => {

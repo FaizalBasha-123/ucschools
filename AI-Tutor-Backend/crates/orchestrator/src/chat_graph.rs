@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 use ai_tutor_domain::runtime::{
     AgentTurnSummary, DirectorState, StatelessChatRequest, WhiteboardActionRecord,
 };
+use crate::pedagogy_router::{resolve_chat_pedagogy_route, thinking_message_for_chat};
 use ai_tutor_providers::traits::{
     LlmProvider, ProviderRuntimeStatus, ProviderStreamEvent, ProviderToolCall, StreamingPath,
 };
@@ -85,6 +86,7 @@ pub struct ChatGraphEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChatGraphEventKind {
+    Thinking,
     AgentSelected,
     TextDelta,
     ActionStarted,
@@ -219,7 +221,7 @@ impl Node<ChatGraphState> for DirectorNode {
                     .agent_responses
                     .last()
                     .map(|r| r.agent_id.clone())
-                    .unwrap_or_else(|| "assistant".to_string());
+                    .unwrap_or_else(|| "default-1".to_string());
                 tracing::info!(
                     last_agent = %last,
                     "Director: single agent, cueing user after response"
@@ -469,25 +471,31 @@ pub struct TutorNode;
 #[async_trait]
 impl Node<ChatGraphState> for TutorNode {
     async fn execute(&self, state: &mut ChatGraphState) -> Result<()> {
-        // Extract the selected agent from the director selection message
-        let selection_msg = state
+        // Newer payloads include a persisted director-selection system message.
+        // For older/patched client state, fall back to deterministic selection.
+        let selected = if let Some(selection_msg) = state
             .payload
             .messages
             .iter()
             .rev()
             .find(|m| m.role == "system_director_selection")
-            .ok_or_else(|| anyhow::anyhow!("Director selection not found in state"))?;
-
-        let selection: serde_json::Value = serde_json::from_str(&selection_msg.content)?;
-        let selected = SelectedAgent {
-            id: selection["id"].as_str().unwrap_or("assistant").to_string(),
-            name: selection["name"].as_str().unwrap_or("AI Tutor").to_string(),
-            role: selection["role"].as_str().unwrap_or("teacher").to_string(),
-            persona: selection["persona"]
-                .as_str()
-                .unwrap_or("Helpful tutor")
-                .to_string(),
-            reason: selection["reason"].as_str().unwrap_or("").to_string(),
+        {
+            let selection: serde_json::Value = serde_json::from_str(&selection_msg.content)?;
+            SelectedAgent {
+                id: selection["id"].as_str().unwrap_or("assistant").to_string(),
+                name: selection["name"].as_str().unwrap_or("AI Tutor").to_string(),
+                role: selection["role"].as_str().unwrap_or("teacher").to_string(),
+                persona: selection["persona"]
+                    .as_str()
+                    .unwrap_or("Helpful tutor")
+                    .to_string(),
+                reason: selection["reason"].as_str().unwrap_or("").to_string(),
+            }
+        } else {
+            tracing::debug!(
+                "Director selection message missing; falling back to heuristic selection"
+            );
+            resolve_selected_agent(&state.payload, &state.provider_runtime)
         };
 
         // Extract allowed actions from the matching agent config
@@ -832,6 +840,26 @@ async fn run_chat_graph_internal(
         whiteboard_state,
         cancellation_token,
     };
+    let pedagogy_route = resolve_chat_pedagogy_route(&state.payload, state.payload.model.as_deref())?;
+    let thinking_message = thinking_message_for_chat(&pedagogy_route);
+    let thinking_model = pedagogy_route.model.clone();
+    let whiteboard_snapshot = state.whiteboard_state.clone();
+    emit_event(
+        &mut state,
+        ChatGraphEvent {
+            kind: ChatGraphEventKind::Thinking,
+            agent_id: None,
+            agent_name: None,
+            action_name: None,
+            action_params: None,
+            content: None,
+            message: Some(format!("{} (model: {})", thinking_message, thinking_model)),
+            director_state: None,
+            whiteboard_state: Some(whiteboard_snapshot),
+            interruption_reason: None,
+            resume_allowed: None,
+        },
+    );
 
     let graph = build_chat_graph();
     if let Err(error) = graph.execute(&mut state).await {
@@ -962,6 +990,7 @@ fn collect_candidates(payload: &StatelessChatRequest) -> Vec<CandidateAgent> {
             .config
             .agent_configs
             .iter()
+            .filter(|a| !a.id.trim().is_empty())
             .map(|a| CandidateAgent {
                 id: a.id.clone(),
                 name: a.name.clone(),
@@ -978,16 +1007,11 @@ fn collect_candidates(payload: &StatelessChatRequest) -> Vec<CandidateAgent> {
             .config
             .agent_ids
             .iter()
+            .filter(|id| id.eq_ignore_ascii_case("default-1") || id.to_ascii_lowercase().contains("teacher"))
             .map(|id| CandidateAgent {
                 id: id.clone(),
                 name: id.clone(),
-                role: if id.to_ascii_lowercase().contains("student") {
-                    "student".to_string()
-                } else if id.to_ascii_lowercase().contains("assistant") {
-                    "assistant".to_string()
-                } else {
-                    "teacher".to_string()
-                },
+                role: "teacher".to_string(),
                 persona: "Helpful classroom participant".to_string(),
                 priority: 10,
                 bound_stage_id: None,
@@ -1005,7 +1029,7 @@ fn resolve_selected_agent(
     let candidates = collect_candidates(payload);
     if candidates.is_empty() {
         return SelectedAgent {
-            id: "assistant".to_string(),
+            id: "default-1".to_string(),
             name: "AI Tutor".to_string(),
             role: "teacher".to_string(),
             persona: "Supportive classroom tutor".to_string(),
@@ -1116,6 +1140,20 @@ fn resolve_selected_agent(
         .and_then(|scene_id| payload.store_state.scenes.iter().find(|scene| &scene.id == scene_id))
         .map(|scene| &scene.content);
 
+    if matches!(
+        current_scene_content,
+        Some(ai_tutor_domain::scene::SceneContent::Project { .. })
+    ) {
+        if let Some(stage_id) = current_stage_id.as_ref() {
+            let has_stage_bound_candidates = filtered
+                .iter()
+                .any(|agent| agent.bound_stage_id.as_ref() == Some(stage_id));
+            if has_stage_bound_candidates {
+                filtered.retain(|agent| agent.bound_stage_id.as_ref() == Some(stage_id));
+            }
+        }
+    }
+
     let mut scored: Vec<(i32, Vec<String>, CandidateAgent)> = filtered
         .iter()
         .map(|agent| {
@@ -1138,10 +1176,6 @@ fn resolve_selected_agent(
                                 "quiz scenes benefit from teacher-led reasoning checks"
                                     .to_string(),
                             );
-                        } else if agent.role.eq_ignore_ascii_case("assistant") {
-                            score += 10;
-                        } else if agent.role.eq_ignore_ascii_case("student") {
-                            score -= 6;
                         }
                     }
                     ai_tutor_domain::scene::SceneContent::Interactive { .. } => {
@@ -1151,8 +1185,6 @@ fn resolve_selected_agent(
                                 "interactive scenes benefit from guided teacher facilitation"
                                     .to_string(),
                             );
-                        } else if agent.role.eq_ignore_ascii_case("assistant") {
-                            score += 8;
                         }
                     }
                     ai_tutor_domain::scene::SceneContent::Project { .. } => {
@@ -1173,76 +1205,39 @@ fn resolve_selected_agent(
 
             match last_agent_role.as_deref() {
                 Some("teacher") => {
-                    if agent.role.eq_ignore_ascii_case("student") {
-                        score += 30;
-                        reasons.push("it adds role diversity after a teacher turn".to_string());
-                    } else if agent.role.eq_ignore_ascii_case("assistant") {
-                        score += 18;
-                    }
-                }
-                Some("student") => {
-                    if agent.role.eq_ignore_ascii_case("teacher") {
-                        score += 28;
-                    } else if agent.role.eq_ignore_ascii_case("assistant") {
-                        score += 18;
-                    }
-                }
-                Some("assistant") => {
-                    if agent.role.eq_ignore_ascii_case("student") {
-                        score += 24;
-                    } else if agent.role.eq_ignore_ascii_case("teacher") {
-                        score += 22;
-                    }
+                    score += 12;
                 }
                 _ => {
                     if agent.role.eq_ignore_ascii_case("teacher") {
                         score += 24;
-                    } else if agent.role.eq_ignore_ascii_case("assistant") {
-                        score += 16;
                     }
                 }
             }
 
-            if provider_degraded {
-                if agent.role.eq_ignore_ascii_case("teacher") {
-                    score += 14;
-                    reasons.push(
-                        "runtime health is degraded, so a teacher-led response is safer"
-                            .to_string(),
-                    );
-                } else if agent.role.eq_ignore_ascii_case("assistant") {
-                    score += 8;
-                } else if agent.role.eq_ignore_ascii_case("student") {
-                    score -= 8;
-                }
+            if provider_degraded && agent.role.eq_ignore_ascii_case("teacher") {
+                score += 14;
+                reasons.push(
+                    "runtime health is degraded, so a teacher-led response is safer".to_string(),
+                );
             }
 
-            if provider_requires_conservative_turns && !provider_degraded {
-                if agent.role.eq_ignore_ascii_case("teacher") {
-                    score += 10;
-                    reasons.push(
-                        "current provider streaming conditions favor a concise teacher-led turn"
-                            .to_string(),
-                    );
-                } else if agent.role.eq_ignore_ascii_case("assistant") {
-                    score += 4;
-                } else if agent.role.eq_ignore_ascii_case("student") {
-                    score -= 6;
-                }
+            if provider_requires_conservative_turns
+                && !provider_degraded
+                && agent.role.eq_ignore_ascii_case("teacher")
+            {
+                score += 10;
+                reasons.push(
+                    "current provider streaming conditions favor a concise teacher-led turn"
+                        .to_string(),
+                );
             }
 
-            if user_needs_explanation {
-                if agent.role.eq_ignore_ascii_case("teacher") {
-                    score += 18;
-                    reasons.push(
-                        "the learner message asks for explanation, so teacher clarity is preferred"
-                            .to_string(),
-                    );
-                } else if agent.role.eq_ignore_ascii_case("assistant") {
-                    score += 8;
-                } else if agent.role.eq_ignore_ascii_case("student") {
-                    score -= 10;
-                }
+            if user_needs_explanation && agent.role.eq_ignore_ascii_case("teacher") {
+                score += 18;
+                reasons.push(
+                    "the learner message asks for explanation, so teacher clarity is preferred"
+                        .to_string(),
+                );
             }
 
             // Keyword relevance
@@ -1651,7 +1646,9 @@ fn build_stream_messages(
     for message in payload.messages.iter().rev().take(12).rev() {
         let normalized_role = match message.role.as_str() {
             "user" => Some("user"),
-            "assistant" | "teacher" | "student" | "agent" => Some("assistant"),
+            "assistant" | "teacher" | "student" | "friend" | "classmate" | "agent" => {
+                Some("assistant")
+            }
             "system_director_selection" => None,
             _ => None,
         };
@@ -1695,6 +1692,7 @@ fn push_streamed_event(
     target.push(event);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_provider_stream_event(
     event: ProviderStreamEvent,
     parser_state: &mut crate::response_parser::StreamParserState,

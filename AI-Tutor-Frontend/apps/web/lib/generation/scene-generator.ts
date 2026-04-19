@@ -1093,7 +1093,8 @@ function formatQuestionsForPrompt(questions: QuizQuestion[]): string {
 function processActions(actions: Action[], elements: PPTElement[], agents?: AgentInfo[]): Action[] {
   const elementIds = new Set(elements.map((el) => el.id));
   const agentIds = new Set(agents?.map((a) => a.id) || []);
-  const studentAgents = agents?.filter((a) => a.role === 'student') || [];
+  const studentAgents =
+    agents?.filter((a) => a.role === 'student' || a.role === 'friend' || a.role === 'classmate') || [];
   const nonTeacherAgents = agents?.filter((a) => a.role !== 'teacher') || [];
 
   return actions.map((action) => {

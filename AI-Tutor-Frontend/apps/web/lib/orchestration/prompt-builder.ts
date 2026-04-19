@@ -406,7 +406,7 @@ function stripHtml(html: string): string {
 /**
  * Summarize a single PPT element into a one-line description
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- PPTElement variants have heterogeneous shapes
+ 
 function summarizeElement(el: any): string {
   const id = el.id ? `[id:${el.id}]` : '';
   const pos = `at (${Math.round(el.left)},${Math.round(el.top)})`;
@@ -461,7 +461,7 @@ function summarizeElement(el: any): string {
 /**
  * Summarize an array of elements into line descriptions
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- PPTElement variants have heterogeneous shapes
+ 
 function summarizeElements(elements: any[]): string {
   if (elements.length === 0) return '  (empty)';
 

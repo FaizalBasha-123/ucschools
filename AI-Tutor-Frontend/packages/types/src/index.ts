@@ -523,6 +523,19 @@ export type TutorStreamEvent =
       director_state?: null;
     })
   | (TutorStreamEventBase & {
+      kind: "thinking";
+      action_name?: null;
+      action_params?: null;
+      execution_id?: null;
+      ack_policy?: null;
+      execution?: null;
+      whiteboard_state?: null;
+      content?: string | null;
+      director_state?: null;
+      thinking_stage?: "director" | "agent_loading" | "baseline" | "scaffold" | "reasoning";
+      thinking_detail?: string | null;
+    })
+  | (TutorStreamEventBase & {
       kind: "agent_selected";
       action_name?: null;
       action_params?: null;

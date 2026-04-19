@@ -100,21 +100,19 @@ export function CanvasArea({
           )}
           onClick={handleSlideClick}
         >
-          {/* Whiteboard Layer */}
-          <div className="absolute inset-0 z-[110] pointer-events-none">
-            <SceneProvider>
-              <Whiteboard isOpen={whiteboardOpen} onClose={onWhiteboardClose} />
-            </SceneProvider>
-          </div>
-
-          {/* Scene Content */}
-          {currentScene && !whiteboardOpen && (
-            <div className="absolute inset-0">
-              <SceneProvider>
+          <SceneProvider>
+            {/* Scene Content */}
+            {currentScene && !whiteboardOpen && (
+              <div className="absolute inset-0">
                 <SceneRenderer scene={currentScene} mode={mode} />
-              </SceneProvider>
+              </div>
+            )}
+
+            {/* Whiteboard Layer */}
+            <div className="absolute inset-0 z-[110] pointer-events-none">
+              <Whiteboard isOpen={whiteboardOpen} onClose={onWhiteboardClose} />
             </div>
-          )}
+          </SceneProvider>
 
           {/* Pending Scene Loading Overlay */}
           <AnimatePresence>

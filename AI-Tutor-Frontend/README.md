@@ -28,9 +28,10 @@ This workspace is now Vercel-hostable with the root `vercel.json`:
 
 Set these environment variables in Vercel:
 - `NEXT_PUBLIC_AI_TUTOR_API_BASE_URL`: your Rust backend public URL (recommended for separate backend hosting)
-- `NEXT_PUBLIC_AI_TUTOR_API_TOKEN`: optional, if backend auth is enabled
 
 If `NEXT_PUBLIC_AI_TUTOR_API_BASE_URL` is not set, the app resolves API base in this order:
 1. Same-origin in browser (`window.location.origin`)
 2. `https://${VERCEL_URL}` on server side
 3. Local fallback `http://127.0.0.1:8099` for dev
+
+The frontend does not need a separate model env. Runtime model selection is owned by the backend.

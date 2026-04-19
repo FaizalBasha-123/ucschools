@@ -77,24 +77,9 @@ services:
         sync: false  # Set manually in Render dashboard
 
       # --- LLM Providers ---
-      # Primary model is chosen by AI_TUTOR_MODEL.
-      # Additional configured providers can be used as fallbacks by the Rust
-      # provider chain when AI_TUTOR_LLM_PROVIDER_PRIORITY is set.
-      # Option A: OpenAI (supports LLM + TTS + ASR + Images)
-      - key: OPENAI_API_KEY
-        sync: false  # Set manually in Render dashboard
-
-      # Option B: Anthropic (LLM fallback)
-      - key: ANTHROPIC_API_KEY
+      # OpenRouter powers chat/generation.
+      - key: OPENROUTER_API_KEY
         sync: false
-
-      # Option C: Google Gemini (LLM fallback)
-      - key: GOOGLE_API_KEY
-        sync: false
-
-      # Optional failover order across configured providers
-      - key: AI_TUTOR_LLM_PROVIDER_PRIORITY
-        value: "openai,anthropic,google"
       - key: AI_TUTOR_LLM_CIRCUIT_BREAKER_THRESHOLD
         value: "2"
       - key: AI_TUTOR_LLM_CIRCUIT_BREAKER_COOLDOWN_MS
@@ -102,9 +87,25 @@ services:
 
       # --- Which model to use for lesson generation ---
       - key: AI_TUTOR_MODEL
-        value: "openai:gpt-4o-mini"
+        value: "openrouter:openai/gpt-4o-mini"
+      - key: AI_TUTOR_CHAT_BASELINE_MODEL
+        value: "openrouter:openai/gpt-4o-mini"
+      - key: AI_TUTOR_CHAT_SCAFFOLD_MODEL
+        value: "openrouter:google/gemini-2.5-flash"
+      - key: AI_TUTOR_CHAT_REASONING_MODEL
+        value: "openrouter:anthropic/claude-sonnet-4-6"
+      - key: AI_TUTOR_GENERATION_OUTLINES_MODEL
+        value: "openrouter:google/gemini-2.5-flash"
+      - key: AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL
+        value: "openrouter:openai/gpt-4o-mini"
+      - key: AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL
+        value: "openrouter:openai/gpt-4o-mini"
+      - key: AI_TUTOR_PBL_RUNTIME_MODEL
+        value: "openrouter:openai/gpt-4o-mini"
 
-      # --- Media models (all use OPENAI_API_KEY) ---
+      # --- Media models (still use OPENAI_API_KEY) ---
+      - key: OPENAI_API_KEY
+        sync: false  # Set manually in Render dashboard
       - key: AI_TUTOR_IMAGE_MODEL
         value: "openai:gpt-image-1"
       - key: AI_TUTOR_TTS_MODEL
