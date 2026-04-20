@@ -1,7 +1,7 @@
 import pkg from "./package.json" with { type: "json" };
 import resolve from "@rollup/plugin-node-resolve";
 import commonjs from "@rollup/plugin-commonjs";
-import typescript from "rollup-plugin-typescript2";
+import typescript from "@rollup/plugin-typescript";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
@@ -27,6 +27,6 @@ export default {
 	plugins: [
 		resolve({ preferBuiltins: true }),
 		commonjs(),
-		typescript({ typescript: require("typescript") }),
+		typescript({ compilerOptions: { outDir: "dist", declaration: false, declarationDir: undefined } }),
 	]
 };
