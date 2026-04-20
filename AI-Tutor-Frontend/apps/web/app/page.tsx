@@ -18,6 +18,7 @@ import {
   Moon,
   Monitor,
   ChevronUp,
+  BotOff,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { LanguageSwitcher } from '@/components/language-switcher';
@@ -706,9 +707,7 @@ function HomePage() {
         )}
       >
         {/* ── Logo ── */}
-        <motion.img
-          src="/logo-horizontal.png"
-          alt="AI-Tutor"
+        <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{
@@ -717,8 +716,18 @@ function HomePage() {
             stiffness: 200,
             damping: 20,
           }}
-          className="h-12 md:h-16 mb-2 -ml-2 md:-ml-3"
-        />
+          className="flex items-center gap-2.5 mb-4 group cursor-default select-none"
+        >
+          <div className="size-10 md:size-12 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20 transition-transform group-hover:scale-105">
+            <BotOff className="size-6 md:size-7 text-primary-foreground stroke-[2.5]" />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-2xl md:text-3xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-primary to-emerald-600 dark:from-primary dark:to-emerald-400">
+              AI-Tutor
+            </span>
+            <div className="h-0.5 w-full bg-gradient-to-r from-primary/60 to-transparent rounded-full" />
+          </div>
+        </motion.div>
 
         {/* ── Slogan ── */}
         <motion.p
