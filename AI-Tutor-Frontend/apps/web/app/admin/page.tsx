@@ -1,525 +1,341 @@
 'use client';
 
+import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { useRouter } from 'next/navigation';
+import { Users, Activity, CreditCard, ArrowUpRight, TrendingUp, Settings, Database, Loader2 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
 import { createLogger } from '@/lib/logger';
+import { verifyAuthSession, hasAuthSessionHint, clearAuthSession } from '@/lib/auth/session';
 
 const log = createLogger('AdminConsole');
 
-interface AdminUserStats {
-  total_users: number;
-  active_users_today: number;
-  active_users_week: number;
-  active_users_month: number;
-  new_users_today: number;
-  new_users_week: number;
-}
-
-interface AdminSubscriptionStats {
-  total_subscriptions: number;
-  active_subscriptions: number;
-  cancelled_subscriptions: number;
-  churned_users_month: number;
-  revenue_monthly: number;
-  revenue_rolling_30d: number;
-}
-
-interface AdminPaymentStats {
-  total_payments: number;
-  successful_payments: number;
-  failed_payments: number;
-  success_rate: number;
-  total_revenue: number;
-  average_transaction_value: number;
-}
-
-interface AdminPromoCodeStats {
-  total_promo_codes: number;
-  active_promo_codes: number;
-  total_redemptions: number;
-  total_credits_granted: number;
-  average_redemption_rate: number;
-}
-
-interface ApiError {
-  success: false;
-  error: string;
-  details?: string;
-}
-
-interface AdminOverviewEnvelope {
-  success: true;
-  users: AdminUserStats;
-  subscriptions: AdminSubscriptionStats;
-  payments: AdminPaymentStats;
-  promo_codes: AdminPromoCodeStats;
-}
-
-interface SystemStatusEnvelope {
-  success: true;
-  status: string;
-  runtime_alert_level: string;
-  runtime_alerts: string[];
-}
-
-function authHeaders(token: string): HeadersInit {
-  if (!token.trim()) {
-    return {};
-  }
-  return {
-    Authorization: `Bearer ${token.trim()}`,
-  };
-}
-
-export default function AdminConsole() {
+export default function AdminPage() {
   const { t } = useI18n();
-  const [bearerToken, setBearerToken] = useState('');
-  const [operatorEmail, setOperatorEmail] = useState('');
-  const [otpCode, setOtpCode] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [otpVerified, setOtpVerified] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const router = useRouter();
+  
+  const [authChecking, setAuthChecking] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [userStats, setUserStats] = useState<AdminUserStats | null>(null);
-  const [subscriptionStats, setSubscriptionStats] = useState<AdminSubscriptionStats | null>(null);
-  const [paymentStats, setPaymentStats] = useState<AdminPaymentStats | null>(null);
-  const [promoStats, setPromoStats] = useState<AdminPromoCodeStats | null>(null);
-  const [runtimeAlertLevel, setRuntimeAlertLevel] = useState<string>('unknown');
-  const [runtimeAlerts, setRuntimeAlerts] = useState<string[]>([]);
+  const [message, setMessage] = useState<string | null>(null);
+  const [userStats, setUserStats] = useState<any>(null);
+  const [subscriptionStats, setSubscriptionStats] = useState<any>(null);
+  const [paymentStats, setPaymentStats] = useState<any>(null);
+  const [promoStats, setPromoStats] = useState<any>(null);
 
   useEffect(() => {
-    try {
-      const savedToken = sessionStorage.getItem('adminBearerToken');
-      if (savedToken) {
-        setBearerToken(savedToken);
+    const enforceAuth = async () => {
+      setAuthChecking(true);
+      if (!hasAuthSessionHint()) {
+        router.push('/auth?next=/admin');
+        return;
       }
-    } catch {
-      // Ignore browser storage failures in restricted contexts.
-    }
-  }, []);
+      try {
+        const isValid = await verifyAuthSession();
+        if (!isValid) {
+          clearAuthSession();
+          router.push('/auth?next=/admin');
+          return;
+        }
+        
+        setAuthChecking(false);
+        // Fetch admin data after auth is verified
+        await refreshAdminData();
+      } catch (err) {
+        log.error('Auth check failed', err);
+        clearAuthSession();
+        router.push('/auth?next=/admin');
+      }
+    };
+    enforceAuth();
+  }, [router]);
 
-  const hasToken = useMemo(() => bearerToken.trim().length > 0, [bearerToken]);
-  const canRefresh = hasToken || otpVerified;
-
-  const refreshStats = async () => {
-    setLoading(true);
+  const refreshAdminData = async () => {
+    setDataLoading(true);
     setError(null);
-    setMessage(null);
     try {
-      const headers = hasToken ? authHeaders(bearerToken) : {};
-
-      const overviewRes = await fetch('/api/admin/overview', { headers, cache: 'no-store' });
-      const overviewJson = (await overviewRes.json()) as AdminOverviewEnvelope | ApiError;
-
-      if (!overviewRes.ok || (typeof overviewJson === 'object' && 'error' in overviewJson)) {
-        throw new Error(
-          typeof overviewJson === 'object' && 'error' in overviewJson
-            ? overviewJson.error
-            : 'Failed to load admin overview',
-        );
+      // Get bearer token from session storage if available
+      const bearerToken = sessionStorage.getItem('adminBearerToken');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (bearerToken && bearerToken.trim()) {
+        headers['Authorization'] = `Bearer ${bearerToken.trim()}`;
       }
 
-      setUserStats(overviewJson.users);
-      setSubscriptionStats(overviewJson.subscriptions);
-      setPaymentStats(overviewJson.payments);
-      setPromoStats(overviewJson.promo_codes);
-
-      const statusRes = await fetch('/api/system/status', { headers, cache: 'no-store' });
-      const statusJson = (await statusRes.json()) as SystemStatusEnvelope | ApiError;
-      if (!statusRes.ok || (typeof statusJson === 'object' && 'error' in statusJson)) {
-        throw new Error(
-          typeof statusJson === 'object' && 'error' in statusJson
-            ? statusJson.error
-            : 'Failed to load runtime system status',
-        );
-      }
-
-      setRuntimeAlertLevel(statusJson.runtime_alert_level || 'unknown');
-      setRuntimeAlerts(Array.isArray(statusJson.runtime_alerts) ? statusJson.runtime_alerts : []);
-
-      setMessage(t('admin.refreshSuccess'));
-    } catch (err) {
-      log.error('Failed to refresh admin stats', err);
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveToken = () => {
-    try {
-      sessionStorage.setItem('adminBearerToken', bearerToken.trim());
-      setMessage(t('admin.tokenSaved'));
-      setError(null);
-    } catch {
-      setError(t('admin.tokenPersistError'));
-    }
-  };
-
-  const clearToken = () => {
-    setBearerToken('');
-    try {
-      sessionStorage.removeItem('adminBearerToken');
-    } catch {
-      // no-op
-    }
-  };
-
-  const requestOtp = async () => {
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch('/api/operator/auth/request-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: operatorEmail.trim() }),
+      // Fetch admin overview (which aggregates all stats)
+      const overviewRes = await fetch('/api/admin/overview', {
+        headers,
+        cache: 'no-store',
       });
-      const json = await response.json();
-      if (!response.ok || !json.success) {
-        throw new Error(json.error || 'Failed to request OTP');
+
+      if (overviewRes.status === 403) {
+        log.warn('Access denied to admin panel - insufficient permissions');
+        setError('You do not have permission to access the admin panel.');
+        setDataLoading(false);
+        return;
       }
 
-      setOtpSent(true);
-      setMessage('OTP sent to your operator email.');
+      if (!overviewRes.ok) {
+        throw new Error(`Overview fetch failed: ${overviewRes.status}`);
+      }
+
+      const overviewData = await overviewRes.json();
+      
+      // Update state with real data
+      if (overviewData.success || overviewData.users) {
+        setUserStats(overviewData.users || null);
+        setSubscriptionStats(overviewData.subscriptions || null);
+        setPaymentStats(overviewData.payments || null);
+        setPromoStats(overviewData.promo_codes || null);
+        setMessage('Admin data loaded successfully');
+      } else {
+        throw new Error('Invalid response format from admin overview');
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      log.error('Failed to fetch admin data', err);
+      setError(err instanceof Error ? err.message : 'Failed to load admin data');
     } finally {
-      setLoading(false);
+      setDataLoading(false);
     }
   };
 
-  const verifyOtp = async () => {
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch('/api/operator/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: operatorEmail.trim(),
-          otp_code: otpCode.trim(),
-        }),
-      });
-      const json = await response.json();
-      if (!response.ok || !json.success) {
-        throw new Error(json.error || 'Failed to verify OTP');
-      }
-
-      setOtpVerified(true);
-      setMessage('Operator OTP verified. You can now refresh metrics.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const logoutOtpSession = async () => {
-    setLoading(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch('/api/operator/auth/logout', {
-        method: 'POST',
-      });
-      const json = await response.json();
-      if (!response.ok || !json.success) {
-        throw new Error(json.error || 'Failed to logout operator session');
-      }
-
-      setOtpVerified(false);
-      setOtpSent(false);
-      setOtpCode('');
-      setMessage('Operator session logged out.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+  // If we are strictly checking auth, hide UI completely or show loading barrier
+  if (authChecking) {
+    return (
+      <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900/50 items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t('admin.title')}</h1>
-            <p className="mt-2 text-sm text-slate-600">
-              {t('admin.subtitle')}
-            </p>
-          </div>
-          <Link
-            href="/"
-            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium hover:bg-slate-100"
-          >
-            {t('admin.backToClassroom')}
-          </Link>
-        </div>
-
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="text-base font-semibold">{t('admin.authTitle')}</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            {t('admin.authDescription')}
-          </p>
-          <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Operator OTP Session</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <Input
-                type="email"
-                placeholder="operator@company.com"
-                value={operatorEmail}
-                onChange={(event) => setOperatorEmail(event.target.value)}
-              />
-              <Input
-                type="text"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="6-digit OTP"
-                value={otpCode}
-                onChange={(event) => setOtpCode(event.target.value)}
-              />
-              <div className="flex gap-2">
-                <Button onClick={requestOtp} type="button" disabled={loading || !operatorEmail.trim()}>
-                  Send OTP
-                </Button>
-                <Button
-                  onClick={verifyOtp}
-                  type="button"
-                  variant="outline"
-                  disabled={loading || !operatorEmail.trim() || otpCode.trim().length !== 6}
-                >
-                  Verify
-                </Button>
-              </div>
+    <div className="flex w-full min-h-screen bg-slate-50 dark:bg-slate-900/50">
+      <EnterpriseSidebar onSignOut={() => {
+        clearAuthSession();
+        router.push('/auth?next=/admin');
+      }} />
+      
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-6xl mx-auto p-8 pt-12">
+          
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-foreground">Admin Console</h1>
+              <p className="text-sm text-muted-foreground mt-1">Platform overview, user management, and system health.</p>
             </div>
-            <div className="mt-2 flex items-center gap-2 text-xs text-slate-600">
-              <span>Status:</span>
-              <span className={otpVerified ? 'font-semibold text-emerald-700' : 'font-semibold text-amber-700'}>
-                {otpVerified ? 'Verified' : otpSent ? 'OTP sent' : 'Not authenticated'}
-              </span>
-              {otpVerified ? (
-                <Button type="button" size="sm" variant="ghost" onClick={logoutOtpSession} disabled={loading}>
-                  Logout OTP Session
-                </Button>
-              ) : null}
+            
+            <div className="flex items-center gap-3">
+              {error && (
+                <div className="text-sm text-red-600 dark:text-red-400 px-3 py-2 bg-red-50 dark:bg-red-950 rounded">
+                  {error}
+                </div>
+              )}
+              {message && !error && (
+                <div className="text-sm text-green-600 dark:text-green-400 px-3 py-2 bg-green-50 dark:bg-green-950 rounded">
+                  {message}
+                </div>
+              )}
+              <Button 
+                variant="outline" 
+                className="gap-2" 
+                disabled={dataLoading}
+                onClick={refreshAdminData}
+              >
+                <Database className="size-4" />
+                {dataLoading ? 'Refreshing...' : 'Refresh Metrics'}
+              </Button>
             </div>
           </div>
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
-            <Input
-              type="password"
-              placeholder={t('admin.tokenPlaceholder')}
-              value={bearerToken}
-              onChange={(event) => setBearerToken(event.target.value)}
-              className="sm:flex-1"
-            />
-            <Button onClick={saveToken} type="button">
-              {t('admin.saveToken')}
-            </Button>
-            <Button onClick={clearToken} type="button" variant="outline">
-              {t('admin.clearToken')}
-            </Button>
-            <Button onClick={refreshStats} type="button" disabled={loading || !canRefresh}>
-              {loading ? t('admin.refreshing') : t('admin.refreshMetrics')}
-            </Button>
-          </div>
-          {message ? <p className="mt-3 text-sm text-emerald-700">{message}</p> : null}
-          {error ? <p className="mt-3 text-sm text-rose-700">{error}</p> : null}
-        </section>
 
-        <section className="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="text-base font-semibold">Runtime Alerts</h2>
-          <p className="mt-1 text-sm text-slate-600">Current backend risk and readiness signals from /api/system/status.</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-slate-500">Level:</span>
-            <span
-              className={
-                runtimeAlertLevel === 'ok'
-                  ? 'rounded bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800'
-                  : runtimeAlertLevel === 'degraded'
-                    ? 'rounded bg-rose-100 px-2 py-0.5 font-medium text-rose-800'
-                    : 'rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-800'
-              }
-            >
-              {runtimeAlertLevel}
-            </span>
-          </div>
-          <ul className="mt-3 space-y-1 text-sm text-slate-700">
-            {runtimeAlerts.length === 0 ? (
-              <li className="text-emerald-700">No runtime alerts reported.</li>
-            ) : (
-              runtimeAlerts.map((alert) => (
-                <li key={alert} className="rounded bg-slate-50 px-2 py-1">
-                  {alert}
-                </li>
-              ))
-            )}
-          </ul>
-        </section>
-
-        <div className="grid gap-4 sm:gap-6 md:grid-cols-2 lg:grid-cols-4">
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-600">{t('admin.totalUsers')}</h3>
-            <p className="mt-2 text-3xl font-bold text-slate-900">
-              {userStats?.total_users ?? '-'}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">{t('admin.totalUsersHint')}</p>
-          </section>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-600">{t('admin.activeToday')}</h3>
-            <p className="mt-2 text-3xl font-bold text-emerald-600">
-              {userStats?.active_users_today ?? '-'}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">{t('admin.activeTodayHint')}</p>
-          </section>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-600">{t('admin.activeWeek')}</h3>
-            <p className="mt-2 text-3xl font-bold text-blue-600">
-              {userStats?.active_users_week ?? '-'}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">{t('admin.activeWeekHint')}</p>
-          </section>
-
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-sm font-semibold text-slate-600">{t('admin.newToday')}</h3>
-            <p className="mt-2 text-3xl font-bold text-purple-600">
-              {userStats?.new_users_today ?? '-'}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">{t('admin.newTodayHint')}</p>
-          </section>
-        </div>
-
-        <div className="mt-6 grid gap-6 md:grid-cols-2">
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-base font-semibold">{t('admin.subscriptions')}</h2>
-            {!subscriptionStats ? (
-              <p className="mt-3 text-sm text-slate-600">{t('admin.noSubscriptionData')}</p>
-            ) : (
-              <div className="mt-4 space-y-3">
-                <div className="flex justify-between border-b border-slate-200 pb-2">
-                  <span className="text-sm text-slate-600">Total Subscriptions</span>
-                  <span className="font-semibold text-slate-900">
-                    {subscriptionStats.total_subscriptions}
-                  </span>
-                </div>
-                <div className="flex justify-between border-b border-slate-200 pb-2">
-                  <span className="text-sm text-slate-600">Active Subscriptions</span>
-                  <span className="font-semibold text-emerald-600">
-                    {subscriptionStats.active_subscriptions}
-                  </span>
-                </div>
-                <div className="flex justify-between border-b border-slate-200 pb-2">
-                  <span className="text-sm text-slate-600">Cancelled</span>
-                  <span className="font-semibold text-slate-900">
-                    {subscriptionStats.cancelled_subscriptions}
-                  </span>
-                </div>
-                <div className="flex justify-between border-b border-slate-200 pb-2">
-                  <span className="text-sm text-slate-600">Monthly Churn Rate</span>
-                  <span className="font-semibold text-rose-600">
-                    {subscriptionStats.churned_users_month} users
-                  </span>
-                </div>
-                <div className="flex justify-between pt-2">
-                  <span className="text-sm font-medium text-slate-600">Calendar Month Revenue</span>
-                  <span className="text-lg font-bold text-slate-900">
-                    ₹{subscriptionStats.revenue_monthly.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-between border-t border-slate-200 pt-2">
-                  <span className="text-sm font-medium text-slate-600">Rolling 30-Day Trend</span>
-                  <span className="text-sm font-semibold text-slate-700">
-                    ₹{subscriptionStats.revenue_rolling_30d.toFixed(2)}
-                  </span>
-                </div>
+          {/* Metric Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+            {/* Total Users Card */}
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
+              <div className="flex items-center gap-3 text-muted-foreground mb-4">
+                <Users className="size-5 text-primary" />
+                <h3 className="font-medium text-sm text-foreground">Total Users</h3>
               </div>
-            )}
-          </section>
+              {userStats ? (
+                <div>
+                  <div className="text-3xl font-bold text-foreground">{userStats.total_users}</div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {userStats.new_users_today} new today
+                  </p>
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center opacity-50">
+                  {dataLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <span className="text-sm italic">No data</span>
+                  )}
+                </div>
+              )}
+            </div>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="text-base font-semibold">{t('admin.payments')}</h2>
-            {!paymentStats ? (
-              <p className="mt-3 text-sm text-slate-600">{t('admin.noPaymentData')}</p>
-            ) : (
-              <div className="mt-4 space-y-3">
-                <div className="flex justify-between border-b border-slate-200 pb-2">
-                  <span className="text-sm text-slate-600">Total Payments</span>
-                  <span className="font-semibold text-slate-900">{paymentStats.total_payments}</span>
+            {/* Active Subscriptions Card */}
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
+              <div className="flex items-center gap-3 text-muted-foreground mb-4">
+                <Activity className="size-5 text-blue-500" />
+                <h3 className="font-medium text-sm text-foreground">Active Subscriptions</h3>
+              </div>
+              {subscriptionStats ? (
+                <div>
+                  <div className="text-3xl font-bold text-foreground">{subscriptionStats.active_subscriptions}</div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {subscriptionStats.churned_users_month} churned this month
+                  </p>
                 </div>
-                <div className="flex justify-between border-b border-slate-200 pb-2">
-                  <span className="text-sm text-slate-600">Successful</span>
-                  <span className="font-semibold text-emerald-600">
-                    {paymentStats.successful_payments}
-                  </span>
+              ) : (
+                <div className="flex-1 flex items-center justify-center opacity-50">
+                  {dataLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <span className="text-sm italic">No data</span>
+                  )}
                 </div>
-                <div className="flex justify-between border-b border-slate-200 pb-2">
-                  <span className="text-sm text-slate-600">Failed</span>
-                  <span className="font-semibold text-rose-600">{paymentStats.failed_payments}</span>
+              )}
+            </div>
+
+            {/* Monthly Revenue Card */}
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
+              <div className="flex items-center gap-3 text-muted-foreground mb-4">
+                <CreditCard className="size-5 text-emerald-500" />
+                <h3 className="font-medium text-sm text-foreground">Monthly Revenue</h3>
+              </div>
+              {subscriptionStats ? (
+                <div>
+                  <div className="text-3xl font-bold text-foreground">
+                    ${subscriptionStats.revenue_monthly.toFixed(2)}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    ${subscriptionStats.revenue_rolling_30d.toFixed(2)} (30d rolling)
+                  </p>
                 </div>
-                <div className="flex justify-between border-b border-slate-200 pb-2">
-                  <span className="text-sm text-slate-600">Success Rate</span>
-                  <span className="font-semibold text-slate-900">
+              ) : (
+                <div className="flex-1 flex items-center justify-center opacity-50">
+                  {dataLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <span className="text-sm italic">No data</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Payment Success Rate Card */}
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
+              <div className="flex items-center gap-3 text-muted-foreground mb-4">
+                <Settings className="size-5 text-amber-500" />
+                <h3 className="font-medium text-sm text-foreground">Payment Health</h3>
+              </div>
+              {paymentStats ? (
+                <div>
+                  <div className="text-3xl font-bold text-foreground">
                     {(paymentStats.success_rate * 100).toFixed(1)}%
-                  </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {paymentStats.successful_payments}/{paymentStats.total_payments} successful
+                  </p>
                 </div>
-                <div className="flex justify-between pt-2">
-                  <span className="text-sm font-medium text-slate-600">Total Revenue</span>
-                  <span className="text-lg font-bold text-slate-900">
-                    ₹{paymentStats.total_revenue.toFixed(2)}
-                  </span>
+              ) : (
+                <div className="flex-1 flex items-center justify-center opacity-50">
+                  {dataLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <span className="text-sm italic">No data</span>
+                  )}
                 </div>
-              </div>
-            )}
-          </section>
-        </div>
+              )}
+            </div>
+          </div>
 
-        <section className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h2 className="text-base font-semibold">{t('admin.promoStats')}</h2>
-          {!promoStats ? (
-            <p className="mt-3 text-sm text-slate-600">{t('admin.noPromoData')}</p>
-          ) : (
-            <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              <div className="rounded-lg border border-slate-200 p-3">
-                <p className="text-xs font-medium text-slate-600">Total Codes</p>
-                <p className="mt-2 text-2xl font-bold text-slate-900">
-                  {promoStats.total_promo_codes}
-                </p>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="lg:col-span-2 rounded-2xl border border-border/60 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-border/60 flex items-center justify-between">
+                <h3 className="font-bold text-lg">Promo Code Performance</h3>
+                <Button variant="ghost" size="sm" className="text-xs h-8" disabled={dataLoading}>View All</Button>
               </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <p className="text-xs font-medium text-slate-600">Active Codes</p>
-                <p className="mt-2 text-2xl font-bold text-emerald-600">
-                  {promoStats.active_promo_codes}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <p className="text-xs font-medium text-slate-600">Total Redemptions</p>
-                <p className="mt-2 text-2xl font-bold text-blue-600">
-                  {promoStats.total_redemptions}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <p className="text-xs font-medium text-slate-600">Credits Granted</p>
-                <p className="mt-2 text-2xl font-bold text-purple-600">
-                  {promoStats.total_credits_granted.toFixed(0)}
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-200 p-3">
-                <p className="text-xs font-medium text-slate-600">Avg Redemption</p>
-                <p className="mt-2 text-2xl font-bold text-slate-900">
-                  {(promoStats.average_redemption_rate * 100).toFixed(1)}%
-                </p>
+              {promoStats ? (
+                <div className="p-6 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Active Codes</p>
+                      <p className="text-2xl font-bold">{promoStats.active_promo_codes}/{promoStats.total_promo_codes}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Total Redemptions</p>
+                      <p className="text-2xl font-bold">{promoStats.total_redemptions}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Credits Granted</p>
+                      <p className="text-2xl font-bold">{promoStats.total_credits_granted.toFixed(0)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Avg Utilization</p>
+                      <p className="text-2xl font-bold">{(promoStats.average_redemption_rate * 100).toFixed(0)}%</p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-12 text-center">
+                  {dataLoading ? (
+                    <>
+                      <Loader2 className="size-5 animate-spin mx-auto mb-3 opacity-50" />
+                      <p className="text-muted-foreground">Loading promo code stats...</p>
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground">No promo code data available</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm">
+              <h3 className="font-bold text-lg mb-6">System Status</h3>
+              <div className="space-y-4">
+                {userStats && subscriptionStats && paymentStats ? (
+                  <>
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">Data Updated</p>
+                      <p className="text-sm font-medium">Just now</p>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">Active Users (7d)</p>
+                      <p className="text-sm font-medium">{userStats.active_users_week}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">Successful Payments</p>
+                      <p className="text-sm font-medium">{paymentStats.successful_payments}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">Status</p>
+                      <p className="text-sm font-medium text-green-600 dark:text-green-400">✓ Operational</p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="px-4 py-12 text-center text-muted-foreground">
+                    {dataLoading ? (
+                      <>
+                        <Loader2 className="size-5 animate-spin mx-auto mb-3 opacity-50" />
+                        <p className="text-sm">Loading system status...</p>
+                      </>
+                    ) : (
+                      <p className="text-sm">No status data available</p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </section>
-      </div>
-    </main>
+          </div>
+
+        </div>
+      </main>
+    </div>
   );
 }

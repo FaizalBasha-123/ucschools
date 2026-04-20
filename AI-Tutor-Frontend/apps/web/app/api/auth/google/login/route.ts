@@ -21,7 +21,19 @@ export async function GET(request: NextRequest) {
 
     const text = await backendRes.text();
     if (!backendRes.ok) {
-      return apiError('INTERNAL_ERROR', backendRes.status, 'Google login init failed', text);
+      let details = text;
+      try {
+        const parsed = text ? JSON.parse(text) : null;
+        if (parsed && typeof parsed === 'object') {
+          details =
+            String((parsed as { error?: string }).error || '') ||
+            String((parsed as { message?: string }).message || '') ||
+            text;
+        }
+      } catch {
+        // keep raw text details
+      }
+      return apiError('INTERNAL_ERROR', backendRes.status, 'Google login init failed', details);
     }
 
     const payload = text ? JSON.parse(text) : {};

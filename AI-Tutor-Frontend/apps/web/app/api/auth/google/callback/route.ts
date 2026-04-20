@@ -22,13 +22,25 @@ export async function GET(request: NextRequest) {
     });
 
     const setCookie = backendRes.headers.get('set-cookie');
+    const location = backendRes.headers.get('location');
     const text = await backendRes.text();
 
     if (!backendRes.ok && backendRes.status !== 302) {
       return apiError('INTERNAL_ERROR', backendRes.status, 'Google callback failed', text);
     }
 
-    const payload = text ? JSON.parse(text) : {};
+    let payload: Record<string, unknown> = {};
+    if (text) {
+      try {
+        payload = JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        payload = { raw: text };
+      }
+    }
+    if (location && !payload.redirect_to) {
+      payload.redirect_to = location;
+    }
+
     const response = NextResponse.json(apiSuccess(payload));
 
     if (setCookie) {

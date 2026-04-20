@@ -2,6 +2,7 @@
 
 import { Stage } from '@/components/stage';
 import { ThemeProvider } from '@/lib/hooks/use-theme';
+import { SiteHeader } from '@/components/layout/site-header';
 import { useStageStore } from '@/lib/store';
 import { loadImageMapping } from '@/lib/utils/image-storage';
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -15,7 +16,7 @@ import { MediaStageProvider } from '@/lib/contexts/media-stage-context';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
 import { markShelfOpened } from '@/lib/lesson/shelf-client';
 import { useI18n } from '@/lib/hooks/use-i18n';
-import { getSessionToken } from '@/lib/auth/session';
+import { hasAuthSessionHint } from '@/lib/auth/session';
 
 const log = createLogger('Classroom');
 
@@ -113,7 +114,7 @@ export default function ClassroomDetailPage() {
   }, [classroomId, loadFromStorage, t]);
 
   useEffect(() => {
-    if (!getSessionToken()) {
+    if (!hasAuthSessionHint()) {
       router.replace(`/auth?next=${encodeURIComponent(`/classroom/${classroomId}`)}`);
       return;
     }
@@ -227,8 +228,9 @@ export default function ClassroomDetailPage() {
 
   return (
     <ThemeProvider>
+      <SiteHeader variant="dashboard" />
       <MediaStageProvider value={classroomId}>
-        <div className="h-screen flex flex-col overflow-hidden">
+        <div className="h-screen flex flex-col overflow-hidden pt-16">
           {!loading && !error && (
             <div className="fixed right-3 bottom-3 z-40 flex flex-col gap-2 md:right-4 md:bottom-4">
               <button

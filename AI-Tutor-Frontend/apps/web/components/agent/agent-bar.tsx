@@ -33,20 +33,14 @@ function AgentVoicePill({
   availableProviders,
   disabled,
 }: {
-  agent: AgentConfig;
   agentIndex: number;
   availableProviders: ProviderWithVoices[];
   disabled?: boolean;
-}) {
-  const updateAgent = useAgentRegistry((s) => s.updateAgent);
-  const ttsProvidersConfig = useSettingsStore((s) => s.ttsProvidersConfig);
   const resolved = resolveAgentVoice(agent, agentIndex, availableProviders);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const previewCancelRef = useRef<(() => void) | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
-  const previewAbortRef = useRef<AbortController | null>(null);
-
   const displayName = (() => {
     for (const p of availableProviders) {
       if (p.providerId === resolved.providerId) {
@@ -54,8 +48,6 @@ function AgentVoicePill({
         if (v) return v.name;
       }
     }
-    return resolved.voiceId;
-  })();
 
   const stopPreview = useCallback(() => {
     previewCancelRef.current?.();
@@ -109,7 +101,6 @@ function AgentVoicePill({
             text: previewText,
             audioId: 'voice-preview',
             ttsProviderId: providerId,
-            ttsModelId: modelId || providerConfig?.modelId,
             ttsVoice: voiceId,
             ttsSpeed: 1,
             ttsApiKey: providerConfig?.apiKey,
@@ -470,6 +461,9 @@ function TeacherVoicePill({
   );
 }
 
+/**
+ * Voice configuration has been moved to TtsConfigPopover near the ASR button
+ */
 export function AgentBar() {
   const { t } = useI18n();
   const { listAgents } = useAgentRegistry();

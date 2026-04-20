@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import { Globe, Paperclip, FileText, X, Globe2 } from 'lucide-react';
+import { supportedLocales } from '@/lib/i18n';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -49,7 +50,9 @@ export function GenerationToolbar({
   onPdfFileChange,
   onPdfError,
 }: GenerationToolbarProps) {
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
+  const localeEntry = supportedLocales.find((l) => l.code === locale);
+  const localeLabelShort = localeEntry?.shortLabel ?? locale.toUpperCase().slice(0, 2);
   const pdfProviderId = useSettingsStore((s) => s.pdfProviderId);
   const pdfProvidersConfig = useSettingsStore((s) => s.pdfProvidersConfig);
   const setPDFProvider = useSettingsStore((s) => s.setPDFProvider);
@@ -62,11 +65,7 @@ export function GenerationToolbar({
   // Check if the selected web search provider has a valid config (API key or server-configured)
   const webSearchProvider = WEB_SEARCH_PROVIDERS[webSearchProviderId];
   const webSearchConfig = webSearchProvidersConfig[webSearchProviderId];
-  const webSearchAvailable = webSearchProvider
-    ? !webSearchProvider.requiresApiKey ||
-      !!webSearchConfig?.apiKey ||
-      !!webSearchConfig?.isServerConfigured
-    : false;
+  const webSearchAvailable = true; // Always available, backend handles API keys now
 
   // PDF handler
   const handleFileSelect = (file: File) => {
@@ -83,7 +82,7 @@ export function GenerationToolbar({
   const pillCls =
     'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer select-none whitespace-nowrap border';
   const pillMuted = `${pillCls} border-border/50 text-muted-foreground/70 hover:text-foreground hover:bg-muted/60`;
-  const pillActive = `${pillCls} border-violet-200/60 dark:border-violet-700/50 bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300`;
+  const pillActive = `${pillCls} border-primary/20 dark:border-primary/30 bg-primary/10 dark:bg-primary/20 text-primary`;
 
   return (
     <div className="flex items-center gap-1 flex-wrap">
@@ -96,7 +95,7 @@ export function GenerationToolbar({
               <span className="max-w-[100px] truncate">{pdfFile.name}</span>
               <span
                 role="button"
-                className="size-4 rounded-full inline-flex items-center justify-center hover:bg-violet-200 dark:hover:bg-violet-800 transition-colors"
+                className="size-4 rounded-full inline-flex items-center justify-center hover:bg-primary/20 transition-colors"
                 onClick={(e) => {
                   e.stopPropagation();
                   onPdfFileChange(null);
@@ -111,14 +110,14 @@ export function GenerationToolbar({
             </button>
           )}
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-72 p-0">
+        <PopoverContent align="start" className="w-72 p-0 bg-card dark:bg-slate-900 border-border dark:border-slate-800 shadow-xl">
           {/* Parser selector */}
           <div className="flex items-center gap-2 px-3 pt-3 pb-2">
             <span className="text-xs font-medium text-muted-foreground shrink-0">
               {t('toolbar.pdfParser')}
             </span>
             <Select value={pdfProviderId} onValueChange={(v) => setPDFProvider(v as PDFProviderId)}>
-              <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
+              <SelectTrigger className="h-7 text-xs flex-1 min-w-0 bg-background/50">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -162,8 +161,8 @@ export function GenerationToolbar({
             {pdfFile ? (
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <div className="size-8 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center shrink-0">
-                    <FileText className="size-4 text-violet-600 dark:text-violet-400" />
+                  <div className="size-8 rounded-lg bg-primary/10 dark:bg-primary/20 flex items-center justify-center shrink-0">
+                    <FileText className="size-4 text-primary" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium truncate">{pdfFile.name}</p>
@@ -184,8 +183,8 @@ export function GenerationToolbar({
                 className={cn(
                   'flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-4 transition-colors cursor-pointer',
                   isDragging
-                    ? 'border-violet-400 bg-violet-50 dark:bg-violet-950/20'
-                    : 'border-muted-foreground/20 hover:border-violet-300',
+                    ? 'border-primary/40 bg-primary/5 dark:bg-primary/10'
+                    : 'border-border/50 hover:border-primary/30 bg-muted/30',
                 )}
                 onClick={() => fileInputRef.current?.click()}
                 onDragOver={(e) => {
@@ -218,25 +217,25 @@ export function GenerationToolbar({
             <button className={webSearch ? pillActive : pillMuted}>
               <Globe2 className={cn('size-3.5', webSearch && 'animate-pulse')} />
               {webSearch && (
-                <span>{WEB_SEARCH_PROVIDERS[webSearchProviderId]?.name || 'Search'}</span>
+                <span>Web</span>
               )}
             </button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-64 p-3 space-y-3">
+          <PopoverContent align="start" className="w-64 p-3 space-y-3 bg-card dark:bg-slate-900 border-border dark:border-slate-800 shadow-xl">
             {/* Toggle */}
             <button
               onClick={() => onWebSearchChange(!webSearch)}
               className={cn(
                 'w-full flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-all',
                 webSearch
-                  ? 'bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-800'
+                  ? 'bg-primary/5 dark:bg-primary/10 border-primary/20 dark:border-primary/30'
                   : 'border-border hover:bg-muted/50',
               )}
             >
               <Globe2
                 className={cn(
                   'size-4 shrink-0',
-                  webSearch ? 'text-violet-600 dark:text-violet-400' : 'text-muted-foreground',
+                  webSearch ? 'text-primary' : 'text-muted-foreground',
                 )}
               />
               <div className="flex-1 min-w-0">
@@ -249,41 +248,8 @@ export function GenerationToolbar({
               </div>
             </button>
 
-            {/* Provider selector */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-muted-foreground shrink-0">
-                {t('toolbar.webSearchProvider')}
-              </span>
-              <Select
-                value={webSearchProviderId}
-                onValueChange={(v) => setWebSearchProvider(v as WebSearchProviderId)}
-              >
-                <SelectTrigger className="h-7 text-xs flex-1 min-w-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.values(WEB_SEARCH_PROVIDERS).map((provider) => {
-                    const cfg = webSearchProvidersConfig[provider.id];
-                    const available =
-                      !provider.requiresApiKey || !!cfg?.apiKey || !!cfg?.isServerConfigured;
-                    return (
-                      <SelectItem key={provider.id} value={provider.id} disabled={!available}>
-                        <div
-                          className={cn('flex items-center gap-1.5', !available && 'opacity-50')}
-                        >
-                          {provider.name}
-                          {cfg?.isServerConfigured && (
-                            <span className="text-[9px] px-1 py-0 rounded border text-muted-foreground">
-                              {t('settings.serverConfigured')}
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
+
+
           </PopoverContent>
         </Popover>
       ) : (
@@ -297,15 +263,18 @@ export function GenerationToolbar({
         </Tooltip>
       )}
 
-      {/* ── Language pill ── */}
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            onClick={() => onLanguageChange(language === 'zh-CN' ? 'en-US' : 'zh-CN')}
-            className={pillMuted}
+            onClick={() => {
+              const currentIdx = supportedLocales.findIndex((l) => l.code === locale);
+              const next = supportedLocales[(currentIdx + 1) % supportedLocales.length];
+              setLocale(next.code);
+            }}
+            className={cn(pillCls, 'border-border/50 text-muted-foreground/70 hover:text-foreground hover:bg-muted/60')}
           >
             <Globe className="size-3.5" />
-            <span>{language === 'zh-CN' ? '中文' : 'EN'}</span>
+            <span>{localeLabelShort}</span>
           </button>
         </TooltipTrigger>
         <TooltipContent>{t('toolbar.languageHint')}</TooltipContent>
