@@ -137,20 +137,20 @@ function CollapsedBubblePill({
           'flex items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-xl shadow-md cursor-pointer transition-all duration-200',
           'hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]',
           bubble.role === 'user'
-            ? 'bg-violet-50/80 dark:bg-violet-950/70 border-violet-200/70 dark:border-violet-800/60'
+            ? 'bg-primary/10 dark:bg-primary/20 border-primary/20 dark:border-primary/30'
             : bubble.role === 'agent'
               ? 'bg-blue-50/80 dark:bg-blue-950/70 border-blue-200/70 dark:border-blue-800/60'
-              : 'bg-white/80 dark:bg-gray-900/85 border-gray-200/70 dark:border-gray-700/70',
+              : 'bg-emerald-50/80 dark:bg-emerald-950/70 border-emerald-200/70 dark:border-emerald-800/60',
         )}
       >
         <div
           className={cn(
             'w-6 h-6 rounded-full overflow-hidden border shrink-0',
             bubble.role === 'user'
-              ? 'border-violet-300 dark:border-violet-600'
+              ? 'border-primary/30 dark:border-primary/50'
               : bubble.role === 'agent'
                 ? 'border-blue-300 dark:border-blue-600'
-                : 'border-purple-200 dark:border-purple-700',
+                : 'border-emerald-300 dark:border-emerald-600',
           )}
         >
           <AvatarDisplay src={bubble.avatar} alt={bubble.name} />
@@ -170,10 +170,10 @@ function CollapsedBubblePill({
             'p-2 rounded-full border backdrop-blur-xl shadow-md cursor-pointer transition-all duration-200',
             'hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]',
             bubble.role === 'user'
-              ? 'bg-violet-50/80 dark:bg-violet-950/70 border-violet-200/70 dark:border-violet-800/60 hover:bg-violet-100 dark:hover:bg-violet-900/70'
+              ? 'bg-primary/10 dark:bg-primary/20 border-primary/20 dark:border-primary/30 hover:bg-primary/20 dark:hover:bg-primary/30'
               : bubble.role === 'agent'
                 ? 'bg-blue-50/80 dark:bg-blue-950/70 border-blue-200/70 dark:border-blue-800/60 hover:bg-blue-100 dark:hover:bg-blue-900/70'
-                : 'bg-white/80 dark:bg-gray-900/85 border-gray-200/70 dark:border-gray-700/70 hover:bg-gray-100 dark:hover:bg-gray-800/70',
+                : 'bg-emerald-50/80 dark:bg-emerald-950/70 border-emerald-200/70 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/70',
           )}
         >
           {isPaused ? (
@@ -212,10 +212,10 @@ export function PresentationBubbleCard({
         'relative w-full min-w-0 rounded-3xl border backdrop-blur-xl shadow-[0_18px_50px_-20px_rgba(0,0,0,0.45)] overflow-hidden group/bubble',
         onClick && 'cursor-pointer',
         bubble.role === 'user'
-          ? 'bg-violet-50/60 dark:bg-violet-950/55 border-violet-200/70 dark:border-violet-800/60'
+          ? 'bg-primary/10 dark:bg-primary/20 border-primary/20 dark:border-primary/30'
           : bubble.role === 'agent'
             ? 'bg-blue-50/60 dark:bg-blue-950/55 border-blue-200/70 dark:border-blue-800/60'
-            : 'bg-white/62 dark:bg-gray-900/82 border-gray-200/70 dark:border-gray-700/70',
+            : 'bg-emerald-50/60 dark:bg-emerald-950/55 border-emerald-200/70 dark:border-emerald-800/60',
       )}
     >
       <div className="flex items-center gap-3 px-4 pt-3 pb-2">
@@ -223,10 +223,10 @@ export function PresentationBubbleCard({
           className={cn(
             'w-10 h-10 rounded-full overflow-hidden border-2 shadow-sm shrink-0',
             bubble.role === 'user'
-              ? 'border-violet-300 dark:border-violet-600'
+              ? 'border-primary/30 dark:border-primary/50'
               : bubble.role === 'agent'
                 ? 'border-blue-300 dark:border-blue-600'
-                : 'border-purple-200 dark:border-purple-700',
+                : 'border-emerald-300 dark:border-emerald-600',
           )}
         >
           <AvatarDisplay src={bubble.avatar} alt={bubble.name} />
@@ -236,10 +236,10 @@ export function PresentationBubbleCard({
             className={cn(
               'text-[11px] font-semibold uppercase tracking-[0.16em]',
               bubble.role === 'user'
-                ? 'text-violet-500 dark:text-violet-300'
+                ? 'text-primary dark:text-primary/80'
                 : bubble.role === 'agent'
                   ? 'text-blue-500 dark:text-blue-300'
-                  : 'text-purple-500 dark:text-purple-300',
+                  : 'text-emerald-500 dark:text-emerald-300',
             )}
           >
             {bubble.role === 'user'
@@ -284,10 +284,10 @@ export function PresentationBubbleCard({
                 className={cn(
                   'w-1.5 h-1.5 rounded-full',
                   bubble.role === 'user'
-                    ? 'bg-violet-400 dark:bg-violet-500'
+                    ? 'bg-primary/60 dark:bg-primary/80'
                     : bubble.role === 'agent'
                       ? 'bg-blue-400 dark:bg-blue-500'
-                      : 'bg-purple-400 dark:bg-purple-500',
+                      : 'bg-emerald-400 dark:bg-emerald-500',
                 )}
               />
             ))}
@@ -307,7 +307,7 @@ export function PresentationBubbleCard({
         buttonState &&
         buttonState !== 'none' &&
         (() => {
-          const barsColor = bubble.role === 'agent' ? '#3b82f6' : '#a855f7';
+          const barsColor = bubble.role === 'agent' ? '#3b82f6' : '#10b981';
 
           if (buttonState === 'play') {
             return (
@@ -316,9 +316,9 @@ export function PresentationBubbleCard({
                   e.stopPropagation();
                   onClick?.();
                 }}
-                className="absolute right-2.5 bottom-2.5 z-20 p-1.5 rounded-full bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm group-hover/bubble:bg-purple-100 dark:group-hover/bubble:bg-purple-900/50 transition-all duration-300 cursor-pointer"
+                className="absolute right-2.5 bottom-2.5 z-20 p-1.5 rounded-full bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm group-hover/bubble:bg-emerald-100 dark:group-hover/bubble:bg-emerald-900/50 transition-all duration-300 cursor-pointer"
               >
-                <Play className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover/bubble:text-purple-600 dark:group-hover/bubble:text-purple-400 ml-0.5" />
+                <Play className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover/bubble:text-emerald-600 dark:group-hover/bubble:text-emerald-400 ml-0.5" />
               </div>
             );
           }
@@ -330,9 +330,9 @@ export function PresentationBubbleCard({
                   e.stopPropagation();
                   onClick?.();
                 }}
-                className="absolute right-2.5 bottom-2.5 z-20 p-1.5 rounded-full bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm group-hover/bubble:bg-purple-100 dark:group-hover/bubble:bg-purple-900/50 transition-all duration-300 cursor-pointer"
+                className="absolute right-2.5 bottom-2.5 z-20 p-1.5 rounded-full bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm group-hover/bubble:bg-emerald-100 dark:group-hover/bubble:bg-emerald-900/50 transition-all duration-300 cursor-pointer"
               >
-                <Repeat className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover/bubble:text-purple-600 dark:group-hover/bubble:text-purple-400" />
+                <Repeat className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover/bubble:text-emerald-600 dark:group-hover/bubble:text-emerald-400" />
               </div>
             );
           }
@@ -344,10 +344,10 @@ export function PresentationBubbleCard({
                 e.stopPropagation();
                 onClick?.();
               }}
-              className="absolute right-2.5 bottom-2.5 z-20 p-1.5 rounded-full bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm group-hover/bubble:bg-purple-100 dark:group-hover/bubble:bg-purple-900/50 transition-all duration-300 cursor-pointer"
+              className="absolute right-2.5 bottom-2.5 z-20 p-1.5 rounded-full bg-white/40 dark:bg-gray-800/40 backdrop-blur-sm group-hover/bubble:bg-emerald-100 dark:group-hover/bubble:bg-emerald-900/50 transition-all duration-300 cursor-pointer"
             >
               {isPaused ? (
-                <Play className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 group-hover/bubble:text-purple-600 dark:group-hover/bubble:text-purple-400 ml-0.5" />
+                <Play className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 group-hover/bubble:text-emerald-600 dark:group-hover/bubble:text-emerald-400 ml-0.5" />
               ) : (
                 <>
                   {/* Breathing bars — visible by default, hidden on hover */}
@@ -375,7 +375,7 @@ export function PresentationBubbleCard({
                     />
                   </div>
                   {/* Pause icon on hover */}
-                  <Pause className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 hidden group-hover/bubble:block" />
+                  <Pause className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 hidden group-hover/bubble:block" />
                 </>
               )}
             </div>

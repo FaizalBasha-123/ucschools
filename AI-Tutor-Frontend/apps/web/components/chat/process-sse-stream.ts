@@ -23,6 +23,53 @@ export async function processSSEStream(
   const decoder = new TextDecoder();
   let sseBuffer = '';
   let currentMessageId: string | null = null;
+  let currentAgentId: string | null = null;
+  let generatedMessageIndex = 0;
+  let totalActions = 0;
+  let totalAgents = 0;
+  let agentHadContent = false;
+
+  const asRecord = (value: unknown): Record<string, unknown> =>
+    value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+  const readString = (source: Record<string, unknown>, ...keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const value = source[key];
+      if (typeof value === 'string' && value.length > 0) {
+        return value;
+      }
+    }
+    return undefined;
+  };
+
+  const readObject = (source: Record<string, unknown>, ...keys: string[]): Record<string, unknown> | undefined => {
+    for (const key of keys) {
+      const value = source[key];
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return value as Record<string, unknown>;
+      }
+    }
+    return undefined;
+  };
+
+  const nextMessageId = () => `session-${sessionId}-msg-${++generatedMessageIndex}`;
+
+  const startAgentMessage = (eventData: Record<string, unknown>, messageId?: string) => {
+    const agentId = readString(eventData, 'agentId', 'agent_id') ?? currentAgentId ?? 'default-1';
+    const agentName = readString(eventData, 'agentName', 'agent_name') ?? agentId;
+    const agentAvatar = readString(eventData, 'agentAvatar', 'agent_avatar');
+    const agentColor = readString(eventData, 'agentColor', 'agent_color');
+    currentAgentId = agentId;
+    currentMessageId = messageId ?? currentMessageId ?? nextMessageId();
+    totalAgents += 1;
+    buffer.pushAgentStart({
+      messageId: currentMessageId,
+      agentId,
+      agentName,
+      avatar: agentAvatar,
+      color: agentColor,
+    });
+  };
 
   try {
     while (true) {
@@ -41,7 +88,7 @@ export async function processSSEStream(
       for (const eventStr of events) {
         const lines = eventStr.split('\n');
         let sseError: Error | null = null;
-        
+
         for (const rawLine of lines) {
           const line = rawLine.trim();
           if (line.startsWith('event: ')) {
@@ -49,90 +96,113 @@ export async function processSSEStream(
             continue;
           }
           if (!line.startsWith('data: ')) continue;
-          
+
           try {
-            const rawPayload = JSON.parse(line.slice(6));
+            const rawPayload = asRecord(JSON.parse(line.slice(6)));
             // Support both standard SSE (pendingEventName) and legacy wrapped { type, data }
-            const eventType = rawPayload.type || pendingEventName;
-            const eventData = rawPayload.data || rawPayload;
+            const eventType = readString(rawPayload, 'type') || pendingEventName;
+            const eventData = asRecord(readObject(rawPayload, 'data') || rawPayload);
             
             switch (eventType) {
-              case 'session_started':
+              case 'session_started': {
+                currentMessageId = null;
+                currentAgentId = null;
+                break;
+              }
+
+              case 'agent_selected':
               case 'agent_start': {
-                // Compatibility for Rust naming if needed
-                const { messageId, agentId, agentName, agentAvatar, agentColor } = eventData;
-                currentMessageId = messageId || currentMessageId;
-                if (currentMessageId) {
-                  buffer.pushAgentStart({
-                    messageId: currentMessageId,
+                const messageId = readString(eventData, 'messageId', 'message_id');
+                startAgentMessage(eventData, messageId);
+                break;
+              }
+
+              case 'agent_end': {
+                const messageId = readString(eventData, 'messageId', 'message_id') || currentMessageId;
+                const agentId = readString(eventData, 'agentId', 'agent_id') || currentAgentId || 'default-1';
+                if (messageId) {
+                  buffer.pushAgentEnd({
+                    messageId,
                     agentId,
-                    agentName,
-                    avatar: agentAvatar,
-                    color: agentColor,
                   });
                 }
                 break;
               }
 
-              case 'agent_end': {
-                buffer.pushAgentEnd({
-                  messageId: eventData.messageId || currentMessageId!,
-                  agentId: eventData.agentId,
-                });
-                break;
-              }
-
               case 'text_delta': {
-                const targetId = eventData.messageId ?? currentMessageId;
+                const targetId = readString(eventData, 'messageId', 'message_id') ?? currentMessageId;
                 if (!targetId) break;
-                buffer.pushText(targetId, eventData.content ?? eventData.text);
+                const delta = readString(eventData, 'content', 'text', 'delta');
+                if (!delta) break;
+                buffer.pushText(targetId, delta, readString(eventData, 'agentId', 'agent_id') ?? currentAgentId ?? undefined);
+                agentHadContent = true;
                 break;
               }
 
               case 'action_started':
               case 'action': {
-                const targetId = eventData.messageId ?? currentMessageId;
+                const targetId = readString(eventData, 'messageId', 'message_id') ?? currentMessageId;
                 if (!targetId) break;
                 if (signal?.aborted) break;
+                totalActions += 1;
+                agentHadContent = true;
                 buffer.pushAction({
                   messageId: targetId,
-                  actionId: eventData.actionId,
-                  actionName: eventData.actionName,
-                  params: eventData.params,
-                  agentId: eventData.agentId,
+                  actionId: readString(eventData, 'actionId', 'action_id') ?? `${targetId}-action-${totalActions}`,
+                  actionName: readString(eventData, 'actionName', 'action_name') ?? 'unknown',
+                  params: (readObject(eventData, 'params', 'action_params') ?? {}) as Record<string, unknown>,
+                  agentId: readString(eventData, 'agentId', 'agent_id') ?? currentAgentId ?? 'default-1',
                 });
+                break;
+              }
+
+              case 'action_progress':
+              case 'action_completed':
+              case 'interrupted':
+              case 'resume_available':
+              case 'resume_rejected': {
                 break;
               }
 
               case 'thinking': {
                 buffer.pushThinking({
-                  stage: eventData.stage ?? 'director',
-                  agentId: eventData.agentId ?? eventData.agent_id,
-                  detail: eventData.detail ?? eventData.message ?? eventData.thinking_detail,
+                  stage: readString(eventData, 'stage') ?? 'director',
+                  agentId: readString(eventData, 'agentId', 'agent_id') ?? undefined,
+                  detail: readString(eventData, 'detail', 'message', 'thinking_detail') ?? undefined,
                 });
                 break;
               }
 
               case 'cue_user': {
-                buffer.pushCueUser(eventData);
+                buffer.pushCueUser({
+                  fromAgentId: readString(eventData, 'fromAgentId', 'from_agent_id') ?? currentAgentId ?? undefined,
+                  prompt: readString(eventData, 'prompt') ?? undefined,
+                });
                 break;
               }
 
               case 'done': {
-                buffer.pushDone(eventData);
+                const directorState = readObject(eventData, 'directorState', 'director_state');
+                buffer.pushDone({
+                  totalActions,
+                  totalAgents,
+                  agentHadContent,
+                  directorState: directorState as never,
+                });
                 break;
               }
 
               case 'error': {
-                sseError = new Error(eventData.message);
-                buffer.pushError(eventData.message);
+                const message = readString(eventData, 'message') ?? 'Unknown stream error';
+                sseError = new Error(message);
+                buffer.pushError(message);
                 break;
               }
             }
           } catch (parseError) {
             log.warn('[SSE] Parse error:', parseError);
           }
-          
+
           pendingEventName = null; // Clear after processing data
           if (sseError) throw sseError;
         }

@@ -8,10 +8,17 @@ import {
   Volume2,
   Mic,
   SlidersHorizontal,
-  ChevronRight,
-  Play,
+  ChevronDown,
   Loader2,
 } from 'lucide-react';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -74,9 +81,119 @@ const LANG_LABELS: Record<string, string> = {
   hi: 'हिन्दी',
 };
 
+const LANGUAGE_CODES_DISPLAY: Record<string, string> = {
+  'af-ZA': 'Afrikaans (South Africa)',
+  'ar-EG': 'Arabic (Egypt) - العربية',
+  'ar-SA': 'Arabic (Saudi Arabia) - العربية',
+  'bg-BG': 'Bulgarian (Bulgaria) - Български',
+  'ca-ES': 'Catalan (Spain) - Català',
+  'cs-CZ': 'Czech (Czech Republic) - Čeština',
+  'da-DK': 'Danish (Denmark) - Dansk',
+  'de-DE': 'German (Germany) - Deutsch',
+  'el-GR': 'Greek (Greece) - Ελληνικά',
+  'en-AU': 'English (Australia)',
+  'en-CA': 'English (Canada)',
+  'en-GB': 'English (United Kingdom)',
+  'en-IN': 'English (India)',
+  'en-NZ': 'English (New Zealand)',
+  'en-US': 'English (United States)',
+  'en-ZA': 'English (South Africa)',
+  'es-AR': 'Spanish (Argentina) - Español',
+  'es-CO': 'Spanish (Colombia) - Español',
+  'es-ES': 'Spanish (Spain) - Español',
+  'es-MX': 'Spanish (Mexico) - Español',
+  'fi-FI': 'Finnish (Finland) - Suomi',
+  'fil-PH': 'Filipino (Philippines) - Filipino',
+  'fr-FR': 'French (France) - Français',
+  'he-IL': 'Hebrew (Israel) - עברית',
+  'hi-IN': 'Hindi (India) - हिन्दी',
+  'hr-HR': 'Croatian (Croatia) - Hrvatski',
+  'hu-HU': 'Hungarian (Hungary) - Magyar',
+  'id-ID': 'Indonesian (Indonesia) - Bahasa Indonesia',
+  'is': 'Icelandic - Íslenska',
+  'it-IT': 'Italian (Italy) - Italiano',
+  'ja-JP': 'Japanese (Japan) - 日本語',
+  'ko-KR': 'Korean (South Korea) - 한국어',
+  'ms-MY': 'Malay (Malaysia) - Bahasa Melayu',
+  'nl-NL': 'Dutch (Netherlands) - Nederlands',
+  'no-NO': 'Norwegian (Norway) - Norsk',
+  'pl-PL': 'Polish (Poland) - Polski',
+  'pt-BR': 'Portuguese (Brazil) - Português',
+  'pt-PT': 'Portuguese (Portugal) - Português',
+  'ro-RO': 'Romanian (Romania) - Română',
+  'ru-RU': 'Russian (Russia) - Русский',
+  'sk-SK': 'Slovak (Slovakia) - Slovenčina',
+  'sv-SE': 'Swedish (Sweden) - Svenska',
+  'ta-IN': 'Tamil (India) - தமிழ்',
+  'ta-LK': 'Tamil (Sri Lanka) - தமிழ்',
+  'th-TH': 'Thai (Thailand) - ไทย',
+  'tr-TR': 'Turkish (Turkey) - Türkçe',
+  'uk-UA': 'Ukrainian (Ukraine) - Українська',
+  'vi-VN': 'Vietnamese (Vietnam) - Tiếng Việt',
+  'yue-Hant-HK': 'Cantonese (Traditional) - 粵語',
+  'af': 'Afrikaans - Afrikaans',
+  'ar': 'Arabic - العربية',
+  'az': 'Azerbaijani - Azərbaycan',
+  'be': 'Belarusian - Беларуская',
+  'bg': 'Bulgarian - Български',
+  'bs': 'Bosnian - Bosanski',
+  'ca': 'Catalan - Català',
+  'cs': 'Czech - Čeština',
+  'cy': 'Welsh - Cymraeg',
+  'da': 'Danish - Dansk',
+  'de': 'German - Deutsch',
+  'el': 'Greek - Ελληνικά',
+  'en': 'English',
+  'es': 'Spanish - Español',
+  'et': 'Estonian - Eesti',
+  'fa': 'Persian - فارسی',
+  'fi': 'Finnish - Suomi',
+  'fil': 'Filipino - Filipino',
+  'fr': 'French - Français',
+  'gl': 'Galician - Galego',
+  'he': 'Hebrew - עברית',
+  'hi': 'Hindi - हिन्दी',
+  'hr': 'Croatian - Hrvatski',
+  'hu': 'Hungarian - Magyar',
+  'hy': 'Armenian - Հայերեն',
+  'id': 'Indonesian - Bahasa Indonesia',
+  'is': 'Icelandic - Íslenska',
+  'it': 'Italian - Italiano',
+  'ja': 'Japanese - 日本語',
+  'kk': 'Kazakh - Қазақша',
+  'kn': 'Kannada - ಕನ್ನಡ',
+  'ko': 'Korean - 한국어',
+  'lt': 'Lithuanian - Lietuvių',
+  'lv': 'Latvian - Latviešu',
+  'mi': 'Maori - Māori',
+  'mk': 'Macedonian - Македонски',
+  'mr': 'Marathi - मराठी',
+  'ms': 'Malay - Bahasa Melayu',
+  'ne': 'Nepali - नेपाली',
+  'nl': 'Dutch - Nederlands',
+  'no': 'Norwegian - Norsk',
+  'pl': 'Polish - Polski',
+  'pt': 'Portuguese - Português',
+  'ro': 'Romanian - Română',
+  'ru': 'Russian - Русский',
+  'sk': 'Slovak - Slovenčina',
+  'sl': 'Slovenian - Slovenščina',
+  'sr': 'Serbian - Српски',
+  'sv': 'Swedish - Svenska',
+  'sw': 'Swahili - Kiswahili',
+  'ta': 'Tamil - தமிழ்',
+  'th': 'Thai - ไทย',
+  'tl': 'Tagalog - Tagalog',
+  'tr': 'Turkish - Türkçe',
+  'uk': 'Ukrainian - Українська',
+  'ur': 'Urdu - اردو',
+  'vi': 'Vietnamese - Tiếng Việt',
+  'yue': 'Cantonese - 粵語',
+  'zh': 'Chinese - 中文',
+};
+
 const TABS: Array<{ id: TabId; icon: LucideIcon; label: string }> = [
   { id: 'image', icon: ImageIcon, label: 'Image' },
-  { id: 'video', icon: Video, label: 'Video' },
   { id: 'tts', icon: Volume2, label: 'TTS' },
   { id: 'asr', icon: Mic, label: 'ASR' },
 ];
@@ -156,7 +273,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
 
   const enabledCount = [
     imageGenerationEnabled,
-    videoGenerationEnabled,
     ttsEnabled,
     asrEnabled,
   ].filter(Boolean).length;
@@ -305,7 +421,7 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
           available: true,
           items: getASRSupportedLanguages(p.id).map((l) => ({
             id: l,
-            name: l,
+            name: LANGUAGE_CODES_DISPLAY[l] || l,
           })),
         })),
     [asrProvidersConfig],
@@ -318,7 +434,7 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
     }
     setOpen(isOpen);
     if (isOpen) {
-      const first = (['image', 'video', 'tts', 'asr'] as TabId[]).find((id) => enabledMap[id]);
+      const first = (['image', 'tts', 'asr'] as TabId[]).find((id) => enabledMap[id]);
       setActiveTab(first || 'image');
     }
   };
@@ -330,22 +446,21 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
           className={cn(
             'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer select-none whitespace-nowrap border',
             enabledCount > 0
-              ? 'bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300 border-violet-200/60 dark:border-violet-700/50'
+              ? 'bg-primary/10 text-primary border-primary/20 dark:border-primary/30 dark:bg-primary/20'
               : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 border-border/50',
           )}
         >
           <SlidersHorizontal className="size-3.5" />
           {imageGenerationEnabled && <ImageIcon className="size-3.5" />}
-          {videoGenerationEnabled && <Video className="size-3.5" />}
           {ttsEnabled && <Volume2 className="size-3.5" />}
           {asrEnabled && <Mic className="size-3.5" />}
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" side="bottom" avoidCollisions={false} className="w-80 p-0">
+      <PopoverContent align="start" side="bottom" avoidCollisions={false} className="w-80 p-0 bg-card dark:bg-slate-900 border-border dark:border-slate-800 shadow-xl">
         {/* ── Tab bar (segmented control) ── */}
         <div className="p-2 pb-0">
-          <div className="flex gap-0.5 p-0.5 bg-muted/60 rounded-lg">
+          <div className="flex gap-0.5 p-0.5 bg-muted/60 dark:bg-slate-800/60 rounded-lg">
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               const isEnabled = enabledMap[tab.id];
@@ -357,20 +472,21 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
                   className={cn(
                     'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-medium transition-all relative',
                     isActive
-                      ? 'bg-background text-foreground shadow-sm'
+                      ? 'bg-card dark:bg-slate-900 text-foreground shadow-sm ring-1 ring-border/50 dark:ring-slate-700/50'
                       : 'text-muted-foreground hover:text-foreground/80',
                   )}
                 >
                   <Icon className="size-3.5" />
                   <span className="hidden sm:inline">{tab.label}</span>
                   {isEnabled && !isActive && (
-                    <span className="absolute top-1 right-1 size-1.5 rounded-full bg-violet-500" />
+                    <span className="absolute top-1 right-1 size-1.5 rounded-full bg-primary" />
                   )}
                 </button>
               );
             })}
           </div>
         </div>
+
 
         {/* ── Tab content ── */}
         <div className="p-3 pt-2.5">
@@ -381,15 +497,9 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
               enabled={imageGenerationEnabled}
               onToggle={setImageGenerationEnabled}
             >
-              <GroupedSelect
-                groups={imageGroups}
-                selectedGroupId={imageProviderId}
-                selectedItemId={imageModelId}
-                onSelect={(gid, iid) => {
-                  setImageProvider(gid as ImageProviderId);
-                  setImageModelId(iid);
-                }}
-              />
+              <p className="text-[11px] text-muted-foreground/50">
+                {t('media.imageHint')}
+              </p>
             </TabPanel>
           )}
 
@@ -419,9 +529,28 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
               enabled={ttsEnabled}
               onToggle={setTTSEnabled}
             >
-              <p className="text-[11px] text-muted-foreground/60">
-                {t('settings.ttsVoiceConfigHint')}
-              </p>
+              <GroupedSelect
+                groups={ttsGroups}
+                selectedGroupId={ttsProviderId}
+                selectedItemId={ttsVoice}
+                onSelect={(gid, iid) => {
+                  setTTSProvider(gid as TTSProviderId);
+                  setTTSVoice(iid);
+                }}
+                onPreviewItem={(groupId, itemId) => {
+                  const providerConfig = ttsProvidersConfig[groupId as TTSProviderId];
+                  startPreview({
+                    text: t('settings.ttsTestTextDefault'),
+                    providerId: groupId as TTSProviderId,
+                    modelId: providerConfig?.modelId,
+                    voice: itemId,
+                    speed: ttsSpeed,
+                    apiKey: providerConfig?.apiKey,
+                    baseUrl: providerConfig?.baseUrl,
+                  }).catch(() => {});
+                }}
+                previewingItemId={previewing ? ttsVoice : null}
+              />
             </TabPanel>
           )}
 
@@ -445,19 +574,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
           )}
         </div>
 
-        {/* ── Footer ── */}
-        <div className="border-t border-border/40">
-          <button
-            onClick={() => {
-              setOpen(false);
-              onSettingsOpen(activeTab);
-            }}
-            className="w-full flex items-center justify-between px-3.5 py-2.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-          >
-            <span>{t('toolbar.advancedSettings')}</span>
-            <ChevronRight className="size-3" />
-          </button>
-        </div>
       </PopoverContent>
     </Popover>
   );
@@ -483,7 +599,7 @@ function TabPanel({
         <Icon
           className={cn(
             'size-4 shrink-0 transition-colors',
-            enabled ? 'text-violet-600 dark:text-violet-400' : 'text-muted-foreground/50',
+            enabled ? 'text-primary' : 'text-muted-foreground/50',
           )}
         />
         <span
@@ -497,13 +613,14 @@ function TabPanel({
         <Switch
           checked={enabled}
           onCheckedChange={onToggle}
-          className="scale-[0.85] origin-right"
+          className="scale-[0.85] origin-right data-[state=checked]:bg-primary"
         />
       </div>
       {enabled && children}
     </div>
   );
 }
+
 
 // ─── Grouped provider+model select ───
 interface SelectGroupData {
@@ -519,70 +636,87 @@ function GroupedSelect({
   selectedGroupId,
   selectedItemId,
   onSelect,
+  onPreviewItem,
+  previewingItemId,
 }: {
   groups: SelectGroupData[];
   selectedGroupId: string;
   selectedItemId: string;
   onSelect: (groupId: string, itemId: string) => void;
+  onPreviewItem?: (groupId: string, itemId: string) => void;
+  previewingItemId?: string | null;
 }) {
-  const composite = `${selectedGroupId}::${selectedItemId}`;
-  // When multiple groups share the same groupId (e.g. browser-native-tts split by language),
-  // find the sub-group that actually contains the selected item.
+  const [open, setOpen] = useState(false);
+
   const selectedGroup =
     groups.find(
       (g) => g.groupId === selectedGroupId && g.items.some((item) => item.id === selectedItemId),
     ) || groups.find((g) => g.groupId === selectedGroupId);
 
+  const selectedItemName = selectedGroup?.items.find((item) => item.id === selectedItemId)?.name || selectedItemId;
+
   return (
-    <Select
-      value={composite}
-      onValueChange={(v) => {
-        const sep = v.indexOf('::');
-        if (sep === -1) return;
-        onSelect(v.slice(0, sep), v.slice(sep + 2));
-      }}
-    >
-      <SelectTrigger className="h-8 w-full rounded-lg border-border/40 bg-background/80 hover:bg-muted/40 shadow-none text-xs focus:ring-1 focus:ring-ring/30 px-2.5">
-        <span className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-          {selectedGroup?.groupIcon && (
-            <img src={selectedGroup.groupIcon} alt="" className="size-4 rounded-sm shrink-0" />
-          )}
-          <span className="font-medium truncate">{selectedGroup?.groupName}</span>
-          <span className="text-muted-foreground/40">/</span>
-          <span className="text-muted-foreground truncate">
-            <SelectValue />
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          role="combobox"
+          aria-expanded={open}
+          className="flex h-8 w-full items-center justify-between rounded-lg border border-border/40 bg-background/80 hover:bg-muted/40 px-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-ring/30"
+        >
+          <span className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
+            {selectedGroup?.groupIcon && (
+              <img src={selectedGroup.groupIcon} alt="" className="size-4 rounded-sm shrink-0" />
+            )}
+            <span className="font-medium truncate">{selectedGroup?.groupName}</span>
+            <span className="text-muted-foreground/40">/</span>
+            <span className="text-muted-foreground truncate">{selectedItemName}</span>
           </span>
-        </span>
-      </SelectTrigger>
-      <SelectContent>
-        {groups.map((group, i) => (
-          <Fragment key={`${group.groupId}-${i}`}>
-            {i > 0 && <SelectSeparator />}
-            <SelectGroup>
-              <SelectLabel className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider">
-                {group.groupIcon && (
-                  <img
-                    src={group.groupIcon}
-                    alt=""
-                    className={cn('size-3.5 rounded-sm', !group.available && 'opacity-40')}
-                  />
-                )}
-                {group.groupName}
-              </SelectLabel>
-              {group.items.map((item) => (
-                <SelectItem
-                  key={`${group.groupId}::${item.id}`}
-                  value={`${group.groupId}::${item.id}`}
-                  disabled={!group.available}
-                  className="text-xs"
-                >
-                  {item.name}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          </Fragment>
-        ))}
-      </SelectContent>
-    </Select>
+          <ChevronDown className="size-3 shrink-0 opacity-50 ml-2" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[280px] p-0 shadow-xl border-border dark:border-slate-800" align="start">
+        <Command>
+          <CommandInput placeholder="Search options..." className="h-9 text-xs" />
+          <CommandList className="max-h-60 overflow-y-auto">
+            <CommandEmpty className="text-xs py-4 text-center text-muted-foreground">
+              No matches found.
+            </CommandEmpty>
+            {groups.map((group, i) => (
+              <CommandGroup key={`${group.groupId}-${i}`} heading={group.groupName}>
+                {group.items.map((item) => (
+                  <CommandItem
+                    key={`${group.groupId}::${item.id}`}
+                    value={`${group.groupName} ${item.name} ${item.id}`}
+                    onSelect={() => {
+                      onSelect(group.groupId, item.id);
+                      setOpen(false);
+                    }}
+                    className="text-xs cursor-pointer group/item"
+                    disabled={!group.available}
+                  >
+                    <span className="flex-1 truncate">{item.name}</span>
+                    {onPreviewItem && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPreviewItem(group.groupId, item.id);
+                        }}
+                        className="ml-1.5 shrink-0 rounded p-0.5 text-muted-foreground/40 opacity-0 group-hover/item:opacity-100 hover:!text-primary hover:bg-primary/10 transition-all"
+                        title="Preview voice"
+                      >
+                        {previewingItemId === item.id
+                          ? <Loader2 className="size-3 animate-spin" />
+                          : <Volume2 className="size-3" />}
+                      </button>
+                    )}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   );
 }

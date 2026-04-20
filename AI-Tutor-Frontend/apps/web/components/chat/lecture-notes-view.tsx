@@ -46,7 +46,7 @@ export function LectureNotesView({ notes, currentSceneId }: LectureNotesViewProp
   if (notes.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-center p-6">
-        <div className="w-12 h-12 bg-purple-50 dark:bg-purple-900/20 rounded-2xl flex items-center justify-center mb-3 text-purple-300 dark:text-purple-600 ring-1 ring-purple-100 dark:ring-purple-800/30">
+        <div className="w-12 h-12 bg-primary/10 dark:bg-primary/20 rounded-2xl flex items-center justify-center mb-3 text-primary ring-1 ring-primary/20 dark:ring-primary/30">
           <BookOpen className="w-6 h-6" />
         </div>
         <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
@@ -74,10 +74,10 @@ export function LectureNotesView({ notes, currentSceneId }: LectureNotesViewProp
             key={note.sceneId}
             data-scene-id={note.sceneId}
             className={cn(
-              'relative mb-3 last:mb-0 rounded-lg px-3 py-2.5 transition-colors duration-200',
+              'relative mb-3 last:mb-0 rounded-lg px-3 py-2.5 transition-colors duration-200 border',
               isCurrent
-                ? 'bg-purple-50/80 dark:bg-purple-950/25 ring-1 ring-purple-200/60 dark:ring-purple-700/30'
-                : 'bg-gray-50/50 dark:bg-gray-800/30',
+                ? 'bg-primary/5 dark:bg-primary/10 border-primary/20 dark:border-primary/30 ring-1 ring-primary/10 dark:ring-primary/20'
+                : 'bg-card dark:bg-slate-900/40 border-border/50 dark:border-slate-800/50',
             )}
           >
             {/* Page label row */}
@@ -87,7 +87,7 @@ export function LectureNotesView({ notes, currentSceneId }: LectureNotesViewProp
                 className={cn(
                   'w-2 h-2 rounded-full shrink-0',
                   isCurrent
-                    ? 'bg-purple-500 dark:bg-purple-400 shadow-sm shadow-purple-400/40'
+                    ? 'bg-primary shadow-sm shadow-primary/40'
                     : 'bg-gray-300 dark:bg-gray-600',
                 )}
               />
@@ -95,14 +95,14 @@ export function LectureNotesView({ notes, currentSceneId }: LectureNotesViewProp
                 className={cn(
                   'text-[10px] font-semibold tracking-wide',
                   isCurrent
-                    ? 'text-purple-600 dark:text-purple-400'
+                    ? 'text-primary'
                     : 'text-gray-400 dark:text-gray-500',
                 )}
               >
                 {pageLabel}
               </span>
               {isCurrent && (
-                <span className="text-[9px] font-bold px-1.5 py-px rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-300">
+                <span className="text-[9px] font-bold px-1.5 py-px rounded-full bg-primary/10 dark:bg-primary/20 text-primary">
                   {t('chat.lectureNotes.currentPage')}
                 </span>
               )}

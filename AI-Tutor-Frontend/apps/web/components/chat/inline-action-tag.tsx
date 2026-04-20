@@ -30,8 +30,8 @@ interface InlineActionTagProps {
 // ── Style tokens ──────────────────────────────────────────────
 
 const WB_STYLE =
-  'bg-violet-50 dark:bg-violet-500/15 border-violet-300/40 dark:border-violet-500/30 text-violet-600 dark:text-violet-300';
-const WB_ACCENT = 'bg-violet-500 dark:bg-violet-400';
+  'bg-emerald-50 dark:bg-emerald-500/15 border-emerald-300/40 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-300';
+const WB_ACCENT = 'bg-emerald-500 dark:bg-emerald-400';
 
 const SPOTLIGHT_STYLE =
   'bg-yellow-50 dark:bg-yellow-500/15 border-yellow-300/40 dark:border-yellow-500/30 text-yellow-700 dark:text-yellow-300';
@@ -106,7 +106,7 @@ export function InlineActionTag({ actionName, state }: InlineActionTagProps) {
             WB_ACCENT,
           )}
         >
-          <PenLine className="w-[7px] h-[7px] text-white dark:text-violet-950" strokeWidth={2.5} />
+          <PenLine className="w-[7px] h-[7px] text-white dark:text-emerald-950" strokeWidth={2.5} />
         </span>
       )}
 

@@ -27,7 +27,7 @@ import type { Stage } from '@/lib/types/stage';
 import type { SceneOutline, PdfImage, ImageMapping } from '@/lib/types/generation';
 import { AgentRevealModal } from '@/components/agent/agent-reveal-modal';
 import { createLogger } from '@/lib/logger';
-import { getSessionToken } from '@/lib/auth/session';
+import { getSessionToken, hasAuthSessionHint } from '@/lib/auth/session';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
 import { StepVisualizer } from './components/visualizers';
 
@@ -85,7 +85,7 @@ function GenerationPreviewContent() {
 
   useEffect(() => {
     if (!sessionLoaded) return;
-    if (!getSessionToken()) {
+    if (!hasAuthSessionHint()) {
       router.replace('/auth?next=/');
     }
   }, [sessionLoaded, router]);
@@ -868,7 +868,7 @@ function GenerationPreviewContent() {
           style={{ animationDuration: '4s' }}
         />
         <div
-          className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse"
+          className="absolute bottom-0 right-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse"
           style={{ animationDuration: '6s' }}
         />
       </div>
@@ -1064,7 +1064,7 @@ function GenerationPreviewContent() {
                 {generatedAgents.length > 0 && !showAgentReveal && (
                   <button
                     onClick={() => setShowAgentReveal(true)}
-                    className="ml-2 flex items-center gap-1.5 rounded-full border border-purple-300/30 bg-purple-500/10 px-3 py-1 text-xs font-medium normal-case tracking-normal text-purple-400 transition-colors hover:bg-purple-500/20 hover:text-purple-300"
+                    className="ml-2 flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium normal-case tracking-normal text-primary transition-colors hover:bg-primary/20 hover:text-primary"
                   >
                     <Bot className="size-3" />
                     {t('generation.viewAgents')}

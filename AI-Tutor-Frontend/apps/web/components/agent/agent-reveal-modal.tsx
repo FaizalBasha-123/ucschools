@@ -172,7 +172,7 @@ export function AgentRevealModal({ agents, open, onClose, onAllRevealed }: Agent
                         }}
                       >
                         {/* Inner card body */}
-                        <div className="relative flex size-full flex-col overflow-clip rounded-[14px] bg-white dark:bg-zinc-900">
+                        <div className="relative flex size-full flex-col overflow-clip rounded-[14px] bg-card dark:bg-slate-900">
                           {/* Top gradient band with texture */}
                           <div className="relative shrink-0 overflow-hidden" style={{ height: 56 }}>
                             {/* Color gradient fill */}
@@ -352,8 +352,8 @@ export function AgentRevealModal({ agents, open, onClose, onAllRevealed }: Agent
                             <path d="M10 0 L20 10 L10 20 L0 10 Z" fill="currentColor" />
                           </svg>
                           {/* Center icon */}
-                          <Sparkles className="size-9 text-purple-300/70" />
-                          <span className="mt-1.5 text-xl font-bold text-purple-200/60">?</span>
+                          <Sparkles className="size-9 text-emerald-300/70" />
+                          <span className="mt-1.5 text-xl font-bold text-emerald-200/60">?</span>
                         </div>
                       </div>
                     </div>

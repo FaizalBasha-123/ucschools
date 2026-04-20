@@ -27,8 +27,12 @@ import { Button } from '@/components/ui/button';
 import { Textarea as UITextarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { SettingsDialog } from '@/components/settings';
+import { SiteHeader } from '@/components/layout/site-header';
 import { GenerationToolbar } from '@/components/generation/generation-toolbar';
 import { AgentBar } from '@/components/agent/agent-bar';
+import { MissionSection } from '@/components/landing/mission-section';
+import { UseCasesSection } from '@/components/landing/use-cases-section';
+import { FinalCTA } from '@/components/landing/final-cta';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { nanoid } from 'nanoid';
 import { storePdfBlob } from '@/lib/utils/image-storage';
@@ -58,7 +62,7 @@ import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDraftCache } from '@/lib/hooks/use-draft-cache';
 import { SpeechButton } from '@/components/audio/speech-button';
-import { clearAuthSession, getAuthSession, verifyAuthSession } from '@/lib/auth/session';
+import { clearAuthSession, getAuthSession, hasAuthSessionHint, verifyAuthSession } from '@/lib/auth/session';
 
 const log = createLogger('Home');
 
@@ -79,12 +83,12 @@ interface FormState {
 const initialFormState: FormState = {
   pdfFile: null,
   requirement: '',
-  language: 'zh-CN',
-  webSearch: false,
+  language: 'en-US',
+  webSearch: true,
 };
 
 function HomePage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
   const [form, setForm] = useState<FormState>(initialFormState);
@@ -114,25 +118,28 @@ function HomePage() {
     } catch {
       /* localStorage unavailable */
     }
+  }, []);
+
+  // Sync header locale → form generation language
+  // When the user switches language in the header (TA ↔ EN),
+  // the lesson generation language updates automatically.
+  useEffect(() => {
+    setForm((prev) => ({ ...prev, language: locale as 'zh-CN' | 'en-US' }));
+    try {
+      localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
+    } catch { /* ignore */ }
+  }, [locale]);
+
+  useEffect(() => {
     try {
       const savedWebSearch = localStorage.getItem(WEB_SEARCH_STORAGE_KEY);
-      const savedLanguage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-      const updates: Partial<FormState> = {};
-      if (savedWebSearch === 'true') updates.webSearch = true;
-      if (savedLanguage === 'zh-CN' || savedLanguage === 'en-US') {
-        updates.language = savedLanguage;
-      } else {
-        const detected = navigator.language?.startsWith('zh') ? 'zh-CN' : 'en-US';
-        updates.language = detected;
-      }
-      if (Object.keys(updates).length > 0) {
-        setForm((prev) => ({ ...prev, ...updates }));
+      if (savedWebSearch === 'false') {
+        setForm((prev) => ({ ...prev, webSearch: false }));
       }
     } catch {
       /* localStorage unavailable */
     }
   }, []);
-   
 
   // Restore requirement draft from cache (derived state pattern — no effect needed)
   const [prevCachedRequirement, setPrevCachedRequirement] = useState(cachedRequirement);
@@ -143,7 +150,7 @@ function HomePage() {
     }
   }
 
-  const [themeOpen, setThemeOpen] = useState(false);
+  // Removed legacy header states
   const [error, setError] = useState<string | null>(null);
   const [classrooms, setClassrooms] = useState<StageListItem[]>([]);
   const [lessonShelf, setLessonShelf] = useState<LessonShelfItem[]>([]);
@@ -156,31 +163,7 @@ function HomePage() {
   const [authChecking, setAuthChecking] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
-  const toolbarRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const dashboardMetrics = useMemo(() => {
-    const totalClassrooms = classrooms.length;
-    const totalLessons = lessonShelf.length;
-    const inProgress = lessonShelf.filter((item) => item.status === 'generating').length;
-    const completed = lessonShelf.filter(
-      (item) => item.status === 'ready' && item.progress_pct >= 100,
-    ).length;
-    return { totalClassrooms, totalLessons, inProgress, completed };
-  }, [classrooms, lessonShelf]);
-
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    if (!themeOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
-        setThemeOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [themeOpen]);
-
   const loadClassrooms = async () => {
     try {
       const list = await listStages();
@@ -201,7 +184,8 @@ function HomePage() {
       const response = await fetchShelf();
       setLessonShelf(response.items);
     } catch (err) {
-      log.error('Failed to load lesson shelf:', err);
+      setLessonShelf([]);
+      log.warn('Lesson shelf unavailable for current session:', err);
     } finally {
       setLessonShelfLoading(false);
     }
@@ -212,22 +196,34 @@ function HomePage() {
     // The store may hold tasks from a previously visited classroom whose elementIds
     // (gen_img_1, etc.) collide with other courses' placeholders.
     useMediaGenerationStore.getState().revokeObjectUrls();
-    useMediaGenerationStore.setState({ tasks: {} });
-
-     
     loadClassrooms();
-    loadLessonShelf();
+
+    // Auto-focus the generator input when the landing page loads
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 100);
   }, []);
 
   useEffect(() => {
+    if (authChecking) return;
+    if (!isAuthenticated) {
+      setLessonShelf([]);
+      return;
+    }
+    loadLessonShelf();
+  }, [authChecking, isAuthenticated]);
+
+  useEffect(() => {
     const hydrateAuth = async () => {
-      const session = getAuthSession();
-      if (!session?.token) {
+      const hasSession = hasAuthSessionHint();
+      if (!hasSession) {
         setIsAuthenticated(false);
         setAccountEmail(null);
         setAuthChecking(false);
         return;
       }
+
+      const session = getAuthSession();
 
       try {
         const ok = await verifyAuthSession();
@@ -237,7 +233,7 @@ function HomePage() {
           setAccountEmail(null);
         } else {
           setIsAuthenticated(true);
-          setAccountEmail(session.email || null);
+          setAccountEmail(session?.email || null);
         }
       } catch {
         clearAuthSession();
@@ -510,101 +506,10 @@ function HomePage() {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full bg-gradient-to-b from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 flex flex-col items-center p-4 pt-16 md:p-8 md:pt-16 overflow-x-hidden">
-      {/* ═══ Top-right pill (unchanged) ═══ */}
-      <div
-        ref={toolbarRef}
-        className="fixed top-4 right-4 z-50 flex items-center gap-1 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md px-2 py-1.5 rounded-full border border-gray-100/50 dark:border-gray-700/50 shadow-sm"
-      >
-        {/* Language Selector */}
-        <LanguageSwitcher onOpen={() => setThemeOpen(false)} />
+    <div className="min-h-[100dvh] w-full bg-gradient-to-b from-emerald-50 via-green-50 to-lime-50 dark:from-emerald-950 dark:via-green-950 dark:to-emerald-900 flex flex-col items-center p-4 pt-16 md:p-8 md:pt-16 overflow-x-hidden">
+      {/* ═══ Top Navigation Header ═══ */}
+      <SiteHeader variant="landing" />
 
-        <button
-          onClick={() => {
-            setThemeOpen(false);
-            router.push('/billing');
-          }}
-          className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
-          title="Open billing"
-          aria-label="Open billing"
-        >
-          <CreditCard className="w-4 h-4" />
-        </button>
-
-        <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
-
-        {/* Theme Selector */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              setThemeOpen(!themeOpen);
-            }}
-            className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all"
-          >
-            {theme === 'light' && <Sun className="w-4 h-4" />}
-            {theme === 'dark' && <Moon className="w-4 h-4" />}
-            {theme === 'system' && <Monitor className="w-4 h-4" />}
-          </button>
-          {themeOpen && (
-            <div className="absolute top-full mt-2 right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden z-50 min-w-[140px]">
-              <button
-                onClick={() => {
-                  setTheme('light');
-                  setThemeOpen(false);
-                }}
-                className={cn(
-                  'w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2',
-                  theme === 'light' &&
-                    'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400',
-                )}
-              >
-                <Sun className="w-4 h-4" />
-                {t('settings.themeOptions.light')}
-              </button>
-              <button
-                onClick={() => {
-                  setTheme('dark');
-                  setThemeOpen(false);
-                }}
-                className={cn(
-                  'w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2',
-                  theme === 'dark' &&
-                    'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400',
-                )}
-              >
-                <Moon className="w-4 h-4" />
-                {t('settings.themeOptions.dark')}
-              </button>
-              <button
-                onClick={() => {
-                  setTheme('system');
-                  setThemeOpen(false);
-                }}
-                className={cn(
-                  'w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2',
-                  theme === 'system' &&
-                    'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400',
-                )}
-              >
-                <Monitor className="w-4 h-4" />
-                {t('settings.themeOptions.system')}
-              </button>
-            </div>
-          )}
-        </div>
-
-        <div className="w-[1px] h-4 bg-gray-200 dark:bg-gray-700" />
-
-        {/* Settings Button */}
-        <div className="relative">
-          <button
-            onClick={() => setSettingsOpen(true)}
-            className="p-2 rounded-full text-gray-400 dark:text-gray-500 hover:bg-white dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200 hover:shadow-sm transition-all group"
-          >
-            <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
-          </button>
-        </div>
-      </div>
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={(open) => {
@@ -617,83 +522,13 @@ function HomePage() {
       {/* ═══ Background Decor ═══ */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
-          className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse"
+          className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse"
           style={{ animationDuration: '4s' }}
         />
         <div
-          className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse"
+          className="absolute bottom-0 right-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse"
           style={{ animationDuration: '6s' }}
         />
-      </div>
-
-      <div className="relative z-20 mb-6 w-full max-w-6xl rounded-2xl border border-border/60 bg-white/70 p-4 backdrop-blur-xl dark:bg-slate-900/70">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground/70">Workspace</p>
-            <p className="text-sm font-medium text-foreground/80">
-              {authChecking
-                ? 'Verifying session...'
-                : isAuthenticated
-                  ? `Authenticated${accountEmail ? ` as ${accountEmail}` : ''}`
-                  : 'Not authenticated'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {isAuthenticated ? (
-              <button
-                type="button"
-                onClick={() => {
-                  clearAuthSession();
-                  setIsAuthenticated(false);
-                  setAccountEmail(null);
-                }}
-                className="rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-medium hover:bg-muted/60"
-              >
-                Sign out
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => router.push('/auth?next=/')}
-                className="rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-medium hover:bg-muted/60"
-              >
-                Sign in
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => router.push('/billing')}
-              className="rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-medium hover:bg-muted/60"
-            >
-              Billing
-            </button>
-            <button
-              type="button"
-              onClick={() => router.push('/admin')}
-              className="rounded-lg border border-border/70 bg-background px-3 py-2 text-xs font-medium hover:bg-muted/60"
-            >
-              Admin
-            </button>
-          </div>
-        </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="rounded-xl border border-border/60 bg-background p-3">
-            <p className="text-xs text-muted-foreground">Classrooms</p>
-            <p className="mt-1 text-xl font-semibold">{dashboardMetrics.totalClassrooms}</p>
-          </div>
-          <div className="rounded-xl border border-border/60 bg-background p-3">
-            <p className="text-xs text-muted-foreground">Lessons</p>
-            <p className="mt-1 text-xl font-semibold">{dashboardMetrics.totalLessons}</p>
-          </div>
-          <div className="rounded-xl border border-border/60 bg-background p-3">
-            <p className="text-xs text-muted-foreground">In Progress</p>
-            <p className="mt-1 text-xl font-semibold">{dashboardMetrics.inProgress}</p>
-          </div>
-          <div className="rounded-xl border border-border/60 bg-background p-3">
-            <p className="text-xs text-muted-foreground">Completed</p>
-            <p className="mt-1 text-xl font-semibold">{dashboardMetrics.completed}</p>
-          </div>
-        </div>
       </div>
 
       {/* ═══ Hero section: title + input (centered, wider) ═══ */}
@@ -716,27 +551,22 @@ function HomePage() {
             stiffness: 200,
             damping: 20,
           }}
-          className="flex items-center gap-2.5 mb-4 group cursor-default select-none"
         >
-          <div className="size-10 md:size-12 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/20 transition-transform group-hover:scale-105">
-            <BotOff className="size-6 md:size-7 text-primary-foreground stroke-[2.5]" />
-          </div>
           <div className="flex flex-col">
-            <span className="text-2xl md:text-3xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-primary to-emerald-600 dark:from-primary dark:to-emerald-400">
-              AI-Tutor
+            <span className="text-2xl md:text-3xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-emerald-600 to-teal-500 dark:from-emerald-400 dark:to-teal-300">
+              Learn something new today.
             </span>
-            <div className="h-0.5 w-full bg-gradient-to-r from-primary/60 to-transparent rounded-full" />
+            <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500/60 to-transparent rounded-full mt-1" />
           </div>
         </motion.div>
 
-        {/* ── Slogan ── */}
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.25 }}
-          className="text-sm text-muted-foreground/60 mb-8"
+          className="text-sm md:text-base font-medium text-slate-500 dark:text-slate-400 mb-8 max-w-xl text-center"
         >
-          {t('home.slogan')}
+          Transform curiosity into clarity through instantly generated, personalized lessons.
         </motion.p>
 
         {/* ── Unified input area ── */}
@@ -746,25 +576,24 @@ function HomePage() {
           transition={{ delay: 0.35 }}
           className="w-full"
         >
-          <div className="w-full rounded-2xl border border-border/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-xl shadow-black/[0.03] dark:shadow-black/20 transition-shadow focus-within:shadow-2xl focus-within:shadow-violet-500/[0.06]">
+          <div className="w-full rounded-2xl border border-border/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-xl shadow-black/[0.03] dark:shadow-black/20 transition-shadow focus-within:shadow-2xl focus-within:shadow-primary/[0.06]">
             {/* ── Greeting + Profile + Agents ── */}
+            {/* ── Lesson Personalization Avatar ── */}
             <div className="relative z-20 flex items-start justify-between">
               <GreetingBar />
-              <div className="pr-3 pt-3.5 shrink-0">
-                <AgentBar />
-              </div>
             </div>
 
             {/* Textarea */}
             <textarea
               ref={textareaRef}
               placeholder={t('upload.requirementPlaceholder')}
-              className="w-full resize-none border-0 bg-transparent px-4 pt-1 pb-2 text-[13px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[140px] max-h-[300px]"
+              className="w-full resize-none border-0 bg-transparent px-4 pt-1 pb-2 text-[13px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[70px] max-h-[150px]"
               value={form.requirement}
               onChange={(e) => updateForm('requirement', e.target.value)}
               onKeyDown={handleKeyDown}
               rows={4}
             />
+
 
             {/* Toolbar row */}
             <div className="px-3 pb-3 flex items-end gap-2">
@@ -796,19 +625,17 @@ function HomePage() {
                 }}
               />
 
-              {/* Send button */}
               <button
                 onClick={handleGenerate}
                 disabled={!canGenerate || authChecking}
                 className={cn(
-                  'shrink-0 h-8 rounded-lg flex items-center justify-center gap-1.5 transition-all px-3',
+                  'shrink-0 h-8 w-8 rounded-lg flex items-center justify-center transition-all',
                   canGenerate && !authChecking
                     ? 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm cursor-pointer'
                     : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
                 )}
               >
-                <span className="text-xs font-medium">{t('toolbar.enterClassroom')}</span>
-                <ArrowUp className="size-3.5" />
+                <ArrowUp className="size-4" />
               </button>
             </div>
           </div>
@@ -830,7 +657,7 @@ function HomePage() {
       </motion.div>
 
       {/* ═══ Lesson shelf ═══ */}
-      {(lessonShelfLoading || lessonShelf.length > 0) && (
+      {isAuthenticated && (lessonShelfLoading || lessonShelf.length > 0) && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -999,7 +826,7 @@ function HomePage() {
       )}
 
       {/* ═══ Recent classrooms — collapsible ═══ */}
-      {classrooms.length > 0 && (
+      {isAuthenticated && classrooms.length > 0 && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1075,11 +902,35 @@ function HomePage() {
           </AnimatePresence>
         </motion.div>
       )}
+      {/* ═══ Philosophical Marketing Layout (Landing Page Only) ═══ */}
+      {(!isAuthenticated || classrooms.length === 0) && (
+        <div className="w-full mt-auto bg-slate-50 dark:bg-slate-900 border-t border-border/40 rounded-t-[3rem] shadow-[0_-20px_40px_rgba(0,0,0,0.05)] overflow-hidden relative z-10 block">
+          <MissionSection />
+          <UseCasesSection />
+          <FinalCTA />
+        </div>
+      )}
 
-      {/* Footer — flows with content, at the very end */}
-      <div className="mt-auto pt-12 pb-4 text-center text-xs text-muted-foreground/40">
-        AI-Tutor Open Source Project
-      </div>
+      {/* ═══ Footer ═══ */}
+      <footer className="w-full relative z-10 mt-auto pt-20 pb-8 flex flex-col items-center justify-center border-t border-border/40 bg-white/30 dark:bg-slate-900/30 backdrop-blur-sm">
+        <div className="flex items-center gap-2 mb-4 opacity-60 cursor-default select-none">
+          <BotOff className="size-5 text-primary stroke-[2]" />
+          <span className="text-lg font-bold tracking-tight text-primary">
+            AI-Tutor
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground/70 mb-3 font-medium">
+          Empowering education with open-source artificial intelligence.
+        </p>
+        <div className="flex items-center gap-4 text-xs text-muted-foreground/60">
+          <a href="#" className="hover:text-primary transition-colors">Privacy</a>
+          <a href="#" className="hover:text-primary transition-colors">Terms</a>
+          <a href="https://github.com" target="_blank" rel="noreferrer" className="hover:text-primary transition-colors">GitHub</a>
+        </div>
+        <div className="mt-6 text-[11px] text-muted-foreground/40">
+          &copy; {new Date().getFullYear()} AI-Tutor Open Source Project. All rights reserved.
+        </div>
+      </footer>
     </div>
   );
 }
@@ -1183,7 +1034,7 @@ function GreetingBar() {
           onClick={() => setOpen(true)}
         >
           <div className="shrink-0 relative">
-            <div className="size-8 rounded-full overflow-hidden ring-[1.5px] ring-border/30 group-hover:ring-violet-400/60 dark:group-hover:ring-violet-400/40 transition-all duration-300">
+            <div className="size-8 rounded-full overflow-hidden ring-[1.5px] ring-border/30 group-hover:ring-primary/60 dark:group-hover:ring-primary/40 transition-all duration-300">
               <img src={avatar} alt="" className="size-full object-cover" />
             </div>
             <div className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full bg-white dark:bg-slate-800 border border-border/40 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity">
@@ -1193,11 +1044,11 @@ function GreetingBar() {
           <div className="flex-1 min-w-0">
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="leading-none select-none flex items-center gap-1">
-                  <span className="text-[13px] font-semibold text-foreground/85 group-hover:text-foreground transition-colors">
-                    {t('home.greetingWithName', { name: displayName })}
+                <span className="leading-none select-none flex items-center gap-1 pointer-events-none">
+                  <span className="text-[13px] font-bold text-emerald-700 dark:text-emerald-400 group-hover:text-emerald-800 dark:group-hover:text-emerald-300 transition-colors uppercase tracking-wider">
+                    Personalize the teacher
                   </span>
-                  <ChevronDown className="size-3 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors shrink-0" />
+                  <ChevronDown className="size-3 text-emerald-600/50 group-hover:text-emerald-600 transition-colors shrink-0" />
                 </span>
               </TooltipTrigger>
               <TooltipContent side="bottom" sideOffset={4}>
@@ -1236,7 +1087,7 @@ function GreetingBar() {
                     setAvatarPickerOpen(!avatarPickerOpen);
                   }}
                 >
-                  <div className="size-8 rounded-full overflow-hidden ring-[1.5px] ring-violet-300/70 dark:ring-violet-500/40 transition-all duration-300">
+                  <div className="size-8 rounded-full overflow-hidden ring-[1.5px] ring-primary/70 dark:ring-primary/40 transition-all duration-300">
                     <img src={avatar} alt="" className="size-full object-cover" />
                   </div>
                   <motion.div
@@ -1274,7 +1125,7 @@ function GreetingBar() {
                       />
                       <button
                         onClick={commitName}
-                        className="shrink-0 size-5 rounded flex items-center justify-center text-violet-500 hover:bg-violet-100 dark:hover:bg-violet-900/30"
+                        className="shrink-0 size-5 rounded flex items-center justify-center text-primary hover:bg-primary/10 dark:hover:bg-primary/20"
                       >
                         <Check className="size-3" />
                       </button>
@@ -1326,7 +1177,7 @@ function GreetingBar() {
                               'size-7 rounded-full overflow-hidden bg-gray-50 dark:bg-gray-800 cursor-pointer transition-all duration-150',
                               'hover:scale-110 active:scale-95',
                               avatar === url
-                                ? 'ring-2 ring-violet-400 dark:ring-violet-500 ring-offset-0'
+                                ? 'ring-2 ring-primary dark:ring-primary ring-offset-0'
                                 : 'hover:ring-1 hover:ring-muted-foreground/30',
                             )}
                           >
@@ -1338,7 +1189,7 @@ function GreetingBar() {
                             'size-7 rounded-full flex items-center justify-center cursor-pointer transition-all duration-150 border border-dashed',
                             'hover:scale-110 active:scale-95',
                             isCustomAvatar(avatar)
-                              ? 'ring-2 ring-violet-400 dark:ring-violet-500 ring-offset-0 border-violet-300 dark:border-violet-600 bg-violet-50 dark:bg-violet-900/30'
+                              ? 'ring-2 ring-primary dark:ring-primary ring-offset-0 border-primary/30 dark:border-primary/60 bg-primary/5 dark:bg-primary/10'
                               : 'border-muted-foreground/30 text-muted-foreground/50 hover:border-muted-foreground/50',
                           )}
                           onClick={() => avatarInputRef.current?.click()}
@@ -1443,7 +1294,7 @@ function ClassroomCard({
           />
         ) : !slide ? (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="size-12 rounded-2xl bg-gradient-to-br from-violet-100 to-blue-100 dark:from-violet-900/30 dark:to-blue-900/30 flex items-center justify-center">
+            <div className="size-12 rounded-2xl bg-gradient-to-br from-primary/10 to-emerald-100/50 dark:from-primary/20 dark:to-emerald-900/20 flex items-center justify-center">
               <span className="text-xl opacity-50">📄</span>
             </div>
           </div>
@@ -1516,7 +1367,7 @@ function ClassroomCard({
 
       {/* Info — outside the thumbnail */}
       <div className="mt-2.5 px-1 flex items-center gap-2">
-        <span className="shrink-0 inline-flex items-center rounded-full bg-violet-100 dark:bg-violet-900/30 px-2 py-0.5 text-[11px] font-medium text-violet-600 dark:text-violet-400">
+        <span className="shrink-0 inline-flex items-center rounded-full bg-primary/10 dark:bg-primary/20 px-2 py-0.5 text-[11px] font-medium text-primary dark:text-primary">
           {classroom.sceneCount} {t('classroom.slides')} · {formatDate(classroom.updatedAt)}
         </span>
         {editing ? (
@@ -1532,7 +1383,7 @@ function ClassroomCard({
               onBlur={commitRename}
               maxLength={100}
               placeholder={t('classroom.renamePlaceholder')}
-              className="w-full bg-transparent border-b border-violet-400/60 text-[15px] font-medium text-foreground/90 outline-none placeholder:text-muted-foreground/40"
+              className="w-full bg-transparent border-b border-primary/60 text-[15px] font-medium text-foreground/90 outline-none placeholder:text-muted-foreground/40"
             />
           </div>
         ) : (

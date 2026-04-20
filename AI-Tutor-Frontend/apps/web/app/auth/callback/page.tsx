@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { setAuthSession } from '@/lib/auth/session';
+import { setAuthSession, clearAuthSession } from '@/lib/auth/session';
 
 function AuthCallbackPageContent() {
   const router = useRouter();
@@ -24,9 +24,9 @@ function AuthCallbackPageContent() {
           throw new Error(json.error || 'Authentication failed');
         }
 
-        const data = json.data || {};
-        if (!data.session_token) {
-          throw new Error('Session token missing in authentication response');
+        const data = json.data || json;
+        if (data.status && typeof data.status === 'string' && data.status !== 'active') {
+          throw new Error(`Authentication incomplete: ${data.status}`);
         }
 
         setAuthSession({
@@ -35,9 +35,20 @@ function AuthCallbackPageContent() {
           email: data.email,
         });
 
-        const nextPath = sessionStorage.getItem('postLoginNext') || '/';
+        // Check if this was a signup flow
+        // If so, clear session and require user to sign in again (separate signin step)
+        const authMode = sessionStorage.getItem('authMode');
+        sessionStorage.removeItem('authMode');
         sessionStorage.removeItem('postLoginNext');
-        router.replace(nextPath);
+
+        if (authMode === 'signup') {
+          // Signup flow: clear session and redirect to signin
+          clearAuthSession();
+          router.replace('/auth?mode=signin');
+        } else {
+          // Signin flow: proceed to billing check
+          router.replace('/check-billing');
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
