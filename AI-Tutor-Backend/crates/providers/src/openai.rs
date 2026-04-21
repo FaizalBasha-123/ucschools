@@ -15,6 +15,26 @@ use crate::traits::{
     ProviderUsage, ProviderUsageSource, StreamingPath, TtsProvider, VideoProvider,
 };
 
+const PROVIDER_CONNECT_TIMEOUT_SECS: u64 = 10;
+const PROVIDER_IDLE_POOL_TIMEOUT_SECS: u64 = 90;
+const PROVIDER_TCP_KEEPALIVE_SECS: u64 = 30;
+const TTS_REQUEST_TIMEOUT_SECS: u64 = 45;
+
+fn build_provider_http_client(model_config: &ModelConfig) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(PROVIDER_CONNECT_TIMEOUT_SECS))
+        .pool_idle_timeout(Duration::from_secs(PROVIDER_IDLE_POOL_TIMEOUT_SECS))
+        .tcp_keepalive(Duration::from_secs(PROVIDER_TCP_KEEPALIVE_SECS));
+
+    if let Some(proxy_url) = model_config.proxy.as_deref().map(str::trim) {
+        if !proxy_url.is_empty() {
+            builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
+        }
+    }
+
+    Ok(builder.build()?)
+}
+
 // ────────────────────────────────────────────────────────────
 // Provider structs (unchanged)
 // ────────────────────────────────────────────────────────────
@@ -34,9 +54,11 @@ impl OpenAiCompatibleProvider {
             ));
         }
 
+        let client = build_provider_http_client(&model_config)?;
+
         Ok(Self {
             model_config,
-            client: reqwest::Client::new(),
+            client,
         })
     }
 
@@ -196,9 +218,11 @@ impl OpenAiCompatibleTtsProvider {
             ));
         }
 
+        let client = build_provider_http_client(&model_config)?;
+
         Ok(Self {
             model_config,
-            client: reqwest::Client::new(),
+            client,
         })
     }
 
@@ -227,9 +251,11 @@ impl OpenAiCompatibleImageProvider {
             ));
         }
 
+        let client = build_provider_http_client(&model_config)?;
+
         Ok(Self {
             model_config,
-            client: reqwest::Client::new(),
+            client,
         })
     }
 
@@ -258,9 +284,11 @@ impl OpenAiCompatibleVideoProvider {
             ));
         }
 
+        let client = build_provider_http_client(&model_config)?;
+
         Ok(Self {
             model_config,
-            client: reqwest::Client::new(),
+            client,
         })
     }
 
@@ -524,6 +552,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
                 format!("Bearer {}", self.model_config.api_key),
             )
             .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(TTS_REQUEST_TIMEOUT_SECS))
             .json(&request)
             .send()
             .await?;
