@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -26,30 +26,25 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
 import type { TTSProviderId } from '@/lib/audio/types';
 import type { ProviderWithVoices } from '@/lib/audio/voice-resolver';
-
 function AgentVoicePill({
   agent,
   agentIndex,
   availableProviders,
   disabled,
 }: {
+  agent: AgentConfig;
   agentIndex: number;
   availableProviders: ProviderWithVoices[];
   disabled?: boolean;
+}): React.JSX.Element {
+  const updateAgent = useAgentRegistry((s) => s.updateAgent);
+  const ttsProvidersConfig = useSettingsStore((s) => s.ttsProvidersConfig);
   const resolved = resolveAgentVoice(agent, agentIndex, availableProviders);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const previewCancelRef = useRef<(() => void) | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
-  const displayName = (() => {
-    for (const p of availableProviders) {
-      if (p.providerId === resolved.providerId) {
-        const v = p.voices.find((voice) => voice.id === resolved.voiceId);
-        if (v) return v.name;
-      }
-    }
-
-  const stopPreview = useCallback(() => {
+  const stopPreview = useCallback((): void => {
     previewCancelRef.current?.();
     previewCancelRef.current = null;
     previewAbortRef.current?.abort();
@@ -63,7 +58,7 @@ function AgentVoicePill({
   }, []);
 
   const handlePreview = useCallback(
-    async (providerId: TTSProviderId, voiceId: string, modelId?: string) => {
+    async (providerId: TTSProviderId, voiceId: string, modelId?: string): Promise<void> => {
       const key = `${providerId}::${voiceId}`;
       if (previewingId === key) {
         stopPreview();
@@ -250,7 +245,7 @@ function TeacherVoicePill({
 }: {
   availableProviders: ProviderWithVoices[];
   disabled?: boolean;
-}) {
+}): JSX.Element {
   const ttsProviderId = useSettingsStore((s) => s.ttsProviderId);
   const ttsVoice = useSettingsStore((s) => s.ttsVoice);
   const setTTSProvider = useSettingsStore((s) => s.setTTSProvider);
@@ -273,7 +268,7 @@ function TeacherVoicePill({
     return ttsVoice || 'default';
   })();
 
-  const stopPreview = useCallback(() => {
+  const stopPreview = useCallback((): void => {
     previewCancelRef.current?.();
     previewCancelRef.current = null;
     previewAbortRef.current?.abort();
@@ -287,7 +282,7 @@ function TeacherVoicePill({
   }, []);
 
   const handlePreview = useCallback(
-    async (providerId: TTSProviderId, voiceId: string, modelId?: string) => {
+    async (providerId: TTSProviderId, voiceId: string, modelId?: string): Promise<void> => {
       const key = `${providerId}::${voiceId}`;
       if (previewingId === key) {
         stopPreview();
@@ -464,7 +459,7 @@ function TeacherVoicePill({
 /**
  * Voice configuration has been moved to TtsConfigPopover near the ASR button
  */
-export function AgentBar() {
+export function AgentBar(): JSX.Element {
   const { t } = useI18n();
   const { listAgents } = useAgentRegistry();
   const selectedAgentIds = useSettingsStore((s) => s.selectedAgentIds);
@@ -633,7 +628,7 @@ export function AgentBar() {
     </div>
   );
 
-  const renderAgentRow = (agent: AgentConfig, agentIndex: number, isTeacher: boolean) => {
+  const renderAgentRow = (agent: AgentConfig, agentIndex: number, isTeacher: boolean): JSX.Element => {
     const isSelected = isTeacher || selectedAgentIds.includes(agent.id);
     return (
       <div

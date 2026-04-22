@@ -40,7 +40,7 @@ export interface ParsedPdfContent {
     fileName?: string;
     fileSize?: number;
     pageCount: number;
-    parser?: string; // 'unpdf' | 'mineru'
+    parser?: string; // e.g., 'gemini-openrouter'
     processingTime?: number;
     taskId?: string; // MinerU task ID
     /** Image ID to base64 URL mapping (used in generation pipeline) */

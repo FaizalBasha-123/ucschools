@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     // providerId is required from the client — no server-side store to fall back to
-    const effectiveProviderId = providerId || ('unpdf' as PDFProviderId);
+    const effectiveProviderId = providerId || ('gemini-openrouter' as PDFProviderId);
     pdfFileName = pdfFile?.name;
     resolvedProviderId = effectiveProviderId;
 
