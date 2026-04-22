@@ -304,10 +304,9 @@ const getDefaultAudioConfig = () => ({
 
 // Initialize default PDF config
 const getDefaultPDFConfig = () => ({
-  pdfProviderId: 'unpdf' as PDFProviderId,
+  pdfProviderId: 'gemini-openrouter' as PDFProviderId,
   pdfProvidersConfig: {
-    unpdf: { apiKey: '', baseUrl: '', enabled: true },
-    mineru: { apiKey: '', baseUrl: '', enabled: false },
+    'gemini-openrouter': { apiKey: '', baseUrl: '', enabled: true },
   } as Record<PDFProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
@@ -963,7 +962,7 @@ export const useSettingsStore = create<SettingsState>()(
               const validPDFProvider = validateProvider(
                 state.pdfProviderId,
                 newPDFConfig,
-                'unpdf' as PDFProviderId,
+                'gemini-openrouter' as PDFProviderId,
               );
               const validImageProvider = validateProvider(
                 state.imageProviderId,
@@ -1013,11 +1012,6 @@ export const useSettingsStore = create<SettingsState>()(
               let autoVideoEnabled: boolean | undefined;
 
               if (!state.autoConfigApplied) {
-                // PDF: unpdf → mineru if server has it
-                if (newPDFConfig.mineru?.isServerConfigured && state.pdfProviderId === 'unpdf') {
-                  autoPdfProvider = 'mineru' as PDFProviderId;
-                }
-
                 // TTS: select first server provider if current is not server-configured
                 const serverTtsIds = Object.keys(data.tts) as TTSProviderId[];
                 if (

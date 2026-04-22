@@ -9,20 +9,12 @@ import type { PDFProviderId, PDFProviderConfig } from './types';
  * PDF Provider Registry
  */
 export const PDF_PROVIDERS: Record<PDFProviderId, PDFProviderConfig> = {
-  unpdf: {
-    id: 'unpdf',
-    name: 'unpdf',
-    requiresApiKey: false,
-    icon: '/logos/unpdf.svg',
-    features: ['text', 'images', 'metadata'],
-  },
-
-  mineru: {
-    id: 'mineru',
-    name: 'MinerU',
-    requiresApiKey: false,
-    icon: '/logos/mineru.png',
-    features: ['text', 'images', 'tables', 'formulas', 'layout-analysis'],
+  'gemini-openrouter': {
+    id: 'gemini-openrouter',
+    name: 'Gemini 2.0 Flash (OpenRouter)',
+    requiresApiKey: true,
+    icon: '/logos/gemini.svg',
+    features: ['text', 'images', 'metadata', 'multimodal'],
   },
 };
 

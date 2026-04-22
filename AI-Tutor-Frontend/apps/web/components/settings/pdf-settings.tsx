@@ -44,7 +44,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
   const isServerConfigured = !!pdfProvidersConfig[selectedProviderId]?.isServerConfigured;
   const providerConfig = pdfProvidersConfig[selectedProviderId];
   const hasBaseUrl = !!providerConfig?.baseUrl;
-  const needsRemoteConfig = selectedProviderId === 'mineru';
+  const needsRemoteConfig = true; // Gemini OpenRouter requires configuration if not server-side
 
   // Reset state when provider changes
   const [prevSelectedProviderId, setPrevSelectedProviderId] = useState(selectedProviderId);
@@ -197,7 +197,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
           {(() => {
             const effectiveBaseUrl = providerConfig?.baseUrl || '';
             if (!effectiveBaseUrl) return null;
-            const fullUrl = effectiveBaseUrl + '/file_parse';
+            const fullUrl = effectiveBaseUrl + '/chat/completions';
             return (
               <p className="text-xs text-muted-foreground break-all">
                 {t('settings.requestUrl')}: {fullUrl}
