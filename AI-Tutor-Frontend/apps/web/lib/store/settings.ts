@@ -387,6 +387,12 @@ function ensureValidProviderSelections(state: Partial<SettingsState>): void {
   if (!hasProviderId(ASR_PROVIDERS, state.asrProviderId)) {
     state.asrProviderId = defaultAudioConfig.asrProviderId;
   }
+
+  // Force-enable all media features (security: prevent localStorage tampering)
+  state.imageGenerationEnabled = true;
+  state.videoGenerationEnabled = true;
+  state.ttsEnabled = true;
+  state.asrEnabled = true;
 }
 
 /**
@@ -592,11 +598,11 @@ export const useSettingsStore = create<SettingsState>()(
         // Video settings (use defaults)
         ...defaultVideoConfig,
 
-        // Media generation toggles (off by default)
-        imageGenerationEnabled: false,
-        videoGenerationEnabled: false,
+        // Media generation toggles (always on — server-enforced)
+        imageGenerationEnabled: true,
+        videoGenerationEnabled: true,
 
-        // Audio feature toggles (on by default)
+        // Audio feature toggles (always on — server-enforced)
         ttsEnabled: true,
         asrEnabled: true,
 

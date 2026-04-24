@@ -1,0 +1,46 @@
+{
+  "antigravity": {
+    "enabled": true,
+    "codeAnalysisMode": "graphify"
+  },
+  "graphify": {
+    "active": true,
+    "primarySource": true,
+    "metadataPath": ".graphify-context",
+    "autoLoad": true,
+    "continuous": true
+  },
+  "analysis": {
+    "method": "graphify-first",
+    "codeUnderstanding": "metadata-driven",
+    "fileNavigation": "via-graphify-tree",
+    "relationshipMapping": "from-graphify"
+  },
+  "codeInspection": {
+    "source": "graphify-metadata",
+    "fallback": "on-demand-read",
+    "strategy": "lazy-loading"
+  },
+  "context": {
+    "projectMetadata": ".graphify-context/project-context.txt",
+    "structureTree": ".graphify-context/project-tree.txt",
+    "fileIndex": ".graphify-context/markdown-index.txt",
+    "autoUpdate": true
+  },
+  "optimization": {
+    "useMetadataCache": true,
+    "minMemoryUsage": true,
+    "fastContextLoading": true
+  },
+  "integration": {
+    "graphifyCommand": "graphify-uc-school.cmd",
+    "pullMetadata": "on-demand",
+    "syncInterval": 3600
+  },
+  "features": {
+    "intelligentCompletion": true,
+    "smartFileSearch": true,
+    "contextAwareSuggestions": true,
+    "memoryBasedLearning": true
+  }
+}

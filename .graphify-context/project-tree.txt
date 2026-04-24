@@ -1,0 +1,32 @@
+ROOT=D:\uc-school
+TOP_DIRS=
+ - .agent\workflows\implementation.md:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-HN6EAY2L.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-HN6EAY2L.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-H3VCZNTA.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-H3VCZNTA.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-FXACKDTF.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-FXACKDTF.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-DU5LTGQ6.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-DU5LTGQ6.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-DKKBVRCY.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-DKKBVRCY.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-DJ7UZH7F.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-HNL3EPQF.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-DJ7UZH7F.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-BWNR3NKH.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-AEOMTBSW.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-AEOMTBSW.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-A34GCYZU.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-A34GCYZU.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-7RZVMHOQ.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-7RZVMHOQ.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-73ENG63I.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-73ENG63I.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-6NTNNK5N.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-6NTNNK5N.mjs:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-BWNR3NKH.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-5YUVU3PZ.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-HNL3EPQF.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-IWDTEBJL.mjs.map:1
+ - AI-Tutor-Frontend\node_modules\.pnpm\mermaid@11.14.0\node_modules\mermaid\dist\chunks\mermaid.esm.min\chunk-TBF5ZNIQ.mjs.map:1

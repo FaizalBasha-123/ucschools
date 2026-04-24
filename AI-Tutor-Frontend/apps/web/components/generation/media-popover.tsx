@@ -32,7 +32,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
@@ -157,7 +156,6 @@ const LANGUAGE_CODES_DISPLAY: Record<string, string> = {
   'hu': 'Hungarian - Magyar',
   'hy': 'Armenian - Հայերեն',
   'id': 'Indonesian - Bahasa Indonesia',
-  'is': 'Icelandic - Íslenska',
   'it': 'Italian - Italiano',
   'ja': 'Japanese - 日本語',
   'kk': 'Kazakh - Қазақша',
@@ -229,14 +227,8 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
   const { previewing, startPreview, stopPreview } = useTTSPreview();
 
   // ─── Store ───
-  const imageGenerationEnabled = useSettingsStore((s) => s.imageGenerationEnabled);
-  const videoGenerationEnabled = useSettingsStore((s) => s.videoGenerationEnabled);
-  const ttsEnabled = useSettingsStore((s) => s.ttsEnabled);
-  const asrEnabled = useSettingsStore((s) => s.asrEnabled);
-  const setImageGenerationEnabled = useSettingsStore((s) => s.setImageGenerationEnabled);
-  const setVideoGenerationEnabled = useSettingsStore((s) => s.setVideoGenerationEnabled);
-  const setTTSEnabled = useSettingsStore((s) => s.setTTSEnabled);
-  const setASREnabled = useSettingsStore((s) => s.setASREnabled);
+  // Media features are always enabled (server-enforced)
+  // Toggles removed for security — backend always includes these capabilities
 
   const imageProviderId = useSettingsStore((s) => s.imageProviderId);
   const imageModelId = useSettingsStore((s) => s.imageModelId);
@@ -264,18 +256,13 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
   const setASRProvider = useSettingsStore((s) => s.setASRProvider);
   const setASRLanguage = useSettingsStore((s) => s.setASRLanguage);
 
+  // All media features are always enabled
   const enabledMap: Record<TabId, boolean> = {
-    image: imageGenerationEnabled,
-    video: videoGenerationEnabled,
-    tts: ttsEnabled,
-    asr: asrEnabled,
+    image: true,
+    video: true,
+    tts: true,
+    asr: true,
   };
-
-  const enabledCount = [
-    imageGenerationEnabled,
-    ttsEnabled,
-    asrEnabled,
-  ].filter(Boolean).length;
 
   const cfgOk = (
     configs: Record<string, { apiKey?: string; isServerConfigured?: boolean }>,
@@ -434,8 +421,7 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
     }
     setOpen(isOpen);
     if (isOpen) {
-      const first = (['image', 'tts', 'asr'] as TabId[]).find((id) => enabledMap[id]);
-      setActiveTab(first || 'image');
+      setActiveTab('image');
     }
   };
 
@@ -445,15 +431,13 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
         <button
           className={cn(
             'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer select-none whitespace-nowrap border',
-            enabledCount > 0
-              ? 'bg-primary/10 text-primary border-primary/20 dark:border-primary/30 dark:bg-primary/20'
-              : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 border-border/50',
+            'bg-primary/10 text-primary border-primary/20 dark:border-primary/30 dark:bg-primary/20',
           )}
         >
           <SlidersHorizontal className="size-3.5" />
-          {imageGenerationEnabled && <ImageIcon className="size-3.5" />}
-          {ttsEnabled && <Volume2 className="size-3.5" />}
-          {asrEnabled && <Mic className="size-3.5" />}
+          <ImageIcon className="size-3.5" />
+          <Volume2 className="size-3.5" />
+          <Mic className="size-3.5" />
         </button>
       </PopoverTrigger>
 
@@ -494,8 +478,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
             <TabPanel
               icon={ImageIcon}
               label={t('media.imageCapability')}
-              enabled={imageGenerationEnabled}
-              onToggle={setImageGenerationEnabled}
             >
               <p className="text-[11px] text-muted-foreground/50">
                 {t('media.imageHint')}
@@ -507,8 +489,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
             <TabPanel
               icon={Video}
               label={t('media.videoCapability')}
-              enabled={videoGenerationEnabled}
-              onToggle={setVideoGenerationEnabled}
             >
               <GroupedSelect
                 groups={videoGroups}
@@ -526,8 +506,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
             <TabPanel
               icon={Volume2}
               label={t('media.ttsCapability')}
-              enabled={ttsEnabled}
-              onToggle={setTTSEnabled}
             >
               <GroupedSelect
                 groups={ttsGroups}
@@ -558,8 +536,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
             <TabPanel
               icon={Mic}
               label={t('media.asrCapability')}
-              enabled={asrEnabled}
-              onToggle={setASREnabled}
             >
               <GroupedSelect
                 groups={asrGroups}
@@ -579,44 +555,24 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
   );
 }
 
-// ─── Tab panel: header (label + switch) + optional body ───
+// ─── Tab panel: header (label) + body (always visible) ───
 function TabPanel({
   icon: Icon,
   label,
-  enabled,
-  onToggle,
   children,
 }: {
   icon: LucideIcon;
   label: string;
-  enabled: boolean;
-  onToggle: (v: boolean) => void;
   children?: React.ReactNode;
 }) {
   return (
     <div className="space-y-2.5">
       <div className="flex items-center gap-2.5">
-        <Icon
-          className={cn(
-            'size-4 shrink-0 transition-colors',
-            enabled ? 'text-primary' : 'text-muted-foreground/50',
-          )}
-        />
-        <span
-          className={cn(
-            'flex-1 text-sm font-medium transition-colors',
-            !enabled && 'text-muted-foreground',
-          )}
-        >
-          {label}
-        </span>
-        <Switch
-          checked={enabled}
-          onCheckedChange={onToggle}
-          className="scale-[0.85] origin-right data-[state=checked]:bg-primary"
-        />
+        <Icon className="size-4 shrink-0 text-primary" />
+        <span className="flex-1 text-sm font-medium">{label}</span>
+        <span className="text-[10px] text-emerald-500 font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded-full">ON</span>
       </div>
-      {enabled && children}
+      {children}
     </div>
   );
 }

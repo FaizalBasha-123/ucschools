@@ -43,6 +43,7 @@ function AgentVoicePill({
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const previewCancelRef = useRef<(() => void) | null>(null);
+  const previewAbortRef = useRef<AbortController | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const stopPreview = useCallback((): void => {
     previewCancelRef.current?.();
@@ -121,6 +122,13 @@ function AgentVoicePill({
 
   // Cleanup on unmount
   useEffect(() => () => stopPreview(), [stopPreview]);
+
+  const voiceObj = availableProviders
+    .find((p) => p.providerId === resolved.providerId)
+    ?.modelGroups.flatMap((g) => g.voices)
+    .find((v) => v.id === resolved.voiceId);
+
+  const displayName = voiceObj?.name || resolved.voiceId || 'Default';
 
   if (disabled) {
     return (
@@ -245,7 +253,7 @@ function TeacherVoicePill({
 }: {
   availableProviders: ProviderWithVoices[];
   disabled?: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   const ttsProviderId = useSettingsStore((s) => s.ttsProviderId);
   const ttsVoice = useSettingsStore((s) => s.ttsVoice);
   const setTTSProvider = useSettingsStore((s) => s.setTTSProvider);
@@ -459,7 +467,7 @@ function TeacherVoicePill({
 /**
  * Voice configuration has been moved to TtsConfigPopover near the ASR button
  */
-export function AgentBar(): JSX.Element {
+export function AgentBar(): React.JSX.Element {
   const { t } = useI18n();
   const { listAgents } = useAgentRegistry();
   const selectedAgentIds = useSettingsStore((s) => s.selectedAgentIds);
@@ -628,7 +636,7 @@ export function AgentBar(): JSX.Element {
     </div>
   );
 
-  const renderAgentRow = (agent: AgentConfig, agentIndex: number, isTeacher: boolean): JSX.Element => {
+  const renderAgentRow = (agent: AgentConfig, agentIndex: number, isTeacher: boolean): React.JSX.Element => {
     const isSelected = isTeacher || selectedAgentIds.includes(agent.id);
     return (
       <div

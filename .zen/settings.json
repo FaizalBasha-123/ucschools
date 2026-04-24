@@ -1,0 +1,41 @@
+{
+  "editor": "zen",
+  "ai": {
+    "mode": "graphify-first",
+    "enabled": true
+  },
+  "graphify": {
+    "enabled": true,
+    "useByDefault": true,
+    "contextSource": ".graphify-context",
+    "autoInitialize": true,
+    "refreshOnSave": false,
+    "refreshOnDirectoryChange": true
+  },
+  "codeIntelligence": {
+    "source": "graphify-metadata",
+    "fallback": "manual-read",
+    "behavior": "prefer-metadata"
+  },
+  "fileHandling": {
+    "readMode": "metadata-first",
+    "graphifyPriority": 100,
+    "manualReadPriority": 50
+  },
+  "performance": {
+    "loadMetadata": true,
+    "cacheGraphifyOutput": true,
+    "preloadProject": true
+  },
+  "integration": {
+    "graphifyCommand": "./graphify-uc-school.cmd",
+    "contextFile": ".graphify-context/project-context.txt",
+    "treeFile": ".graphify-context/project-tree.txt",
+    "markdownIndex": ".graphify-context/markdown-index.txt"
+  },
+  "ui": {
+    "showGraphifyStatus": true,
+    "contextInSidebar": true,
+    "highlightFromMetadata": true
+  }
+}

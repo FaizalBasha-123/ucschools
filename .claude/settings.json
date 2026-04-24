@@ -1,0 +1,14 @@
+{
+  "claude": {
+    "model": "claude-sonnet-4-6",
+    "graphify": {
+      "enabled": true,
+      "contextDir": ".graphify-context",
+      "autoRefresh": false
+    },
+    "memory": {
+      "enabled": true,
+      "dir": ".claude/memory"
+    }
+  }
+}

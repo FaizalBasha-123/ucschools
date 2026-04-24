@@ -1,0 +1,51 @@
+GRAPHIFY_CONTEXT
+ROOT=D:\uc-school
+FILES_TOTAL=115908
+MD_TOTAL=3197
+GO_TOTAL=143
+RS_TOTAL=653
+TS_TOTAL=25962
+KEY_ROOT_FILES=
+ - README.md
+ - .codex/instructions.md
+RECENT_FILES=
+ - .graphify-context\project-context.txt
+ - .graphify-context\markdown-index.txt
+ - .graphify-context\project-tree.txt
+ - init-graphify.ps1
+ - scripts\graphify.ps1
+ - graphify.cmd
+ - Schools24-frontend\android\.gradle\8.14.3\checksums\checksums.lock
+ - Schools24-frontend\android\.gradle\8.14.3\fileHashes\fileHashes.lock
+ - Schools24-frontend\android\.gradle\buildOutputCleanup\buildOutputCleanup.lock
+ - Schools24-frontend\android\.gradle\8.14.3\fileChanges\last-build.bin
+ - Schools24-frontend\android\build\reports\problems\problems-report.html
+ - client\android-mobile\.gradle\8.14.3\checksums\checksums.lock
+ - client\android-mobile\.gradle\8.14.3\fileHashes\fileHashes.lock
+ - client\android-mobile\.gradle\buildOutputCleanup\buildOutputCleanup.lock
+ - client\android-mobile\.gradle\8.14.3\fileChanges\last-build.bin
+ - client\android-mobile\build\reports\problems\problems-report.html
+ - Schools24-frontend\android\.gradle\8.14.3\gc.properties
+ - Schools24-frontend\android\.gradle\vcs-1\gc.properties
+ - client\android-mobile\.gradle\8.14.3\gc.properties
+ - client\android-mobile\.gradle\vcs-1\gc.properties
+ - AI-Tutor-Frontend\apps\web\.next\dev\cache\turbopack\da605e0c\LOG
+ - AI-Tutor-Frontend\apps\web\.next\dev\cache\turbopack\da605e0c\CURRENT
+ - AI-Tutor-Frontend\apps\web\.next\dev\cache\turbopack\da605e0c\00002554.meta
+ - AI-Tutor-Frontend\apps\web\.next\dev\cache\turbopack\da605e0c\00002556.meta
+ - AI-Tutor-Frontend\apps\web\.next\dev\cache\turbopack\da605e0c\00002555.meta
+ - AI-Tutor-Frontend\apps\web\.next\dev\cache\turbopack\da605e0c\00002553.sst
+ - AI-Tutor-Frontend\apps\web\.next\dev\cache\turbopack\da605e0c\00002552.sst
+ - AI-Tutor-Frontend\apps\web\.next\dev\cache\turbopack\da605e0c\00002551.sst
+ - AI-Tutor-Frontend\apps\web\.next\trace-build
+ - AI-Tutor-Frontend\apps\web\.next\trace
+ - AI-Tutor-Frontend\apps\web\.next\export-marker.json
+ - AI-Tutor-Frontend\apps\web\.next\images-manifest.json
+ - AI-Tutor-Frontend\apps\web\.next\static\iKkB2My2Ej9l2-_sIg98v\_ssgManifest.js
+ - AI-Tutor-Frontend\apps\web\.next\prerender-manifest.json
+ - AI-Tutor-Frontend\apps\web\.next\routes-manifest.json
+ - AI-Tutor-Frontend\apps\web\.next\server\pages-manifest.json
+ - AI-Tutor-Frontend\apps\web\.next\server\app\pricing.segments\pricing\__PAGE__.segment.rsc
+ - AI-Tutor-Frontend\apps\web\.next\server\app\pricing.segments\_head.segment.rsc
+ - AI-Tutor-Frontend\apps\web\.next\server\app\pricing.segments\_index.segment.rsc
+ - AI-Tutor-Frontend\apps\web\.next\server\app\pricing.segments\pricing.segment.rsc

@@ -1,0 +1,56 @@
+{
+  "gemini": {
+    "cli": true,
+    "mode": "graphify-powered"
+  },
+  "codeUnderstanding": {
+    "primary": "graphify",
+    "fallback": "file-read",
+    "strategy": "metadata-first"
+  },
+  "graphify": {
+    "enabled": true,
+    "useByDefault": true,
+    "contextDirectory": ".graphify-context",
+    "autoInitialize": true,
+    "commandPath": "./graphify-uc-school.cmd"
+  },
+  "contextLoading": {
+    "projectContext": {
+      "file": ".graphify-context/project-context.txt",
+      "loadOnStart": true,
+      "cache": true
+    },
+    "projectTree": {
+      "file": ".graphify-context/project-tree.txt",
+      "loadOnStart": true,
+      "cache": true
+    },
+    "markdownIndex": {
+      "file": ".graphify-context/markdown-index.txt",
+      "loadOnStart": true,
+      "cache": true
+    }
+  },
+  "cli": {
+    "defaultCommand": "use-graphify",
+    "verboseOutput": true,
+    "showMetadata": true
+  },
+  "commands": {
+    "analyze": "use-graphify-first",
+    "search": "query-graphify-tree",
+    "understand": "read-from-metadata",
+    "suggest": "based-on-graphify"
+  },
+  "performance": {
+    "streamResults": true,
+    "cacheMetadata": true,
+    "preloadContext": true
+  },
+  "output": {
+    "format": "structured",
+    "includeMetadata": true,
+    "sourceAnnotation": true
+  }
+}

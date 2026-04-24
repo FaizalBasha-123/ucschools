@@ -1,0 +1,48 @@
+{
+  "ai": {
+    "provider": "codex",
+    "version": "latest"
+  },
+  "codeUnderstanding": {
+    "mode": "graphify",
+    "description": "Use graphify metadata instead of reading files manually",
+    "enabled": true,
+    "priority": "graphify-first"
+  },
+  "graphify": {
+    "enabled": true,
+    "contextPath": ".graphify-context",
+    "useMetadata": true,
+    "autoLoad": true,
+    "refreshInterval": 3600,
+    "cacheMetadata": true,
+    "metadataFiles": [
+      ".graphify-context/project-context.txt",
+      ".graphify-context/project-tree.txt",
+      ".graphify-context/markdown-index.txt"
+    ]
+  },
+  "fileReading": {
+    "mode": "disabled",
+    "fallback": "graphify-metadata",
+    "manualOverride": true,
+    "description": "Use graphify by default, allow manual reads if needed"
+  },
+  "behavior": {
+    "onProjectOpen": "load-graphify",
+    "onFileModification": "refresh-graphify-metadata",
+    "onDirectoryChange": "update-context",
+    "smartContexting": true,
+    "rememberContext": true
+  },
+  "caching": {
+    "enabled": true,
+    "location": ".codex/cache",
+    "strategy": "graphify-metadata"
+  },
+  "memory": {
+    "enabled": true,
+    "location": ".claude/memory",
+    "persistFindings": true
+  }
+}

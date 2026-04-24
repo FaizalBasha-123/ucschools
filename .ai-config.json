@@ -1,0 +1,66 @@
+{
+  "projectName": "UC School AI Tutoring",
+  "graphifyIntegration": {
+    "enabled": true,
+    "status": "production-ready",
+    "version": "1.0"
+  },
+  "aiTools": {
+    "codex": {
+      "enabled": true,
+      "graphifyMode": true,
+      "configPath": ".codex/settings.json"
+    },
+    "zen": {
+      "enabled": true,
+      "graphifyMode": true,
+      "configPath": ".zen/settings.json"
+    },
+    "copilot": {
+      "enabled": true,
+      "graphifyMode": true,
+      "configPath": ".copilot/settings.json"
+    },
+    "antigravity": {
+      "enabled": true,
+      "graphifyMode": true,
+      "configPath": ".antigravity/settings.json"
+    },
+    "gemini": {
+      "enabled": true,
+      "graphifyMode": true,
+      "configPath": ".gemini/settings.json"
+    }
+  },
+  "graphifyConfiguration": {
+    "contextDirectory": ".graphify-context",
+    "metadataFiles": {
+      "projectContext": ".graphify-context/project-context.txt",
+      "projectTree": ".graphify-context/project-tree.txt",
+      "markdownIndex": ".graphify-context/markdown-index.txt"
+    },
+    "commandWrapper": "./graphify-uc-school.cmd",
+    "refreshCommand": "./graphify-uc-school.cmd refresh"
+  },
+  "behavior": {
+    "defaultMode": "graphify-first",
+    "fileReadingMode": "metadata-primary",
+    "fallbackStrategy": "manual-read-on-demand",
+    "caching": true,
+    "persistentMemory": true
+  },
+  "allToolsConfig": {
+    "useGraphifyByDefault": true,
+    "preferMetadataOverFiles": true,
+    "autoLoadProjectContext": true,
+    "enableMetadataCaching": true,
+    "rememberAcrossSessions": true,
+    "autoRefreshOnStructureChange": false,
+    "manualRefreshAvailable": true
+  },
+  "setupStatus": {
+    "initialized": true,
+    "date": "2026-04-24",
+    "allToolsConfigured": true
+  }
+}

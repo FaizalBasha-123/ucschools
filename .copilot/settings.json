@@ -1,0 +1,43 @@
+{
+  "copilot": {
+    "enabled": true,
+    "contextMode": "graphify"
+  },
+  "graphify": {
+    "enableGraphifyContext": true,
+    "useGraphifyFirst": true,
+    "contextLocation": ".graphify-context",
+    "autoload": true
+  },
+  "codeCompletion": {
+    "mode": "metadata-aware",
+    "source": "graphify-analysis",
+    "filenameCompletion": "from-graphify-tree",
+    "contextUnderstanding": "from-graphify-metadata"
+  },
+  "fileUnderstanding": {
+    "method": "graphify-metadata",
+    "fallbackToRead": true,
+    "preferMetadata": true
+  },
+  "contextManagement": {
+    "projectContext": ".graphify-context/project-context.txt",
+    "fileTree": ".graphify-context/project-tree.txt",
+    "documentation": ".graphify-context/markdown-index.txt",
+    "autoRefresh": "on-demand"
+  },
+  "languageSupport": {
+    "useGraphifyForFileType": true,
+    "enabledLanguages": ["javascript", "typescript", "go", "rust", "python"]
+  },
+  "performance": {
+    "cacheMetadata": true,
+    "preloadContext": true,
+    "lazyLoadFiles": true
+  },
+  "suggestions": {
+    "basedOnGraphify": true,
+    "considerProjectStructure": true,
+    "memoryFromPreviousSessions": true
+  }
+}
