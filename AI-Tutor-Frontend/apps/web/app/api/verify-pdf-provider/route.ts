@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       return apiError('REDIRECT_NOT_ALLOWED', 403, 'Redirects are not allowed');
     }
 
-    // MinerU's FastAPI root returns 404 (no root route), but the server is reachable.
+    // Gemini OpenRouter's FastAPI root returns 404 (no root route), but the server is reachable.
     // Any HTTP response (including 404) means the server is up.
     return apiSuccess({
       message: 'Connection successful',

@@ -27,7 +27,14 @@
     "ttsTitle": "குரல் தொகுப்பு",
     "ttsHint": "AI ஆசிரியரின் குரல் தேர்ந்தெடுக்கவும்",
     "ttsPreview": "முன்னோட்டம்",
-    "ttsPreviewing": "இயங்குகிறது..."
+    "ttsPreviewing": "இயங்குகிறது...",
+    "modeBest": "சிறந்தது",
+    "modeBestDesc": "உயர் தரமான உருவாக்கம்",
+    "modeBalanced": "சமநிலை",
+    "modeBalancedDesc": "வேகமான & செலவுக்குறைந்த",
+    "modeComingSoon": "விரைவில் வருகிறது",
+    "modeComingSoonDesc": "சிறந்த பயன்முறை அடுத்த புதுப்பிப்பில் கிடைக்கும். காத்திருங்கள்!",
+    "modeGotIt": "சரி"
   },
   "export": {
     "pptx": "PPTX ஆக ஏற்றுமதி",

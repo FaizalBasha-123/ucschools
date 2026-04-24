@@ -98,7 +98,7 @@ export function PDFSettings({ selectedProviderId }: PDFSettingsProps) {
         </div>
       )}
 
-      {/* Base URL + API Key Configuration (for remote providers like MinerU) */}
+      {/* Base URL + API Key Configuration (for remote providers like Gemini OpenRouter) */}
       {(needsRemoteConfig || isServerConfigured) && (
         <>
           <div className="grid grid-cols-2 gap-4">

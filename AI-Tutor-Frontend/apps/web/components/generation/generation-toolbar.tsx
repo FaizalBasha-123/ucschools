@@ -21,6 +21,7 @@ import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search/constants';
 import type { WebSearchProviderId } from '@/lib/web-search/types';
 import type { SettingsSection } from '@/lib/types/settings';
 import { MediaPopover } from '@/components/generation/media-popover';
+import { ModeSelector } from '@/components/generation/mode-selector';
 
 // ─── Constants ───────────────────────────────────────────────
 const MAX_PDF_SIZE_MB = 50;
@@ -282,6 +283,9 @@ export function GenerationToolbar({
 
       {/* ── Separator ── */}
       <div className="w-px h-4 bg-border/60 mx-1" />
+
+      {/* ── Mode selector (Best / Balanced) ── */}
+      <ModeSelector />
 
       {/* ── Media popover ── */}
       <MediaPopover onSettingsOpen={onSettingsOpen} />
