@@ -18,6 +18,7 @@
   "fileUnderstanding": {
     "method": "graphify-metadata",
     "fallbackToRead": true,
+    "fallbackStrategy": "file-reading",
     "preferMetadata": true
   },
   "contextManagement": {
@@ -28,7 +29,7 @@
   },
   "languageSupport": {
     "useGraphifyForFileType": true,
-    "enabledLanguages": ["javascript", "typescript", "go", "rust", "python"]
+    "enabledLanguages": ["go", "rust", "python", "javascript", "typescript"]
   },
   "performance": {
     "cacheMetadata": true,
@@ -41,3 +42,4 @@
     "memoryFromPreviousSessions": true
   }
 }
+

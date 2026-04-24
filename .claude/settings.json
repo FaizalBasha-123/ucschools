@@ -1,10 +1,17 @@
 {
   "claude": {
     "model": "claude-sonnet-4-6",
+    "mode": "graphify-first",
     "graphify": {
       "enabled": true,
       "contextDir": ".graphify-context",
-      "autoRefresh": false
+      "useMetadata": true,
+      "autoRefresh": true
+    },
+    "codeUnderstanding": {
+      "primary": "graphify",
+      "fallback": "file-read",
+      "strategy": "metadata-primary"
     },
     "memory": {
       "enabled": true,
@@ -12,3 +19,4 @@
     }
   }
 }
+

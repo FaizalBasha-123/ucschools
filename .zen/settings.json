@@ -14,7 +14,7 @@
   },
   "codeIntelligence": {
     "source": "graphify-metadata",
-    "fallback": "manual-read",
+    "fallback": "file-reading-fallback",
     "behavior": "prefer-metadata"
   },
   "fileHandling": {
@@ -39,3 +39,4 @@
     "highlightFromMetadata": true
   }
 }
+

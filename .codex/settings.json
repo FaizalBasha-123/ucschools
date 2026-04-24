@@ -23,10 +23,10 @@
     ]
   },
   "fileReading": {
-    "mode": "disabled",
-    "fallback": "graphify-metadata",
+    "mode": "metadata-first",
+    "fallback": "file-reading-fallback",
     "manualOverride": true,
-    "description": "Use graphify by default, allow manual reads if needed"
+    "description": "Use graphify by default, fallback to manual file reading if context is insufficient"
   },
   "behavior": {
     "onProjectOpen": "load-graphify",
