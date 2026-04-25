@@ -75,6 +75,10 @@ services:
       # --- Auth — protect the API ---
       - key: AI_TUTOR_API_SECRET
         sync: false  # Set manually in Render dashboard
+      - key: AI_TUTOR_PARTIAL_AUTH_SECRET
+        sync: false
+      - key: AI_TUTOR_SESSION_JWT_SECRET
+        sync: false
 
       # --- LLM Providers ---
       # OpenRouter powers chat/generation.
@@ -102,6 +106,8 @@ services:
         value: "openrouter:openai/gpt-4o-mini"
       - key: BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL
         value: "openrouter:openai/gpt-4o-mini"
+      - key: BALANCED_MODE_AI_TUTOR_PDF_MODEL
+        value: "openrouter:google/gemini-2.0-flash-001"
 
       # --- Media models (still use OPENAI_API_KEY) ---
       - key: OPENAI_API_KEY

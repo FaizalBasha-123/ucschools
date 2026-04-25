@@ -80,15 +80,15 @@ pub fn resolve_generation_model_policy(
 
         let outlines_model = select_model(
             outlines_override,
-            &required_env_model("AI_TUTOR_GENERATION_OUTLINES_MODEL")?,
+            &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")?,
         )?;
         let scene_content_model = select_model(
             scene_content_override,
-            &required_env_model("AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")?,
+            &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")?,
         )?;
         let scene_actions_model = select_model(
             scene_actions_override,
-            &required_env_model("AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")?,
+            &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")?,
         )?;
 
         let _ = scene_actions_fallback_override;
@@ -98,15 +98,15 @@ pub fn resolve_generation_model_policy(
 
     let outlines_model = select_model(
         outlines_override,
-        &required_env_model("AI_TUTOR_GENERATION_OUTLINES_MODEL")?,
+        &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")?,
     )?;
     let scene_content_model = select_model(
         scene_content_override,
-        &required_env_model("AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")?,
+        &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")?,
     )?;
     let scene_actions_model = select_model(
         scene_actions_override,
-        &required_env_model("AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")?,
+        &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")?,
     )?;
 
     let _ = scene_actions_fallback_override;
@@ -319,9 +319,9 @@ fn extract_lesson_signals(request: &LessonGenerationRequest) -> LessonSignals {
 
 fn chat_models_for_tier(tier: PedagogyTier) -> Result<String> {
     match tier {
-        PedagogyTier::Baseline => required_env_model("AI_TUTOR_CHAT_BASELINE_MODEL"),
-        PedagogyTier::Scaffold => required_env_model("AI_TUTOR_CHAT_SCAFFOLD_MODEL"),
-        PedagogyTier::Reasoning => required_env_model("AI_TUTOR_CHAT_REASONING_MODEL"),
+        PedagogyTier::Baseline => required_env_model("BALANCED_MODE_AI_TUTOR_CHAT_BASELINE_MODEL"),
+        PedagogyTier::Scaffold => required_env_model("BALANCED_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL"),
+        PedagogyTier::Reasoning => required_env_model("BALANCED_MODE_AI_TUTOR_CHAT_REASONING_MODEL"),
     }
 }
 

@@ -1,80 +1,54 @@
 /**
- * Tavily Web Search Integration
+ * Web Search Integration
  *
- * Uses raw REST API via proxyFetch for reliable proxy support.
- * Tavily search endpoint: POST https://api.tavily.com/search
+ * Proxies search requests to the Rust backend to keep the API keys secure.
  */
 
 import { proxyFetch } from '@/lib/server/proxy-fetch';
 import type { WebSearchResult, WebSearchSource } from '@/lib/types/web-search';
 
-const TAVILY_API_URL = 'https://api.tavily.com/search';
-const TAVILY_MAX_QUERY_LENGTH = 400;
-
 /**
- * Search the web using Tavily REST API and return structured results.
+ * Search the web by proxying the request to our secure Rust backend.
  */
 export async function searchWithTavily(params: {
   query: string;
-  apiKey: string;
+  pdfText?: string;
+  apiKey?: string; // Kept for signature compatibility, but ignored
   maxResults?: number;
 }): Promise<WebSearchResult> {
-  const { query, apiKey, maxResults = 5 } = params;
+  const { query, pdfText } = params;
 
-  // Tavily rejects queries over 400 characters with a 400 error.
-  const truncatedQuery = query.slice(0, TAVILY_MAX_QUERY_LENGTH);
+  const backendUrl =
+    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
+    process.env.AI_TUTOR_API_BASE_URL ||
+    'http://127.0.0.1:8099';
 
-  const res = await proxyFetch(TAVILY_API_URL, {
+  const res = await proxyFetch(`${backendUrl}/api/tools/web-search`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      query: truncatedQuery,
-      search_depth: 'basic',
-      max_results: maxResults,
-      include_answer: 'basic',
+      query,
+      pdfText,
     }),
   });
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
-    throw new Error(`Tavily API error (${res.status}): ${errorText || res.statusText}`);
+    throw new Error(`Backend search error (${res.status}): ${errorText || res.statusText}`);
   }
 
-  const data = (await res.json()) as {
-    answer?: string;
-    query: string;
-    response_time: number;
-    results: Array<{
-      title: string;
-      url: string;
-      content: string;
-      score: number;
-    }>;
-  };
+  const data = (await res.json()) as WebSearchResult;
 
-  const sources: WebSearchSource[] = (data.results || []).map((result) => ({
-    title: result.title,
-    url: result.url,
-    content: result.content,
-    score: result.score,
-  }));
-
-  return {
-    answer: data.answer || '',
-    sources,
-    query: data.query,
-    responseTime: data.response_time,
-  };
+  return data;
 }
 
 /**
  * Format search results into a markdown context block for LLM prompts.
  */
 export function formatSearchResultsAsContext(result: WebSearchResult): string {
-  if (!result.answer && result.sources.length === 0) {
+  if (!result.answer && (!result.sources || result.sources.length === 0)) {
     return '';
   }
 
@@ -85,10 +59,10 @@ export function formatSearchResultsAsContext(result: WebSearchResult): string {
     lines.push('');
   }
 
-  if (result.sources.length > 0) {
+  if (result.sources && result.sources.length > 0) {
     lines.push('Sources:');
     for (const src of result.sources) {
-      lines.push(`- [${src.title}](${src.url}): ${src.content.slice(0, 200)}`);
+      lines.push(`- [${src.title}](${src.url}): ${src.content?.slice(0, 200)}`);
     }
   }
 

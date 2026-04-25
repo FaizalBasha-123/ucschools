@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { setAuthSession, clearAuthSession } from '@/lib/auth/session';
@@ -12,7 +12,12 @@ function AuthCallbackPageContent() {
 
   const queryString = useMemo(() => searchParams.toString(), [searchParams]);
 
+  const hasFetched = useRef(false);
+
   useEffect(() => {
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+
     const run = async () => {
       try {
         const response = await fetch(`/api/auth/google/callback?${queryString}`, {

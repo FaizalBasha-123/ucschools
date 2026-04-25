@@ -253,31 +253,26 @@ export async function generateClassroom(
   // Web search (optional, graceful degradation)
   let researchContext: string | undefined;
   if (input.enableWebSearch) {
-    const tavilyKey = resolveWebSearchApiKey();
-    if (tavilyKey) {
-      try {
-        const searchQuery = await buildSearchQuery(requirement, pdfText, searchQueryAiCall);
+    try {
+      const searchQuery = await buildSearchQuery(requirement, pdfText, searchQueryAiCall);
 
-        log.info('Running web search for classroom generation', {
-          hasPdfContext: searchQuery.hasPdfContext,
-          rawRequirementLength: searchQuery.rawRequirementLength,
-          rewriteAttempted: searchQuery.rewriteAttempted,
-          finalQueryLength: searchQuery.finalQueryLength,
-        });
+      log.info('Running web search for classroom generation', {
+        hasPdfContext: searchQuery.hasPdfContext,
+        rawRequirementLength: searchQuery.rawRequirementLength,
+        rewriteAttempted: searchQuery.rewriteAttempted,
+        finalQueryLength: searchQuery.finalQueryLength,
+      });
 
-        const searchResult = await searchWithTavily({
-          query: searchQuery.query,
-          apiKey: tavilyKey,
-        });
-        researchContext = formatSearchResultsAsContext(searchResult);
-        if (researchContext) {
-          log.info(`Web search returned ${searchResult.sources.length} sources`);
-        }
-      } catch (e) {
-        log.warn('Web search failed, continuing without search context:', e);
+      const searchResult = await searchWithTavily({
+        query: searchQuery.query,
+        pdfText: pdfText,
+      });
+      researchContext = formatSearchResultsAsContext(searchResult);
+      if (researchContext) {
+        log.info(`Web search returned ${searchResult.sources.length} sources`);
       }
-    } else {
-      log.warn('enableWebSearch is true but no Tavily API key configured, skipping web search');
+    } catch (e) {
+      log.warn('Web search failed, continuing without search context:', e);
     }
   }
 

@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
-axum.workspace = true
+axum = { workspace = true, features = ["multipart"] }
 chrono.workspace = true
 chrono-tz.workspace = true
 serde.workspace = true
