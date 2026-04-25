@@ -34,7 +34,7 @@ function AuthPageContent() {
         throw new Error(json.error || 'Unable to start Google login');
       }
 
-      const url = json.data?.authorization_url;
+      const url = json.authorization_url || json.data?.authorization_url;
       if (!url) {
         throw new Error('Missing Google authorization URL');
       }
