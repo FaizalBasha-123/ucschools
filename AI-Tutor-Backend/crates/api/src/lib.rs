@@ -1,4 +1,5 @@
 pub mod app;
+pub mod tools;
 pub mod notifications;
 pub mod queue;
 pub mod startup_readiness;

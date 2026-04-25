@@ -29,7 +29,10 @@ export function resolveModel(params: {
   providerType?: string;
   requiresApiKey?: boolean;
 }): ResolvedModel {
-  const modelString = params.modelString || process.env.DEFAULT_MODEL || process.env.BEST_MODEL || 'google/gemini-2.5-pro-preview';
+  const modelString = params.modelString || process.env.BALANCED_MODE_MODEL || process.env.BEST_MODE_MODEL;
+  if (!modelString) {
+    throw new Error('BALANCED_MODE_MODEL environment variable is required but not set.');
+  }
   const { providerId, modelId } = parseModelString(modelString);
 
   const clientBaseUrl = params.baseUrl || undefined;

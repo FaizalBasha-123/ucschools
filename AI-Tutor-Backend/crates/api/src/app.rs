@@ -3210,13 +3210,13 @@ impl LiveLessonAppService {
     ) -> Result<LessonGenerationOrchestrator<LlmGenerationPipeline, FileStorage, FileStorage>> {
         let generation_policy = resolve_generation_model_policy(
             None,
-            std::env::var("AI_TUTOR_GENERATION_OUTLINES_MODEL")
+            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")
                 .ok()
                 .as_deref(),
-            std::env::var("AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")
+            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")
                 .ok()
                 .as_deref(),
-            std::env::var("AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")
+            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")
                 .ok()
                 .as_deref(),
             None,
@@ -3292,7 +3292,7 @@ impl LiveLessonAppService {
         .with_asset_store(self.build_asset_store().await?);
 
         if request.enable_image_generation {
-            let image_model_string = std::env::var("AI_TUTOR_IMAGE_MODEL")
+            let image_model_string = std::env::var("BALANCED_MODE_AI_TUTOR_IMAGE_MODEL")
                 .ok()
                 .or_else(|| model_string.map(|_| "openai:gpt-image-1".to_string()))
                 .unwrap_or_else(|| "openai:gpt-image-1".to_string());
@@ -3311,7 +3311,7 @@ impl LiveLessonAppService {
         }
 
         if request.enable_video_generation {
-            let video_model_string = std::env::var("AI_TUTOR_VIDEO_MODEL")
+            let video_model_string = std::env::var("BALANCED_MODE_AI_TUTOR_VIDEO_MODEL")
                 .ok()
                 .or_else(|| model_string.map(|_| "openai:gpt-video-1".to_string()))
                 .unwrap_or_else(|| "openai:gpt-video-1".to_string());
@@ -3330,7 +3330,7 @@ impl LiveLessonAppService {
         }
 
         if request.enable_tts {
-            let tts_model_string = std::env::var("AI_TUTOR_TTS_MODEL")
+            let tts_model_string = std::env::var("BALANCED_MODE_AI_TUTOR_TTS_MODEL")
                 .ok()
                 .or_else(|| model_string.map(|_| "openai:tts-1".to_string()))
                 .unwrap_or_else(|| "openai:tts-1".to_string());
@@ -3476,13 +3476,13 @@ impl LiveLessonAppService {
         let current_model = std::env::var("AI_TUTOR_MODEL").ok();
         let generation_model_policy = resolve_generation_model_policy(
             current_model.as_deref(),
-            std::env::var("AI_TUTOR_GENERATION_OUTLINES_MODEL")
+            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")
                 .ok()
                 .as_deref(),
-            std::env::var("AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")
+            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")
                 .ok()
                 .as_deref(),
-            std::env::var("AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")
+            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")
                 .ok()
                 .as_deref(),
             None,
@@ -5095,7 +5095,7 @@ impl LessonAppService for LiveLessonAppService {
             payload.workspace.clone()
         };
 
-        let model_string = std::env::var("AI_TUTOR_PBL_RUNTIME_MODEL")
+        let model_string = std::env::var("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL")
             .ok()
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| anyhow!("AI_TUTOR_PBL_RUNTIME_MODEL is required"))?;
@@ -5893,6 +5893,8 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
     Router::new()
         .route("/health", get(health))
         .route("/api/health", get(health))
+        .route("/api/tools/web-search", post(crate::tools::web_search))
+        .route("/api/tools/parse-pdf", post(crate::tools::parse_pdf))
         .route("/api/auth/google/login", get(google_login))
         .route("/api/auth/google/callback", get(google_callback))
         .route("/api/auth/bind-phone", post(bind_phone))
@@ -7493,15 +7495,15 @@ fn resolve_generation_model_policy(
 
     let outlines_model = env_model_or_error(
         outlines_override,
-        "AI_TUTOR_GENERATION_OUTLINES_MODEL",
+        "BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL",
     )?;
     let scene_content_model = env_model_or_error(
         scene_content_override,
-        "AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL",
+        "BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL",
     )?;
     let scene_actions_model = env_model_or_error(
         scene_actions_override,
-        "AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL",
+        "BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL",
     )?;
 
     let _ = scene_actions_fallback_override;
@@ -9178,9 +9180,9 @@ fn parse_provider_type(value: &str) -> Option<ai_tutor_domain::provider::Provide
     }
 }
 
-struct ApiError {
-    status: StatusCode,
-    message: String,
+pub struct ApiError {
+    pub status: StatusCode,
+    pub message: String,
 }
 
 impl ApiError {
