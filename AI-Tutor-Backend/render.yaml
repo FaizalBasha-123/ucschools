@@ -70,7 +70,7 @@ services:
 
       # --- CORS — your Vercel frontend URL ---
       - key: AI_TUTOR_ALLOWED_ORIGINS
-        value: "https://ai-tutor.vercel.app"
+        value: "https://uc-aitutor.vercel.app"
 
       # --- Auth — protect the API ---
       - key: AI_TUTOR_API_SECRET
@@ -86,29 +86,29 @@ services:
         value: "30000"
 
       # --- Which model to use for lesson generation ---
-      - key: AI_TUTOR_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_MODEL
         value: "openrouter:openai/gpt-4o-mini"
-      - key: AI_TUTOR_CHAT_BASELINE_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_CHAT_BASELINE_MODEL
         value: "openrouter:openai/gpt-4o-mini"
-      - key: AI_TUTOR_CHAT_SCAFFOLD_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL
         value: "openrouter:google/gemini-2.5-flash"
-      - key: AI_TUTOR_CHAT_REASONING_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_CHAT_REASONING_MODEL
         value: "openrouter:anthropic/claude-sonnet-4-6"
-      - key: AI_TUTOR_GENERATION_OUTLINES_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL
         value: "openrouter:google/gemini-2.5-flash"
-      - key: AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL
         value: "openrouter:openai/gpt-4o-mini"
-      - key: AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL
         value: "openrouter:openai/gpt-4o-mini"
-      - key: AI_TUTOR_PBL_RUNTIME_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL
         value: "openrouter:openai/gpt-4o-mini"
 
       # --- Media models (still use OPENAI_API_KEY) ---
       - key: OPENAI_API_KEY
         sync: false  # Set manually in Render dashboard
-      - key: AI_TUTOR_IMAGE_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_IMAGE_MODEL
         value: "openai:gpt-image-1"
-      - key: AI_TUTOR_TTS_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_TTS_MODEL
         value: "openai:tts-1"
-      - key: AI_TUTOR_ASR_MODEL
+      - key: BALANCED_MODE_AI_TUTOR_ASR_MODEL
         value: "openai:whisper-1"
