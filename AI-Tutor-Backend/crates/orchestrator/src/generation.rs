@@ -668,8 +668,9 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
              Return JSON object with shape {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"teaching_objective\":\"...\",\"estimated_duration\":120,\"order\":1,\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz|interactive|pbl\",\"suggested_image_ids\":[\"img_1\"],\"quiz_config\":{{\"question_count\":2,\"difficulty\":\"easy|medium|hard\",\"question_types\":[\"single\",\"multiple\"]}},\"interactive_config\":{{\"concept_name\":\"...\",\"concept_overview\":\"...\",\"design_idea\":\"...\",\"subject\":\"...\"}},\"project_config\":{{\"project_topic\":\"...\",\"project_description\":\"...\",\"target_skills\":[\"...\"],\"issue_count\":3,\"language\":\"{}\"}},\"media_generations\":[{{\"element_id\":\"gen_img_1\",\"media_type\":\"image|video\",\"prompt\":\"...\",\"aspect_ratio\":\"16:9\"}}]}}]}}.\n\
              Use 3 to 6 scenes with a logical flow, include at least one quiz scene, and use interactive or pbl scenes only when the concept truly benefits from them.\n\
              Keep key points concrete and scene-specific rather than generic.\n\
-             Only include `media_generations` on scenes that truly benefit from generated visuals, and keep generated media distinct across scenes.\n\
-             If suitable source images are unavailable, generated media prompts must be specific, classroom-friendly, and written in English.\n\
+             CRITICAL: Emulate a modern visual explainer (like ByteMonk). Rely heavily on structured diagrammatical elements, shapes, vibrant colors, and layouts rather than generating new images.\n\
+             Only include `media_generations` for images/videos if explicitly requested or absolutely impossible to explain using shapes, text, and layout.\n\
+             When you do generate media, keep it distinct across scenes, specific, classroom-friendly, and in English.\n\
              Image generation enabled: {}.\n\
              Video generation enabled: {}.\n\
              If image generation is enabled, you may request 0 or 1 generated image for a slide scene.\n\
@@ -836,7 +837,9 @@ impl LlmGenerationPipeline {
              Media placeholders available for this slide: {}.\n\
              Canvas size: 1000x563.\n\
              Return JSON object with shape {{\"elements\":[{{\"id\":\"optional\",\"kind\":\"text|image|video|shape|line|chart|latex|table\",\"content\":\"optional\",\"src\":\"optional\",\"latex\":\"optional\",\"shape_name\":\"optional\",\"chart_type\":\"optional\",\"left\":0,\"top\":0,\"width\":0,\"height\":0}}]}}.\n\
-             Use a strong visual hierarchy: title near the top, 2-5 concise content elements, and media only when it meaningfully supports learning.\n\
+             Use a strong visual hierarchy: title near the top, and 2-5 concise content elements.\n\
+             CRITICAL: Emulate a modern visual explainer (like ByteMonk). Use very modern, structured diagrammatical shapes, vibrant colors, and layout components to explain concepts visually.\n\
+             Prefer `shape`, `line`, `chart`, and `table` elements to build visual intuition. Use `image` or `video` media placeholders ONLY if they are provided and strictly necessary.\n\
              Keep every on-slide text element concise. Prefer phrases or bullet-style summaries instead of spoken paragraphs.\n\
              If a media placeholder exists, create an image or video element using its exact `src` placeholder value.\n\
              Text must stay within the canvas margins, and all dimensions must be positive.\n\
