@@ -660,28 +660,33 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         let research_context = self.research_context_for_request(request).await;
         let system = "You are an instructional designer. Return strict JSON only.";
         let user = format!(
-            "Create a lesson outline for this requirement.\n\
-             Requirement: {}\n\
-             Language: {}\n\
-             {}\n\
-             Infer a coherent 15-30 minute classroom flow unless the requirement implies otherwise.\n\
-             Return JSON object with shape {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"teaching_objective\":\"...\",\"estimated_duration\":120,\"order\":1,\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz|interactive|pbl\",\"suggested_image_ids\":[\"img_1\"],\"quiz_config\":{{\"question_count\":2,\"difficulty\":\"easy|medium|hard\",\"question_types\":[\"single\",\"multiple\"]}},\"interactive_config\":{{\"concept_name\":\"...\",\"concept_overview\":\"...\",\"design_idea\":\"...\",\"subject\":\"...\"}},\"project_config\":{{\"project_topic\":\"...\",\"project_description\":\"...\",\"target_skills\":[\"...\"],\"issue_count\":3,\"language\":\"{}\"}},\"media_generations\":[{{\"element_id\":\"gen_img_1\",\"media_type\":\"image|video\",\"prompt\":\"...\",\"aspect_ratio\":\"16:9\"}}]}}]}}.\n\
-             Use 3 to 6 scenes with a logical flow, include at least one quiz scene, and use interactive or pbl scenes only when the concept truly benefits from them.\n\
-             Keep key points concrete and scene-specific rather than generic.\n\
-             CRITICAL: Emulate a modern visual explainer (like ByteMonk). Rely heavily on structured diagrammatical elements, shapes, vibrant colors, and layouts rather than generating new images.\n\
-             Only include `media_generations` for images/videos if explicitly requested or absolutely impossible to explain using shapes, text, and layout.\n\
-             When you do generate media, keep it distinct across scenes, specific, classroom-friendly, and in English.\n\
-             Image generation enabled: {}.\n\
-             Video generation enabled: {}.\n\
-             If image generation is enabled, you may request 0 or 1 generated image for a slide scene.\n\
-             If video generation is disabled, do not request video media.",
-            request.requirements.requirement,
-            language,
-            research_context_prompt(&research_context),
-            language,
-            request.enable_image_generation,
-            request.enable_video_generation
-        );
+    "Create a lesson outline for this requirement.
+     Requirement: {}
+     Language: {}
+     {}
+     Infer a coherent 15-30 minute classroom flow unless the requirement implies otherwise.
+     Return JSON object with shape {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"teaching_objective\":\"...\",\"estimated_duration\":120,\"order\":1,\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz|interactive|pbl\",\"suggested_image_ids\":[\"img_1\"],\"quiz_config\":{{\"question_count\":2,\"difficulty\":\"easy|medium|hard\",\"question_types\":[\"single\",\"multiple\"]}},\"interactive_config\":{{\"concept_name\":\"...\",\"concept_overview\":\"...\",\"design_idea\":\"...\",\"subject\":\"...\"}},\"project_config\":{{\"project_topic\":\"...\",\"project_description\":\"...\",\"target_skills\":[\"...\"],\"issue_count\":3,\"language\":\"{}\"}},\"media_generations\":[{{\"element_id\":\"gen_img_1\",\"media_type\":\"image|video\",\"prompt\":\"...\",\"aspect_ratio\":\"16:9\"}}]}}]}}.
+     Use 3 to 6 scenes with a logical flow, include at least one quiz scene, and use interactive or pbl scenes only when the concept truly benefits from them.
+     Keep key points concrete and scene-specific rather than generic.
+     
+     VISUAL STYLE DIRECTIVE:
+     - Emulate a high-density, modern technical explainer aesthetic.
+     - Use structured diagrammatic elements: color-coded blocks, flow arrows, and geometric hierarchies.
+     - Prioritize layout-driven storytelling (e.g., 'System Maps', 'Logic Gates', 'Data Pipelines') over decorative art.
+     - Only use `media_generations` if the concept is impossible to explain with shapes and text (e.g., a specific real-world object).
+     
+     Image generation enabled: {}.
+     Video generation enabled: {}.
+     If image generation is enabled, you may request 0 or 1 generated image for a slide scene.
+     If video generation is disabled, do not request video media.",
+    request.requirements.requirement,
+    language,
+    research_context_prompt(&research_context),
+    language,
+    request.enable_image_generation,
+    request.enable_video_generation
+);
+
 
         let response = self
             .generate_with_retry_using(self.outlines_llm(), system, &user)
