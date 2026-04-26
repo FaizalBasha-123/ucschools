@@ -1714,21 +1714,31 @@ impl LiveLessonAppService {
     }
 
     async fn upsert_google_account(&self, claims: &GoogleIdTokenClaims) -> Result<TutorAccount> {
-        if let Some(mut existing) = self
+        tracing::info!("upsert step 1: looking up account by google_id");
+        let existing = self
             .storage
             .get_tutor_account_by_google_id(&claims.sub)
             .await
-            .map_err(|err| anyhow!(err))?
-        {
+            .map_err(|err| {
+                tracing::error!(error = %err, "upsert step 1 FAILED: get_tutor_account_by_google_id");
+                anyhow!(err)
+            })?;
+
+        if let Some(mut existing) = existing {
+            tracing::info!(account_id = %existing.id, "upsert step 2: updating existing account");
             existing.email = claims.email.clone();
             existing.updated_at = chrono::Utc::now();
             self.storage
                 .save_tutor_account(&existing)
                 .await
-                .map_err(|err| anyhow!(err))?;
+                .map_err(|err| {
+                    tracing::error!(error = %err, "upsert step 2 FAILED: save_tutor_account (update)");
+                    anyhow!(err)
+                })?;
             return Ok(existing);
         }
 
+        tracing::info!("upsert step 2: creating new account");
         let now = chrono::Utc::now();
         let account = TutorAccount {
             id: Uuid::new_v4().to_string(),
@@ -1740,11 +1750,17 @@ impl LiveLessonAppService {
             created_at: now,
             updated_at: now,
         };
+        tracing::info!("upsert step 3: saving new account to storage");
         self.storage
             .save_tutor_account(&account)
             .await
-            .map_err(|err| anyhow!(err))?;
+            .map_err(|err| {
+                tracing::error!(error = %err, "upsert step 3 FAILED: save_tutor_account (create)");
+                anyhow!(err)
+            })?;
+        tracing::info!("upsert step 4: granting starter credits");
         self.grant_starter_credits(&account.id).await?;
+        tracing::info!("upsert step 5: complete");
         Ok(account)
     }
 
