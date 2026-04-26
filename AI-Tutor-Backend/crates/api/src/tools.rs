@@ -1,12 +1,10 @@
 use axum::{
     extract::{Multipart, State},
-    response::IntoResponse,
     Json,
 };
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::env;
-use tracing::{error, info, warn};
 
 use crate::app::{ApiError, AppState};
 
@@ -34,10 +32,6 @@ struct TavilySearchResponse {
     answer: String,
     #[serde(default)]
     results: Vec<TavilySource>,
-    #[serde(default)]
-    query: String,
-    #[serde(default)]
-    response_time: f64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -62,7 +56,7 @@ fn normalize_search_requirement(requirement: &str) -> String {
 }
 
 pub async fn web_search(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Json(payload): Json<WebSearchRequest>,
 ) -> Result<Json<WebSearchResponse>, ApiError> {
     let api_key = env::var("AI_TUTOR_TAVILY_API_KEY").unwrap_or_default();
