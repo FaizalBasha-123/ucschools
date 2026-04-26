@@ -265,45 +265,6 @@ fn current_scene(request: &StatelessChatRequest) -> Option<&Scene> {
         .find(|scene| scene.id == current_scene_id)
 }
 
-struct LessonSignals {
-    score: i32,
-}
-
-fn choose_lesson_tier(signals: &LessonSignals) -> PedagogyTier {
-    if signals.score >= 4 {
-        PedagogyTier::Reasoning
-    } else if signals.score >= 2 {
-        PedagogyTier::Scaffold
-    } else {
-        PedagogyTier::Baseline
-    }
-}
-
-fn extract_lesson_signals(request: &LessonGenerationRequest) -> LessonSignals {
-    let mut score = 0;
-    let requirement = request.requirements.requirement.to_ascii_lowercase();
-
-    if requirement.len() > 220 {
-        score += 1;
-    }
-    if ["why", "how", "prove", "derive", "compare", "analyze", "design"]
-        .iter()
-        .any(|term| requirement.contains(term))
-    {
-        score += 2;
-    }
-    if request.pdf_content.is_some() {
-        score += 1;
-    }
-    if request.enable_web_search {
-        score += 1;
-    }
-    if request.enable_image_generation || request.enable_video_generation || request.enable_tts {
-        score += 1;
-    }
-
-    LessonSignals { score }
-}
 
 fn get_mode_prefix_for_chat(request: &StatelessChatRequest) -> &'static str {
     match request.generation_mode.as_deref() {
