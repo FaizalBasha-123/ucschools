@@ -1124,6 +1124,13 @@ struct Jwk {
     kid: String,
     n: String,
     e: String,
+    #[allow(dead_code)]
+    kty: Option<String>,
+    #[allow(dead_code)]
+    alg: Option<String>,
+    #[serde(rename = "use")]
+    #[allow(dead_code)]
+    use_field: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -8329,12 +8336,16 @@ async fn verify_jwt_with_jwks<T: serde::de::DeserializeOwned>(
     let kid = header
         .kid
         .ok_or_else(|| anyhow!("token header missing kid"))?;
-    let jwks = reqwest::Client::new()
+    let jwks_body = reqwest::Client::new()
         .get(jwks_url)
         .send()
         .await?
-        .json::<JwksResponse>()
-        .await?;
+        .text()
+        .await
+        .map_err(|e| anyhow!("failed to read jwks response body: {}", e))?;
+    tracing::info!(jwks_url = %jwks_url, body_len = %jwks_body.len(), "jwks raw response");
+    let jwks = serde_json::from_str::<JwksResponse>(&jwks_body)
+        .map_err(|e| anyhow!("jwks parse error: {} — body was: {:.200}", e, jwks_body))?;
     let key = jwks
         .keys
         .into_iter()
