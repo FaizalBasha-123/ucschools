@@ -3676,16 +3676,24 @@ impl LessonAppService for LiveLessonAppService {
             .state
             .clone()
             .ok_or_else(|| anyhow!("missing google oauth state"))?;
+        tracing::info!("Auth Callback: Validating state token");
         validate_state_token(&state)?;
 
+        tracing::info!("Auth Callback: Exchanging code for tokens");
         let token_response = self.exchange_google_code(&code).await?;
+
+        tracing::info!("Auth Callback: Verifying Google ID token");
         let claims = self
             .verify_google_id_token(&token_response.id_token)
             .await?;
+
+        tracing::info!(email = %claims.email, sub = %claims.sub, "Auth Callback: Upserting Google account");
         let account = self.upsert_google_account(&claims).await?;
 
+        tracing::info!(status = ?account.status, "Auth Callback: Account resolved, checking verification status");
         if matches!(account.status, TutorAccountStatus::Active) && account.phone_verified {
             let session_token = issue_session_token(&account)?;
+            tracing::info!("Auth Callback: Login successful, issuing session");
             return Ok(AuthSessionResponse {
                 account_id: account.id,
                 status: "active".to_string(),
@@ -3697,6 +3705,7 @@ impl LessonAppService for LiveLessonAppService {
             });
         }
 
+        tracing::info!("Auth Callback: Partial auth required (phone verification)");
         let partial_auth_token = issue_partial_auth_token(&account)?;
         Ok(AuthSessionResponse {
             account_id: account.id,
