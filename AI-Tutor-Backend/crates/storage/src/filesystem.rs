@@ -308,14 +308,8 @@ impl FileStorage {
 
     fn postgres_row_to_tutor_account(row: postgres::Row) -> Result<TutorAccount, String> {
         let status = Self::tutor_account_status_from_db(row.get::<_, String>("status").as_str())?;
-        let created_at = row
-            .get::<_, String>("created_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let updated_at = row
-            .get::<_, String>("updated_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let created_at: chrono::DateTime<Utc> = row.get("created_at");
+        let updated_at: chrono::DateTime<Utc> = row.get("updated_at");
 
         Ok(TutorAccount {
             id: row.get("id"),
@@ -348,10 +342,7 @@ impl FileStorage {
 
     fn postgres_row_to_credit_entry(row: postgres::Row) -> Result<CreditLedgerEntry, String> {
         let kind = Self::credit_entry_kind_from_db(row.get::<_, String>("kind").as_str())?;
-        let created_at = row
-            .get::<_, String>("created_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let created_at = row.get("created_at");
 
         Ok(CreditLedgerEntry {
             id: row.get("id"),
@@ -1130,14 +1121,8 @@ impl FileStorage {
             Self::billing_product_kind_from_db(row.get::<_, String>("product_kind").as_str())?;
         let status =
             Self::payment_order_status_from_db(row.get::<_, String>("status").as_str())?;
-        let created_at = row
-            .get::<_, String>("created_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let updated_at = row
-            .get::<_, String>("updated_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let created_at = row.get("created_at");
+        let updated_at = row.get("updated_at");
         let completed_at = row
             .get::<_, Option<String>>("completed_at")
             .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
@@ -1172,14 +1157,8 @@ impl FileStorage {
         let status = Self::subscription_status_from_db(row.get::<_, String>("status").as_str())?;
         let billing_interval =
             Self::billing_interval_from_db(row.get::<_, String>("billing_interval").as_str())?;
-        let current_period_start = row
-            .get::<_, String>("current_period_start")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let current_period_end = row
-            .get::<_, String>("current_period_end")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let current_period_start = row.get("current_period_start");
+        let current_period_end = row.get("current_period_end");
         let next_renewal_at = row
             .get::<_, Option<String>>("next_renewal_at")
             .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
@@ -1192,14 +1171,8 @@ impl FileStorage {
             .get::<_, Option<String>>("cancelled_at")
             .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
             .transpose()?;
-        let created_at = row
-            .get::<_, String>("created_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let updated_at = row
-            .get::<_, String>("updated_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let created_at = row.get("created_at");
+        let updated_at = row.get("updated_at");
 
         Ok(Subscription {
             id: row.get("id"),
@@ -1226,18 +1199,9 @@ impl FileStorage {
         let invoice_type =
             Self::invoice_type_from_db(row.get::<_, String>("invoice_type").as_str())?;
         let status = Self::invoice_status_from_db(row.get::<_, String>("status").as_str())?;
-        let billing_cycle_start = row
-            .get::<_, String>("billing_cycle_start")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let billing_cycle_end = row
-            .get::<_, String>("billing_cycle_end")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let created_at = row
-            .get::<_, String>("created_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let billing_cycle_start = row.get("billing_cycle_start");
+        let billing_cycle_end = row.get("billing_cycle_end");
+        let created_at = row.get("created_at");
         let finalized_at = row
             .get::<_, Option<String>>("finalized_at")
             .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
@@ -1250,10 +1214,7 @@ impl FileStorage {
             .get::<_, Option<String>>("due_at")
             .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
             .transpose()?;
-        let updated_at = row
-            .get::<_, String>("updated_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let updated_at = row.get("updated_at");
 
         Ok(Invoice {
             id: row.get("id"),
@@ -1275,22 +1236,10 @@ impl FileStorage {
     fn postgres_row_to_invoice_line(row: postgres::Row) -> Result<InvoiceLine, String> {
         let line_type =
             Self::invoice_line_type_from_db(row.get::<_, String>("line_type").as_str())?;
-        let period_start = row
-            .get::<_, String>("period_start")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let period_end = row
-            .get::<_, String>("period_end")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let created_at = row
-            .get::<_, String>("created_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let updated_at = row
-            .get::<_, String>("updated_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let period_start = row.get("period_start");
+        let period_end = row.get("period_end");
+        let created_at = row.get("created_at");
+        let updated_at = row.get("updated_at");
 
         Ok(InvoiceLine {
             id: row.get("id"),
@@ -1327,14 +1276,8 @@ impl FileStorage {
             .get::<_, Option<String>>("next_retry_at")
             .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
             .transpose()?;
-        let created_at = row
-            .get::<_, String>("created_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let updated_at = row
-            .get::<_, String>("updated_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let created_at = row.get("created_at");
+        let updated_at = row.get("updated_at");
 
         Ok(PaymentIntent {
             id: row.get("id"),
@@ -1358,22 +1301,13 @@ impl FileStorage {
 
     fn postgres_row_to_dunning_case(row: postgres::Row) -> Result<DunningCase, String> {
         let status = Self::dunning_status_from_db(row.get::<_, String>("status").as_str())?;
-        let grace_period_end = row
-            .get::<_, String>("grace_period_end")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let grace_period_end = row.get("grace_period_end");
         let final_attempt_at = row
             .get::<_, Option<String>>("final_attempt_at")
             .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
             .transpose()?;
-        let created_at = row
-            .get::<_, String>("created_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let updated_at = row
-            .get::<_, String>("updated_at")
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
+        let created_at = row.get("created_at");
+        let updated_at = row.get("updated_at");
         let attempt_schedule = serde_json::from_str::<Vec<RetryAttempt>>(
             row.get::<_, String>("attempt_schedule_json").as_str(),
         )
@@ -1401,14 +1335,8 @@ impl FileStorage {
             event_identifier: row.get("event_identifier"),
             event_type: row.get("event_type"),
             payload,
-            processed_at: row
-                .get::<_, String>("processed_at")
-                .parse::<chrono::DateTime<Utc>>()
-                .map_err(|err| err.to_string())?,
-            created_at: row
-                .get::<_, String>("created_at")
-                .parse::<chrono::DateTime<Utc>>()
-                .map_err(|err| err.to_string())?,
+            processed_at: row.get("processed_at"),
+            created_at: row.get("created_at"),
         })
     }
 
@@ -1426,10 +1354,7 @@ impl FileStorage {
             actor: row.get("actor"),
             before_state,
             after_state,
-            created_at: row
-                .get::<_, String>("created_at")
-                .parse::<chrono::DateTime<Utc>>()
-                .map_err(|err| err.to_string())?,
+            created_at: row.get("created_at"),
         })
     }
 
@@ -2465,8 +2390,8 @@ impl TutorAccountRepository for FileStorage {
                 let row = client
                     .query_opt(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
-                                created_at::TEXT AS created_at,
-                                updated_at::TEXT AS updated_at
+                                created_at,
+                                updated_at
                          FROM tutor_accounts WHERE id = $1",
                         &[&account_id],
                     )
@@ -2526,8 +2451,8 @@ impl TutorAccountRepository for FileStorage {
                 let row = client
                     .query_opt(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
-                                created_at::TEXT AS created_at,
-                                updated_at::TEXT AS updated_at
+                                created_at,
+                                updated_at
                          FROM tutor_accounts WHERE google_id = $1",
                         &[&google_id],
                     )
@@ -2561,8 +2486,8 @@ impl TutorAccountRepository for FileStorage {
                 let row = client
                     .query_opt(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
-                                created_at::TEXT AS created_at,
-                                updated_at::TEXT AS updated_at
+                                created_at,
+                                updated_at
                          FROM tutor_accounts WHERE phone_number = $1",
                         &[&phone_number],
                     )
@@ -2588,8 +2513,8 @@ impl TutorAccountRepository for FileStorage {
                 let rows = client
                     .query(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
-                                created_at::TEXT AS created_at,
-                                updated_at::TEXT AS updated_at
+                                created_at,
+                                updated_at
                          FROM tutor_accounts
                          ORDER BY created_at DESC
                          LIMIT $1",
@@ -2659,7 +2584,7 @@ impl CreditLedgerRepository for FileStorage {
                         ON CONFLICT (account_id) DO UPDATE SET
                             balance = credit_balances.balance + EXCLUDED.balance,
                             updated_at = EXCLUDED.updated_at
-                        RETURNING account_id, balance, updated_at::TEXT AS updated_at
+                        RETURNING account_id, balance, updated_at
                         ",
                         &[&entry.account_id, &delta, &entry.created_at],
                     )
@@ -2737,7 +2662,7 @@ impl CreditLedgerRepository for FileStorage {
                 let row = client
                     .query_opt(
                         "
-                        SELECT account_id, balance, updated_at::TEXT AS updated_at
+                        SELECT account_id, balance, updated_at
                         FROM credit_balances
                         WHERE account_id = $1
                         ",
@@ -2753,10 +2678,7 @@ impl CreditLedgerRepository for FileStorage {
                     });
                 };
 
-                let updated_at = row
-                    .get::<_, String>("updated_at")
-                    .parse::<chrono::DateTime<Utc>>()
-                    .map_err(|err| err.to_string())?;
+                let updated_at = row.get("updated_at");
 
                 Ok(CreditBalance {
                     account_id: row.get("account_id"),
@@ -2798,7 +2720,7 @@ impl CreditLedgerRepository for FileStorage {
                 let rows = client
                     .query(
                         "
-                        SELECT id, account_id, kind, amount, reason, created_at::TEXT AS created_at
+                        SELECT id, account_id, kind, amount, reason, created_at
                         FROM credit_ledger
                         WHERE account_id = $1
                         ORDER BY created_at DESC
@@ -2847,7 +2769,7 @@ impl CreditLedgerRepository for FileStorage {
                 let rows = client
                     .query(
                         "
-                        SELECT id, account_id, kind, amount, reason, created_at::TEXT AS created_at
+                        SELECT id, account_id, kind, amount, reason, created_at
                         FROM credit_ledger
                         ORDER BY created_at DESC
                         LIMIT $1
@@ -3054,9 +2976,9 @@ impl PaymentOrderRepository for FileStorage {
                         SELECT id, account_id, product_code, product_kind, gateway, gateway_txn_id,
                                gateway_payment_id, amount_minor, currency, credits_to_grant, status,
                                checkout_url, udf1, udf2, udf3, udf4, udf5, raw_response,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at,
-                               completed_at::TEXT AS completed_at
+                               created_at,
+                               updated_at,
+                               completed_at
                         FROM payment_orders
                         WHERE id = $1
                         ",
@@ -3091,9 +3013,9 @@ impl PaymentOrderRepository for FileStorage {
                         SELECT id, account_id, product_code, product_kind, gateway, gateway_txn_id,
                                gateway_payment_id, amount_minor, currency, credits_to_grant, status,
                                checkout_url, udf1, udf2, udf3, udf4, udf5, raw_response,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at,
-                               completed_at::TEXT AS completed_at
+                               created_at,
+                               updated_at,
+                               completed_at
                         FROM payment_orders
                         WHERE gateway_txn_id = $1
                         ",
@@ -3130,9 +3052,9 @@ impl PaymentOrderRepository for FileStorage {
                         SELECT id, account_id, product_code, product_kind, gateway, gateway_txn_id,
                                gateway_payment_id, amount_minor, currency, credits_to_grant, status,
                                checkout_url, udf1, udf2, udf3, udf4, udf5, raw_response,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at,
-                               completed_at::TEXT AS completed_at
+                               created_at,
+                               updated_at,
+                               completed_at
                         FROM payment_orders
                         WHERE account_id = $1
                         ORDER BY created_at DESC
@@ -3173,9 +3095,9 @@ impl PaymentOrderRepository for FileStorage {
                         SELECT id, account_id, product_code, product_kind, gateway, gateway_txn_id,
                                gateway_payment_id, amount_minor, currency, credits_to_grant, status,
                                checkout_url, udf1, udf2, udf3, udf4, udf5, raw_response,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at,
-                               completed_at::TEXT AS completed_at
+                               created_at,
+                               updated_at,
+                               completed_at
                         FROM payment_orders
                         ORDER BY created_at DESC
                         LIMIT $1
@@ -3374,14 +3296,14 @@ impl SubscriptionRepository for FileStorage {
                         "
                         SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
                                status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start::TEXT AS current_period_start,
-                               current_period_end::TEXT AS current_period_end,
-                               next_renewal_at::TEXT AS next_renewal_at,
-                               grace_period_until::TEXT AS grace_period_until,
-                               cancelled_at::TEXT AS cancelled_at,
+                               current_period_start,
+                               current_period_end,
+                               next_renewal_at,
+                               grace_period_until,
+                               cancelled_at,
                                last_payment_order_id,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               updated_at
                         FROM subscriptions
                         WHERE id = $1
                         ",
@@ -3415,14 +3337,14 @@ impl SubscriptionRepository for FileStorage {
                         "
                         SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
                                status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start::TEXT AS current_period_start,
-                               current_period_end::TEXT AS current_period_end,
-                               next_renewal_at::TEXT AS next_renewal_at,
-                               grace_period_until::TEXT AS grace_period_until,
-                               cancelled_at::TEXT AS cancelled_at,
+                               current_period_start,
+                               current_period_end,
+                               next_renewal_at,
+                               grace_period_until,
+                               cancelled_at,
                                last_payment_order_id,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               updated_at
                         FROM subscriptions
                         WHERE gateway_subscription_id = $1
                         ",
@@ -3458,14 +3380,14 @@ impl SubscriptionRepository for FileStorage {
                         "
                         SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
                                status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start::TEXT AS current_period_start,
-                               current_period_end::TEXT AS current_period_end,
-                               next_renewal_at::TEXT AS next_renewal_at,
-                               grace_period_until::TEXT AS grace_period_until,
-                               cancelled_at::TEXT AS cancelled_at,
+                               current_period_start,
+                               current_period_end,
+                               next_renewal_at,
+                               grace_period_until,
+                               cancelled_at,
                                last_payment_order_id,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               updated_at
                         FROM subscriptions
                         ORDER BY updated_at DESC
                         LIMIT $1
@@ -3504,14 +3426,14 @@ impl SubscriptionRepository for FileStorage {
                         "
                         SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
                                status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start::TEXT AS current_period_start,
-                               current_period_end::TEXT AS current_period_end,
-                               next_renewal_at::TEXT AS next_renewal_at,
-                               grace_period_until::TEXT AS grace_period_until,
-                               cancelled_at::TEXT AS cancelled_at,
+                               current_period_start,
+                               current_period_end,
+                               next_renewal_at,
+                               grace_period_until,
+                               cancelled_at,
                                last_payment_order_id,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               updated_at
                         FROM subscriptions
                         WHERE account_id = $1
                         ORDER BY updated_at DESC
@@ -3556,14 +3478,14 @@ impl SubscriptionRepository for FileStorage {
                         "
                         SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
                                status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start::TEXT AS current_period_start,
-                               current_period_end::TEXT AS current_period_end,
-                               next_renewal_at::TEXT AS next_renewal_at,
-                               grace_period_until::TEXT AS grace_period_until,
-                               cancelled_at::TEXT AS cancelled_at,
+                               current_period_start,
+                               current_period_end,
+                               next_renewal_at,
+                               grace_period_until,
+                               cancelled_at,
                                last_payment_order_id,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               updated_at
                         FROM subscriptions
                         WHERE next_renewal_at IS NOT NULL
                           AND next_renewal_at <= $1::timestamptz
@@ -3678,14 +3600,14 @@ impl InvoiceRepository for FileStorage {
                     .query_opt(
                         "
                         SELECT id, account_id, invoice_type,
-                               billing_cycle_start::TEXT AS billing_cycle_start,
-                               billing_cycle_end::TEXT AS billing_cycle_end,
+                               billing_cycle_start,
+                               billing_cycle_end,
                                status, amount_cents, amount_after_credits,
-                               created_at::TEXT AS created_at,
-                               finalized_at::TEXT AS finalized_at,
-                               paid_at::TEXT AS paid_at,
-                               due_at::TEXT AS due_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               finalized_at,
+                               paid_at,
+                               due_at,
+                               updated_at
                         FROM invoices
                         WHERE id = $1
                         ",
@@ -3714,14 +3636,14 @@ impl InvoiceRepository for FileStorage {
                     .query_opt(
                         "
                         SELECT id, account_id, invoice_type,
-                               billing_cycle_start::TEXT AS billing_cycle_start,
-                               billing_cycle_end::TEXT AS billing_cycle_end,
+                               billing_cycle_start,
+                               billing_cycle_end,
                                status, amount_cents, amount_after_credits,
-                               created_at::TEXT AS created_at,
-                               finalized_at::TEXT AS finalized_at,
-                               paid_at::TEXT AS paid_at,
-                               due_at::TEXT AS due_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               finalized_at,
+                               paid_at,
+                               due_at,
+                               updated_at
                         FROM invoices
                         WHERE id = $1
                         ",
@@ -3752,14 +3674,14 @@ impl InvoiceRepository for FileStorage {
                     .query(
                         "
                         SELECT id, account_id, invoice_type,
-                               billing_cycle_start::TEXT AS billing_cycle_start,
-                               billing_cycle_end::TEXT AS billing_cycle_end,
+                               billing_cycle_start,
+                               billing_cycle_end,
                                status, amount_cents, amount_after_credits,
-                               created_at::TEXT AS created_at,
-                               finalized_at::TEXT AS finalized_at,
-                               paid_at::TEXT AS paid_at,
-                               due_at::TEXT AS due_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               finalized_at,
+                               paid_at,
+                               due_at,
+                               updated_at
                         FROM invoices
                         WHERE account_id = $1
                         ORDER BY created_at DESC
@@ -3799,14 +3721,14 @@ impl InvoiceRepository for FileStorage {
                     .query(
                         "
                         SELECT id, account_id, invoice_type,
-                               billing_cycle_start::TEXT AS billing_cycle_start,
-                               billing_cycle_end::TEXT AS billing_cycle_end,
+                               billing_cycle_start,
+                               billing_cycle_end,
                                status, amount_cents, amount_after_credits,
-                               created_at::TEXT AS created_at,
-                               finalized_at::TEXT AS finalized_at,
-                               paid_at::TEXT AS paid_at,
-                               due_at::TEXT AS due_at,
-                               updated_at::TEXT AS updated_at
+                               created_at,
+                               finalized_at,
+                               paid_at,
+                               due_at,
+                               updated_at
                         FROM invoices
                         WHERE account_id = $1 AND status <> 'paid'
                         ORDER BY created_at DESC
@@ -3997,10 +3919,10 @@ impl InvoiceLineRepository for FileStorage {
                         "
                         SELECT id, invoice_id, line_type, description, amount_cents,
                                quantity, unit_price_cents, is_prorated,
-                               period_start::TEXT AS period_start,
-                               period_end::TEXT AS period_end,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               period_start,
+                               period_end,
+                               created_at,
+                               updated_at
                         FROM invoice_lines
                         WHERE invoice_id = $1
                         ORDER BY created_at ASC
@@ -4166,13 +4088,13 @@ impl PaymentIntentRepository for FileStorage {
                         SELECT id, account_id, invoice_id, status, amount_cents,
                                idempotency_key, payment_method_id, gateway_payment_intent_id,
                                authorize_error,
-                               authorized_at::TEXT AS authorized_at,
-                               captured_at::TEXT AS captured_at,
-                               canceled_at::TEXT AS canceled_at,
+                               authorized_at,
+                               captured_at,
+                               canceled_at,
                                attempt_count,
-                               next_retry_at::TEXT AS next_retry_at,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               next_retry_at,
+                               created_at,
+                               updated_at
                         FROM payment_intents
                         WHERE id = $1
                         ",
@@ -4206,13 +4128,13 @@ impl PaymentIntentRepository for FileStorage {
                         SELECT id, account_id, invoice_id, status, amount_cents,
                                idempotency_key, payment_method_id, gateway_payment_intent_id,
                                authorize_error,
-                               authorized_at::TEXT AS authorized_at,
-                               captured_at::TEXT AS captured_at,
-                               canceled_at::TEXT AS canceled_at,
+                               authorized_at,
+                               captured_at,
+                               canceled_at,
                                attempt_count,
-                               next_retry_at::TEXT AS next_retry_at,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               next_retry_at,
+                               created_at,
+                               updated_at
                         FROM payment_intents
                         WHERE invoice_id = $1
                         ",
@@ -4282,13 +4204,13 @@ impl PaymentIntentRepository for FileStorage {
                         SELECT id, account_id, invoice_id, status, amount_cents,
                                idempotency_key, payment_method_id, gateway_payment_intent_id,
                                authorize_error,
-                               authorized_at::TEXT AS authorized_at,
-                               captured_at::TEXT AS captured_at,
-                               canceled_at::TEXT AS canceled_at,
+                               authorized_at,
+                               captured_at,
+                               canceled_at,
                                attempt_count,
-                               next_retry_at::TEXT AS next_retry_at,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               next_retry_at,
+                               created_at,
+                               updated_at
                         FROM payment_intents
                         WHERE status IN ('pending', 'failed')
                           AND next_retry_at IS NOT NULL
@@ -4393,10 +4315,10 @@ impl DunningCaseRepository for FileStorage {
                         "
                         SELECT id, account_id, invoice_id, payment_intent_id, status,
                                attempt_schedule_json,
-                               grace_period_end::TEXT AS grace_period_end,
-                               final_attempt_at::TEXT AS final_attempt_at,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               grace_period_end,
+                               final_attempt_at,
+                               created_at,
+                               updated_at
                         FROM dunning_cases
                         WHERE id = $1
                         ",
@@ -4429,10 +4351,10 @@ impl DunningCaseRepository for FileStorage {
                         "
                         SELECT id, account_id, invoice_id, payment_intent_id, status,
                                attempt_schedule_json,
-                               grace_period_end::TEXT AS grace_period_end,
-                               final_attempt_at::TEXT AS final_attempt_at,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               grace_period_end,
+                               final_attempt_at,
+                               created_at,
+                               updated_at
                         FROM dunning_cases
                         WHERE invoice_id = $1
                         ",
@@ -4463,10 +4385,10 @@ impl DunningCaseRepository for FileStorage {
                         "
                         SELECT id, account_id, invoice_id, payment_intent_id, status,
                                attempt_schedule_json,
-                               grace_period_end::TEXT AS grace_period_end,
-                               final_attempt_at::TEXT AS final_attempt_at,
-                               created_at::TEXT AS created_at,
-                               updated_at::TEXT AS updated_at
+                               grace_period_end,
+                               final_attempt_at,
+                               created_at,
+                               updated_at
                         FROM dunning_cases
                         WHERE status = 'active'
                         ORDER BY updated_at DESC
@@ -4594,8 +4516,8 @@ impl WebhookEventRepository for FileStorage {
                         "
                         SELECT id, event_identifier, event_type,
                                payload_json,
-                               processed_at::TEXT AS processed_at,
-                               created_at::TEXT AS created_at
+                               processed_at,
+                               created_at
                         FROM webhook_events
                         WHERE event_identifier = $1
                         ",
@@ -4676,7 +4598,7 @@ impl FinancialAuditRepository for FileStorage {
                         "
                         SELECT id, account_id, event_type, entity_type, entity_id, actor,
                                before_state_json, after_state_json,
-                               created_at::TEXT AS created_at
+                               created_at
                         FROM financial_audit_logs
                         WHERE account_id = $1
                         ORDER BY created_at DESC
