@@ -79,6 +79,16 @@ services:
         sync: false
       - key: AI_TUTOR_SESSION_JWT_SECRET
         sync: false
+      - key: AI_TUTOR_GOOGLE_OAUTH_ENABLED
+        value: "1"
+      - key: AI_TUTOR_GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: AI_TUTOR_GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: AI_TUTOR_GOOGLE_OAUTH_REDIRECT_URI
+        value: "https://uc-aitutor.vercel.app/auth/callback"
+      - key: AI_TUTOR_GOOGLE_OAUTH_STATE_SECRET
+        sync: false
 
       # --- LLM Providers ---
       # OpenRouter powers chat/generation.
@@ -113,8 +123,10 @@ services:
       - key: OPENAI_API_KEY
         sync: false  # Set manually in Render dashboard
       - key: BALANCED_MODE_AI_TUTOR_IMAGE_MODEL
-        value: "openai:gpt-image-1"
+        value: "openrouter:black-forest-labs/flux-schnell"
       - key: BALANCED_MODE_AI_TUTOR_TTS_MODEL
-        value: "openai:tts-1"
+        value: "openrouter:hexgrad/kokoro-82m"
       - key: BALANCED_MODE_AI_TUTOR_ASR_MODEL
-        value: "openai:whisper-1"
+        value: "groq:whisper-large-v3"
+      - key: GROQ_API_KEY
+        sync: false

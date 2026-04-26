@@ -107,14 +107,14 @@ export default function AdminPage() {
   // If we are strictly checking auth, hide UI completely or show loading barrier
   if (authChecking) {
     return (
-      <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900/50 items-center justify-center">
+      <div className="flex min-h-screen bg-neutral-50 dark:bg-neutral-900/50 items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="flex w-full min-h-screen bg-slate-50 dark:bg-slate-900/50">
+    <div className="flex w-full min-h-screen bg-neutral-50 dark:bg-neutral-900/50">
       <EnterpriseSidebar onSignOut={() => {
         clearAuthSession();
         router.push('/auth?next=/admin');
@@ -155,7 +155,7 @@ export default function AdminPage() {
           {/* Metric Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
             {/* Total Users Card */}
-            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
               <div className="flex items-center gap-3 text-muted-foreground mb-4">
                 <Users className="size-5 text-primary" />
                 <h3 className="font-medium text-sm text-foreground">Total Users</h3>
@@ -179,7 +179,7 @@ export default function AdminPage() {
             </div>
 
             {/* Active Subscriptions Card */}
-            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
               <div className="flex items-center gap-3 text-muted-foreground mb-4">
                 <Activity className="size-5 text-blue-500" />
                 <h3 className="font-medium text-sm text-foreground">Active Subscriptions</h3>
@@ -203,7 +203,7 @@ export default function AdminPage() {
             </div>
 
             {/* Monthly Revenue Card */}
-            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
               <div className="flex items-center gap-3 text-muted-foreground mb-4">
                 <CreditCard className="size-5 text-emerald-500" />
                 <h3 className="font-medium text-sm text-foreground">Monthly Revenue</h3>
@@ -229,7 +229,7 @@ export default function AdminPage() {
             </div>
 
             {/* Payment Success Rate Card */}
-            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
               <div className="flex items-center gap-3 text-muted-foreground mb-4">
                 <Settings className="size-5 text-amber-500" />
                 <h3 className="font-medium text-sm text-foreground">Payment Health</h3>
@@ -256,7 +256,7 @@ export default function AdminPage() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 rounded-2xl border border-border/60 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
+            <div className="lg:col-span-2 rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 shadow-sm overflow-hidden">
               <div className="p-6 border-b border-border/60 flex items-center justify-between">
                 <h3 className="font-bold text-lg">Promo Code Performance</h3>
                 <Button variant="ghost" size="sm" className="text-xs h-8" disabled={dataLoading}>View All</Button>
@@ -296,7 +296,7 @@ export default function AdminPage() {
               )}
             </div>
 
-            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm">
               <h3 className="font-bold text-lg mb-6">System Status</h3>
               <div className="space-y-4">
                 {userStats && subscriptionStats && paymentStats ? (

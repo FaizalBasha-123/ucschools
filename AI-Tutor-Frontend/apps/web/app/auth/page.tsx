@@ -82,11 +82,11 @@ function AuthPageContent() {
   };
 
   return (
-    <main className="relative min-h-screen bg-slate-50 text-slate-900 flex flex-col items-center justify-center font-sans tracking-tight">
+    <main className="relative min-h-screen bg-neutral-50 text-neutral-900 flex flex-col items-center justify-center font-sans tracking-tight">
       <button
         type="button"
         onClick={() => router.push('/')}
-        className="fixed top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900 md:top-8 md:left-8"
+        className="fixed top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-600 shadow-sm transition-all hover:bg-neutral-50 hover:text-neutral-900 md:top-8 md:left-8"
       >
         <ArrowLeft className="size-4" />
         Back
@@ -95,25 +95,25 @@ function AuthPageContent() {
       {/* Top Header */}
       <div className="mb-6 flex flex-col items-center justify-center">
         <div className="mb-4 flex h-[48px] w-[48px] rotate-45 items-center justify-center rounded-2xl bg-white border-[8px] border-[#1ed760] shadow-[0_0_20px_rgba(30,215,96,0.3)]">
-          <div className="h-4 w-4 rounded-full bg-slate-900 -rotate-45 ml-1 mb-1" />
+          <div className="h-4 w-4 rounded-full bg-neutral-900 -rotate-45 ml-1 mb-1" />
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
           {mode === 'signin' ? 'Sign in' : 'Sign up'}
         </h1>
       </div>
 
       {/* Main Card */}
-      <div className="w-full max-w-[420px] rounded-2xl bg-white p-8 shadow-xl border border-slate-200/60">
+      <div className="w-full max-w-[420px] rounded-2xl bg-white p-8 shadow-xl border border-neutral-200/60">
         
         {/* Google Button */}
         <div className="space-y-3">
           <button
             onClick={startGoogleLogin}
             disabled={loadingGoogle || loadingEmail}
-            className="group relative flex h-10 w-full items-center justify-center rounded-md border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 hover:text-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="group relative flex h-10 w-full items-center justify-center rounded-md border border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 transition-all hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loadingGoogle ? (
-              <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              <Loader2 className="h-4 w-4 animate-spin text-neutral-400" />
             ) : (
               <>
                 <div className="absolute left-4 opacity-100 transition-opacity">
@@ -133,9 +133,9 @@ function AuthPageContent() {
         {/* Divider */}
         <div className="relative my-7 flex items-center justify-center">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-slate-200"></div>
+            <div className="w-full border-t border-neutral-200"></div>
           </div>
-          <div className="relative bg-white px-3 text-[11px] font-medium tracking-wide text-slate-400 uppercase">
+          <div className="relative bg-white px-3 text-[11px] font-medium tracking-wide text-neutral-400 uppercase">
             OR
           </div>
         </div>
@@ -146,39 +146,39 @@ function AuthPageContent() {
           {mode === 'signup' && (
             <div className="flex gap-3">
               <div className="space-y-1.5 w-full">
-                <label className="text-xs font-semibold text-slate-700 tracking-wide">First Name</label>
+                <label className="text-xs font-semibold text-neutral-700 tracking-wide">First Name</label>
                 <input
                   type="text"
                   placeholder="Enter your first name"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                   disabled={loadingEmail}
-                  className="h-[42px] w-full rounded-md border border-slate-300 bg-slate-50 px-3 text-sm text-slate-700 transition-colors placeholder:text-slate-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
+                  className="h-[42px] w-full rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-700 transition-colors placeholder:text-neutral-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
                 />
               </div>
               <div className="space-y-1.5 w-full">
-                <label className="text-xs font-semibold text-slate-700 tracking-wide">Last Name</label>
+                <label className="text-xs font-semibold text-neutral-700 tracking-wide">Last Name</label>
                 <input
                   type="text"
                   placeholder="Enter your Last Name"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
                   disabled={loadingEmail}
-                  className="h-[42px] w-full rounded-md border border-slate-300 bg-slate-50 px-3 text-sm text-slate-700 transition-colors placeholder:text-slate-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
+                  className="h-[42px] w-full rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-700 transition-colors placeholder:text-neutral-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
                 />
               </div>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700 tracking-wide">Email</label>
+            <label className="text-xs font-semibold text-neutral-700 tracking-wide">Email</label>
             <input
               type="email"
               placeholder="Enter your email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loadingEmail}
-              className="h-[42px] w-full rounded-md border border-slate-300 bg-slate-50 px-3 text-sm text-slate-700 transition-colors placeholder:text-slate-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
+              className="h-[42px] w-full rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-700 transition-colors placeholder:text-neutral-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
             />
           </div>
 
@@ -190,10 +190,10 @@ function AuthPageContent() {
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}
                 disabled={loadingEmail}
-                className="h-4 w-4 rounded border-slate-300 text-[#1ed760] focus:ring-[#1ed760]/50"
+                className="h-4 w-4 rounded border-neutral-300 text-[#1ed760] focus:ring-[#1ed760]/50"
               />
-              <label htmlFor="terms" className="text-[13px] text-slate-500 cursor-pointer">
-                Agree to the <a href="#" className="font-semibold text-slate-700 hover:underline">Terms of Service</a> and <a href="#" className="font-semibold text-slate-700 hover:underline">Privacy Policy</a>
+              <label htmlFor="terms" className="text-[13px] text-neutral-500 cursor-pointer">
+                Agree to the <a href="#" className="font-semibold text-neutral-700 hover:underline">Terms of Service</a> and <a href="#" className="font-semibold text-neutral-700 hover:underline">Privacy Policy</a>
               </label>
             </div>
           )}
@@ -214,11 +214,11 @@ function AuthPageContent() {
         ) : null}
 
         {/* Footer Link */}
-        <div className="mt-8 text-center text-[13px] text-slate-500">
+        <div className="mt-8 text-center text-[13px] text-neutral-500">
           {mode === 'signin' ? "Don't have an account? " : "Already have an account? "}
           <button
             type="button"
-            className="font-semibold text-slate-900 transition-colors hover:text-slate-700"
+            className="font-semibold text-neutral-900 transition-colors hover:text-neutral-700"
             onClick={() => {
               setMode(mode === 'signin' ? 'signup' : 'signin');
               setError(null); // Clear errors on view switch
@@ -234,7 +234,7 @@ function AuthPageContent() {
 
 export default function AuthPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-slate-50" />}>
+    <Suspense fallback={<main className="min-h-screen bg-neutral-50" />}>
       <AuthPageContent />
     </Suspense>
   );

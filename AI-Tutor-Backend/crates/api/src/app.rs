@@ -3474,7 +3474,7 @@ impl LiveLessonAppService {
     }
 
     async fn system_status(&self) -> Result<SystemStatusResponse> {
-        let current_model = std::env::var("AI_TUTOR_MODEL").ok();
+        let current_model = std::env::var("BALANCED_MODE_AI_TUTOR_MODEL").ok();
         let generation_model_policy = resolve_generation_model_policy(
             current_model.as_deref(),
             std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")
@@ -3621,12 +3621,12 @@ impl LiveLessonAppService {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .or_else(|| {
-                std::env::var("AI_TUTOR_MODEL")
+                std::env::var("BALANCED_MODE_AI_TUTOR_MODEL")
                     .ok()
                     .map(|value| value.trim().to_string())
                     .filter(|value| !value.is_empty())
             })
-            .ok_or_else(|| anyhow!("AI_TUTOR_MODEL is required"))?;
+            .ok_or_else(|| anyhow!("BALANCED_MODE_AI_TUTOR_MODEL is required"))?;
 
         let resolved = resolve_model(
             &self.provider_config,
@@ -5099,7 +5099,7 @@ impl LessonAppService for LiveLessonAppService {
         let model_string = std::env::var("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL")
             .ok()
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| anyhow!("AI_TUTOR_PBL_RUNTIME_MODEL is required"))?;
+            .ok_or_else(|| anyhow!("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL is required"))?;
 
         let resolved = resolve_model(
             &self.provider_config,

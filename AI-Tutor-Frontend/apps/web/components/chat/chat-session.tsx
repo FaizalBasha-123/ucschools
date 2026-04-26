@@ -113,7 +113,7 @@ const MessageBubble = memo(function MessageBubble({
         isUser
           ? 'bg-primary text-primary-foreground rounded-tr-sm shadow-sm shadow-primary/30 dark:shadow-primary/50 ring-1 ring-primary/20'
           : isTeacher
-            ? 'bg-card dark:bg-slate-900 text-foreground dark:text-gray-200 border border-border dark:border-slate-800 rounded-tl-sm shadow-sm'
+            ? 'bg-card dark:bg-neutral-900 text-foreground dark:text-gray-200 border border-border dark:border-neutral-800 rounded-tl-sm shadow-sm'
             : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-200 border border-emerald-100/50 dark:border-emerald-800/50 rounded-tl-sm',
       )}
     >

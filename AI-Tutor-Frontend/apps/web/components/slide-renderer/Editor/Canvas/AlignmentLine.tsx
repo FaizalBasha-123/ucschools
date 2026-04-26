@@ -30,7 +30,7 @@ export function AlignmentLine({ type, axis, length, canvasScale }: AlignmentLine
       }}
     >
       <div
-        className={`line ${type === 'vertical' ? 'border-l border-dashed border-primary -translate-x-0.5' : 'border-t border-dashed border-primary -translate-y-0.5'}`}
+        className={`line ${type === 'vertical' ? 'border-l border-dashed border-primary -tranneutral-x-0.5' : 'border-t border-dashed border-primary -tranneutral-y-0.5'}`}
         style={sizeStyle}
       />
     </div>

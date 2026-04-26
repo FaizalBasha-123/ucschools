@@ -255,7 +255,7 @@ export function ModelSelector({
           <div className="absolute bottom-4 right-4 z-10">
             {searchExpanded ? (
               <div className="relative w-64 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Search className="absolute left-3 top-1/2 -tranneutral-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   ref={searchInputRef}
                   placeholder={t('settings.searchModels')}

@@ -63,11 +63,11 @@ function AuthCallbackPageContent() {
   }, [queryString, router]);
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-900">
+    <main className="min-h-screen bg-neutral-100 text-neutral-900">
       <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6 py-16">
-        <section className="w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-lg">
+        <section className="w-full rounded-3xl border border-neutral-200 bg-white p-8 text-center shadow-lg">
           <h1 className="text-2xl font-semibold tracking-tight">Signing you in...</h1>
-          <p className="mt-2 text-sm text-slate-600">Finalizing secure session and loading your dashboard.</p>
+          <p className="mt-2 text-sm text-neutral-600">Finalizing secure session and loading your dashboard.</p>
           {error ? <p className="mt-5 text-sm text-rose-700">{error}</p> : null}
         </section>
       </div>
@@ -77,7 +77,7 @@ function AuthCallbackPageContent() {
 
 export default function AuthCallbackPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-slate-100" />}>
+    <Suspense fallback={<main className="min-h-screen bg-neutral-100" />}>
       <AuthCallbackPageContent />
     </Suspense>
   );

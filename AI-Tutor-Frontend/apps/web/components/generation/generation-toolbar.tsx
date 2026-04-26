@@ -111,7 +111,7 @@ export function GenerationToolbar({
             </button>
           )}
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-72 p-0 bg-card dark:bg-slate-900 border-border dark:border-slate-800 shadow-xl">
+        <PopoverContent align="start" className="w-72 p-0 bg-card dark:bg-neutral-900 border-border dark:border-neutral-800 shadow-xl">
           {/* Parser selector */}
           <div className="flex items-center gap-2 px-3 pt-3 pb-2">
             <span className="text-xs font-medium text-muted-foreground shrink-0">

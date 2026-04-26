@@ -26,7 +26,7 @@ export function EnterpriseSidebar({ onSignOut }: EnterpriseSidebarProps) {
   ];
 
   return (
-    <aside className="w-64 flex-shrink-0 border-r border-border/40 bg-white/50 dark:bg-slate-950/50 backdrop-blur-xl h-[100dvh] flex flex-col justify-between">
+    <aside className="w-64 flex-shrink-0 border-r border-border/40 bg-white/50 dark:bg-neutral-950/50 backdrop-blur-xl h-[100dvh] flex flex-col justify-between">
       <div className="p-4">
         <div className="flex items-center gap-3 px-3 py-4 mb-6">
           <div className="size-8 rounded-xl bg-primary flex items-center justify-center text-primary-foreground">

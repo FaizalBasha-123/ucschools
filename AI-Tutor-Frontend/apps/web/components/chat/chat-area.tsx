@@ -246,7 +246,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
           transition: isDragging ? 'none' : 'width 0.3s ease',
         }}
         className={cn(
-          'bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-l border-primary/10 dark:border-primary/20 shadow-[-2px_0_24px_rgba(0,0,0,0.02)] flex flex-col shrink-0 z-20 relative overflow-visible',
+          'bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl border-l border-primary/10 dark:border-primary/20 shadow-[-2px_0_24px_rgba(0,0,0,0.02)] flex flex-col shrink-0 z-20 relative overflow-visible',
           className,
         )}
       >
@@ -256,7 +256,7 @@ export const ChatArea = forwardRef<ChatAreaRef, ChatAreaProps>(
             onMouseDown={handleDragStart}
             className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-50 group hover:bg-primary/30 dark:hover:bg-primary/30 active:bg-primary/40 dark:active:bg-primary/40 transition-colors"
           >
-            <div className="absolute left-0.5 top-1/2 -translate-y-1/2 w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-primary dark:group-hover:bg-primary transition-colors" />
+            <div className="absolute left-0.5 top-1/2 -tranneutral-y-1/2 w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-primary dark:group-hover:bg-primary transition-colors" />
           </div>
         )}
 

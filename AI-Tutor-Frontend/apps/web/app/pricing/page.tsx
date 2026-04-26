@@ -185,15 +185,15 @@ function PricingPageContent() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-24">
+    <main className="min-h-screen bg-neutral-50 font-sans text-neutral-900 pb-24">
       <SiteHeader variant="pricing" />
 
       {promoOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-2xl">
             <div className="mb-4">
-              <h3 className="text-xl font-bold text-slate-900">Redeem Promo Code</h3>
-              <p className="mt-1 text-sm text-slate-600">
+              <h3 className="text-xl font-bold text-neutral-900">Redeem Promo Code</h3>
+              <p className="mt-1 text-sm text-neutral-600">
                 Enter your promo code to claim bonus credits. Validation is enforced server-side per account.
               </p>
             </div>
@@ -203,7 +203,7 @@ function PricingPageContent() {
                 value={promoCode}
                 onChange={(event) => setPromoCode(event.target.value.toUpperCase())}
                 placeholder="Promo code (e.g., FREEBYUCS)"
-                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-medium uppercase tracking-wide text-slate-900 outline-none focus:border-slate-400"
+                className="h-11 w-full rounded-xl border border-neutral-200 px-3 text-sm font-medium uppercase tracking-wide text-neutral-900 outline-none focus:border-neutral-400"
               />
 
               {promoError ? (
@@ -221,7 +221,7 @@ function PricingPageContent() {
               <button
                 type="button"
                 onClick={() => setPromoOpen(false)}
-                className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                className="rounded-lg px-4 py-2 text-sm font-semibold text-neutral-600 hover:bg-neutral-100"
               >
                 Close
               </button>
@@ -229,7 +229,7 @@ function PricingPageContent() {
                 type="button"
                 onClick={redeemPromoCode}
                 disabled={promoLoading || !promoCode.trim()}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {promoLoading ? 'Redeeming...' : 'Redeem'}
               </button>
@@ -240,20 +240,20 @@ function PricingPageContent() {
 
       {/* Hero Section */}
       <section className="pt-16 pb-12 px-4 text-center max-w-3xl mx-auto">
-        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-slate-900 mb-6">
+        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-neutral-900 mb-6">
           Invest in your workflow.
         </h1>
-        <p className="text-lg text-slate-500 max-w-2xl mx-auto">
+        <p className="text-lg text-neutral-500 max-w-2xl mx-auto">
           Choose the perfect plan for your classroom generation needs. Upgrade, downgrade, or buy individual credits whenever you want.
         </p>
-        <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white p-1 shadow-sm">
+        <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
           <button
             type="button"
             onClick={() => setBillingMode('monthly')}
             className={`rounded-full px-5 py-2 text-sm font-semibold transition-colors ${
               billingMode === 'monthly'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-neutral-900 text-white'
+                : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
             }`}
           >
             Monthly billing
@@ -263,8 +263,8 @@ function PricingPageContent() {
             onClick={() => setBillingMode('annual')}
             className={`rounded-full px-5 py-2 text-sm font-semibold transition-colors ${
               billingMode === 'annual'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                ? 'bg-neutral-900 text-white'
+                : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
             }`}
           >
             Annual billing
@@ -288,21 +288,21 @@ function PricingPageContent() {
                 className={`rounded-3xl bg-white p-8 transition-all hover:shadow-md ${
                   plan.highlighted
                     ? 'relative z-10 border-2 border-[#1ed760] shadow-xl md:scale-105 hover:shadow-2xl'
-                    : 'border border-slate-200 shadow-sm'
+                    : 'border border-neutral-200 shadow-sm'
                 }`}
               >
                 {plan.highlighted ? (
-                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#1ed760] px-3 py-1 text-xs font-bold uppercase tracking-widest text-white shadow-sm">
+                  <div className="absolute top-0 left-1/2 -tranneutral-x-1/2 -tranneutral-y-1/2 rounded-full bg-[#1ed760] px-3 py-1 text-xs font-bold uppercase tracking-widest text-white shadow-sm">
                     Most Popular
                   </div>
                 ) : null}
 
                 <div className={`mb-6 ${plan.highlighted ? 'mt-2' : ''}`}>
-                  <h3 className="flex items-center gap-2 text-xl font-bold text-slate-900">
+                  <h3 className="flex items-center gap-2 text-xl font-bold text-neutral-900">
                     {plan.name === 'Plus' ? <Sparkles className="h-5 w-5 text-[#1ed760]" /> : null}
                     {plan.name}
                   </h3>
-                  <p className="mt-2 text-sm text-slate-500">{plan.description}</p>
+                  <p className="mt-2 text-sm text-neutral-500">{plan.description}</p>
                 </div>
 
                 <div className="mb-6">
@@ -312,22 +312,22 @@ function PricingPageContent() {
                     </span>
                   </div>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-4xl font-extrabold text-slate-900">
+                    <span className="text-4xl font-extrabold text-neutral-900">
                       $<AnimatedNumber value={activePrice} decimals={Number.isInteger(activePrice) ? 0 : 2} />
                     </span>
-                    <span className="text-slate-500 font-medium">
+                    <span className="text-neutral-500 font-medium">
                       {isAnnual ? '/year' : '/month'}
                     </span>
-                    <span className="relative inline-flex items-center text-4xl font-extrabold text-slate-600">
+                    <span className="relative inline-flex items-center text-4xl font-extrabold text-neutral-600">
                       $<AnimatedNumber value={crossedPrice} decimals={Number.isInteger(crossedPrice) ? 0 : 2} />
                       <span
                         aria-hidden="true"
-                        className="pointer-events-none absolute left-0 right-0 top-1/2 h-[2px] -translate-y-1/2 -rotate-[22deg] bg-slate-600"
+                        className="pointer-events-none absolute left-0 right-0 top-1/2 h-[2px] -tranneutral-y-1/2 -rotate-[22deg] bg-neutral-600"
                       />
                     </span>
                   </div>
-                  <p className="mt-2 text-sm text-slate-600">
-                    <span className="font-semibold text-slate-900">
+                  <p className="mt-2 text-sm text-neutral-600">
+                    <span className="font-semibold text-neutral-900">
                       <AnimatedNumber value={activeCredits} decimals={0} />
                     </span>{' '}
                     credits {isAnnual ? 'per year' : 'per month'}
@@ -340,8 +340,8 @@ function PricingPageContent() {
                     plan.highlighted
                       ? 'bg-[#1ed760] text-white shadow-[0_0_15px_rgba(30,215,96,0.2)] hover:bg-[#1fdf64]'
                       : plan.name === 'Pro'
-                        ? 'bg-slate-900 text-white hover:bg-slate-800'
-                        : 'bg-slate-100 text-slate-900 hover:bg-slate-200'
+                        ? 'bg-neutral-900 text-white hover:bg-neutral-800'
+                        : 'bg-neutral-100 text-neutral-900 hover:bg-neutral-200'
                   }`}
                 >
                   {plan.ctaLabel}
@@ -351,7 +351,7 @@ function PricingPageContent() {
                   {plan.features.map((feature) => (
                     <div key={feature} className="flex items-start gap-3">
                       <Check className="mt-0.5 h-5 w-5 shrink-0 text-[#1ed760]" />
-                      <span className="text-sm text-slate-600">{feature}</span>
+                      <span className="text-sm text-neutral-600">{feature}</span>
                     </div>
                   ))}
                 </div>
@@ -360,12 +360,12 @@ function PricingPageContent() {
           })}
         </div>
 
-        <div className="mt-10 rounded-3xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-8 shadow-sm">
+        <div className="mt-10 rounded-3xl border border-neutral-200 bg-gradient-to-br from-white to-neutral-50 p-8 shadow-sm">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
             <div className="max-w-2xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Schools & Colleges</p>
-              <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Enterprise Classroom Plan</h3>
-              <p className="mt-3 text-slate-600">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-neutral-500">Schools & Colleges</p>
+              <h3 className="mt-2 text-2xl font-semibold tracking-tight text-neutral-900">Enterprise Classroom Plan</h3>
+              <p className="mt-3 text-neutral-600">
                 A clean institutional package for district-wide deployments with centralized governance, procurement-friendly billing, and onboarding support.
               </p>
             </div>
@@ -373,31 +373,31 @@ function PricingPageContent() {
             <div className="group relative w-full lg:w-auto">
               <button
                 type="button"
-                className="w-full rounded-xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 lg:w-auto"
+                className="w-full rounded-xl bg-neutral-900 px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-neutral-800 lg:w-auto"
               >
                 Contact Us
               </button>
-              <span className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
+              <span className="pointer-events-none absolute -top-10 left-1/2 -tranneutral-x-1/2 rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">
                 Coming soon
               </span>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 gap-3 text-sm text-slate-700 md:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">Centralized admin controls</div>
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">Custom annual invoicing</div>
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">LMS and SSO alignment</div>
-            <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">Priority onboarding support</div>
+          <div className="mt-6 grid grid-cols-1 gap-3 text-sm text-neutral-700 md:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">Centralized admin controls</div>
+            <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">Custom annual invoicing</div>
+            <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">LMS and SSO alignment</div>
+            <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3">Priority onboarding support</div>
           </div>
         </div>
       </div>
 
       <div className="max-w-4xl mx-auto mt-24 px-4">
-        <h2 className="text-3xl font-bold text-center text-slate-900 mb-2">Need more power?</h2>
-        <p className="text-center text-slate-500 mb-12">Buy additional credits instantly. No subscription required.</p>
+        <h2 className="text-3xl font-bold text-center text-neutral-900 mb-2">Need more power?</h2>
+        <p className="text-center text-neutral-500 mb-12">Buy additional credits instantly. No subscription required.</p>
         
         {/* Infinite Top-ups Module */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-8 md:p-12 shadow-sm mb-8 overflow-hidden relative">
+        <div className="rounded-3xl border border-neutral-200 bg-white p-8 md:p-12 shadow-sm mb-8 overflow-hidden relative">
           {/* Decorative background element */}
           <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-[#1ed760]/10 blur-3xl pointer-events-none" />
           
@@ -405,17 +405,17 @@ function PricingPageContent() {
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-4">
                 <Zap className="h-6 w-6 text-[#1ed760]" />
-                <h3 className="text-2xl font-bold text-slate-900">Infinite Top-ups</h3>
+                <h3 className="text-2xl font-bold text-neutral-900">Infinite Top-ups</h3>
               </div>
-              <p className="text-slate-500 mb-8 max-w-sm">
+              <p className="text-neutral-500 mb-8 max-w-sm">
                 Buy exactly the amount of credits you need. They never expire and cost exactly $0.50 each.
               </p>
               
-              <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                <div className="flex items-center bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+              <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-2xl bg-neutral-50 border border-neutral-100">
+                <div className="flex items-center bg-white border border-neutral-200 rounded-xl overflow-hidden shadow-sm">
                   <button 
                     onClick={() => setCustomCredits(Math.max(1, customCredits - 1))}
-                    className="p-3 hover:bg-slate-50 text-slate-500 transition-colors"
+                    className="p-3 hover:bg-neutral-50 text-neutral-500 transition-colors"
                   >
                     <Minus className="h-5 w-5" />
                   </button>
@@ -423,19 +423,19 @@ function PricingPageContent() {
                     type="number" 
                     value={customCredits}
                     onChange={(e) => setCustomCredits(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-16 text-center font-bold text-lg text-slate-900 outline-none border-x border-slate-200 py-2 bg-transparent"
+                    className="w-16 text-center font-bold text-lg text-neutral-900 outline-none border-x border-neutral-200 py-2 bg-transparent"
                   />
                   <button 
                     onClick={() => setCustomCredits(customCredits + 1)}
-                    className="p-3 hover:bg-slate-50 text-slate-500 transition-colors"
+                    className="p-3 hover:bg-neutral-50 text-neutral-500 transition-colors"
                   >
                     <Plus className="h-5 w-5" />
                   </button>
                 </div>
                 
                 <div className="flex flex-col">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest bg-white px-2 rounded-t-md">Total Price</span>
-                  <span className="text-3xl font-extrabold text-slate-900">
+                  <span className="text-xs font-bold text-neutral-400 uppercase tracking-widest bg-white px-2 rounded-t-md">Total Price</span>
+                  <span className="text-3xl font-extrabold text-neutral-900">
                     ${(customCredits * creditPrice).toFixed(2)}
                   </span>
                 </div>
@@ -445,7 +445,7 @@ function PricingPageContent() {
             <div className="w-full md:w-auto shrink-0 mt-4 md:mt-0">
               <button 
                 onClick={() => handleCheckout(`credits_${customCredits}`)}
-                className="w-full md:w-48 py-4 px-6 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-2xl transition-colors shadow-xl shadow-slate-900/10 flex items-center justify-center gap-2"
+                className="w-full md:w-48 py-4 px-6 bg-neutral-900 hover:bg-neutral-800 text-white font-semibold rounded-2xl transition-colors shadow-xl shadow-neutral-900/10 flex items-center justify-center gap-2"
               >
                 Buy Now
               </button>
@@ -455,32 +455,32 @@ function PricingPageContent() {
 
         {/* Preset Bundles Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between transition-all hover:border-[#1ed760]/30 hover:shadow-md cursor-pointer">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm flex items-center justify-between transition-all hover:border-[#1ed760]/30 hover:shadow-md cursor-pointer">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-100 text-neutral-700">
                 <Layers className="h-6 w-6" />
               </div>
               <div>
-                <h4 className="font-bold text-slate-900 text-lg">Small Bundle</h4>
+                <h4 className="font-bold text-neutral-900 text-lg">Small Bundle</h4>
                 <p className="text-sm font-medium text-[#1ed760]">$5.00 • 10 credits</p>
               </div>
             </div>
-            <button className="px-5 py-2.5 text-sm font-semibold text-slate-700 bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors">
+            <button className="px-5 py-2.5 text-sm font-semibold text-neutral-700 bg-neutral-100 rounded-xl hover:bg-neutral-200 transition-colors">
               Add
             </button>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm flex items-center justify-between transition-all hover:border-[#1ed760]/30 hover:shadow-md cursor-pointer">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm flex items-center justify-between transition-all hover:border-[#1ed760]/30 hover:shadow-md cursor-pointer">
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-900 text-[#1ed760]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-900 text-[#1ed760]">
                 <Sparkles className="h-6 w-6" />
               </div>
               <div>
-                <h4 className="font-bold text-slate-900 text-lg">Large Bundle</h4>
+                <h4 className="font-bold text-neutral-900 text-lg">Large Bundle</h4>
                 <p className="text-sm font-medium text-[#1ed760]">$32.50 • 65 credits</p>
               </div>
             </div>
-            <button className="px-5 py-2.5 text-sm font-semibold text-white bg-slate-900 rounded-xl hover:bg-slate-800 transition-colors">
+            <button className="px-5 py-2.5 text-sm font-semibold text-white bg-neutral-900 rounded-xl hover:bg-neutral-800 transition-colors">
               Add
             </button>
           </div>
@@ -493,7 +493,7 @@ function PricingPageContent() {
 
 export default function PricingPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-slate-50" />}>
+    <Suspense fallback={<main className="min-h-screen bg-neutral-50" />}>
       <PricingPageContent />
     </Suspense>
   );

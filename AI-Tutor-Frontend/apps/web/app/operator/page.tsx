@@ -111,7 +111,7 @@ export default function OperatorLoginPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col items-center justify-center px-4 py-8 bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 relative overflow-hidden">
+    <div className="min-h-[100dvh] flex flex-col items-center justify-center px-4 py-8 bg-gradient-to-br from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900 relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
@@ -121,7 +121,7 @@ export default function OperatorLoginPage() {
       {/* Back button */}
       <Link
         href="/"
-        className="absolute top-4 left-4 md:top-6 md:left-6 z-20 flex items-center gap-2 px-3 py-2 md:px-4 md:py-2.5 rounded-xl bg-white/80 dark:bg-slate-800/80 backdrop-blur border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-slate-300 dark:hover:border-slate-600 transition-all"
+        className="absolute top-4 left-4 md:top-6 md:left-6 z-20 flex items-center gap-2 px-3 py-2 md:px-4 md:py-2.5 rounded-xl bg-white/80 dark:bg-neutral-800/80 backdrop-blur border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-neutral-300 dark:hover:border-neutral-600 transition-all"
       >
         <ArrowLeft className="h-4 w-4" />
         <span className="text-xs md:text-sm font-semibold">Back</span>
@@ -138,10 +138,10 @@ export default function OperatorLoginPage() {
               </div>
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-slate-900 dark:text-white mb-2">
+              <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-2">
                 Authentication Complete
               </h1>
-              <p className="text-slate-600 dark:text-slate-400">
+              <p className="text-neutral-600 dark:text-neutral-400">
                 Welcome back! Redirecting to the admin panel...
               </p>
             </div>
@@ -159,10 +159,10 @@ export default function OperatorLoginPage() {
                   <Lock className="w-6 h-6 text-primary" />
                 </div>
               </div>
-              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white">
+              <h1 className="text-2xl md:text-3xl font-bold text-neutral-900 dark:text-white">
                 {step === 'email' ? 'Operator Login' : 'Verify Code'}
               </h1>
-              <p className="text-sm text-slate-600 dark:text-slate-400">
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 {step === 'email'
                   ? 'Enter your email to receive a one-time authentication code'
                   : `We sent a 6-digit code to ${email}`}
@@ -170,7 +170,7 @@ export default function OperatorLoginPage() {
             </div>
 
             {/* Form Card */}
-            <div className="rounded-2xl border border-slate-200/60 dark:border-slate-700/60 bg-white dark:bg-slate-800 p-6 md:p-8 shadow-sm">
+            <div className="rounded-2xl border border-neutral-200/60 dark:border-neutral-700/60 bg-white dark:bg-neutral-800 p-6 md:p-8 shadow-sm">
               {/* Error message */}
               {error && (
                 <div className="mb-6 flex items-start gap-3 rounded-lg bg-red-50 dark:bg-red-950/30 p-4">
@@ -187,7 +187,7 @@ export default function OperatorLoginPage() {
                   <div className="space-y-2">
                     <label
                       htmlFor="email"
-                      className="block text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2"
+                      className="block text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-2"
                     >
                       <Mail className="h-4 w-4" />
                       Email Address
@@ -199,7 +199,7 @@ export default function OperatorLoginPage() {
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       disabled={loading}
-                      className="w-full h-11 px-4 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50"
+                      className="w-full h-11 px-4 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 text-neutral-900 dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50"
                     />
                   </div>
 
@@ -224,7 +224,7 @@ export default function OperatorLoginPage() {
                   <div className="space-y-2">
                     <label
                       htmlFor="otp"
-                      className="block text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2"
+                      className="block text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-2"
                     >
                       <Lock className="h-4 w-4" />
                       Verification Code
@@ -237,9 +237,9 @@ export default function OperatorLoginPage() {
                       onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
                       disabled={loading}
                       maxLength={6}
-                      className="w-full h-11 px-4 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50 text-center text-lg font-mono tracking-widest"
+                      className="w-full h-11 px-4 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 text-neutral-900 dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50 text-center text-lg font-mono tracking-widest"
                     />
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
                       Check your email for the 6-digit code
                     </p>
                   </div>
@@ -284,7 +284,7 @@ export default function OperatorLoginPage() {
                       }
                     }}
                     disabled={resendCooldown > 0 || loading}
-                    className="w-full text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {resendCooldown > 0
                       ? `Resend code in ${resendCooldown}s`
@@ -301,7 +301,7 @@ export default function OperatorLoginPage() {
                       setResendCooldown(0);
                     }}
                     disabled={loading}
-                    className="w-full text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 disabled:opacity-50 transition-colors"
+                    className="w-full text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 disabled:opacity-50 transition-colors"
                   >
                     Use a different email address
                   </button>
@@ -310,13 +310,13 @@ export default function OperatorLoginPage() {
             </div>
 
             {/* Footer */}
-            <p className="text-center text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-center text-xs text-neutral-500 dark:text-neutral-400">
               By logging in, you agree to our{' '}
-              <Link href="#" className="underline hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+              <Link href="#" className="underline hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors">
                 Terms of Service
               </Link>
               {' '}and{' '}
-              <Link href="#" className="underline hover:text-slate-700 dark:hover:text-slate-300 transition-colors">
+              <Link href="#" className="underline hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors">
                 Privacy Policy
               </Link>
             </p>

@@ -77,11 +77,11 @@ export default function CheckBillingPage() {
   }, [router]);
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex items-center justify-center">
       {status === 'loading' && (
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-slate-600 dark:text-slate-400">Checking your billing status...</p>
+          <p className="text-neutral-600 dark:text-neutral-400">Checking your billing status...</p>
         </div>
       )}
 
@@ -114,11 +114,11 @@ export default function CheckBillingPage() {
 function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 md:p-8 shadow-2xl animate-in fade-in scale-95 duration-300">
+      <div className="relative w-full max-w-md rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 md:p-8 shadow-2xl animate-in fade-in scale-95 duration-300">
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="absolute top-4 right-4 p-2 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
           aria-label="Close"
         >
           <X className="w-5 h-5" />
@@ -127,41 +127,41 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
         {/* Content */}
         <div className="space-y-6">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+            <h2 className="text-2xl font-bold text-neutral-900 dark:text-white mb-2">
               Top Up Your Credits
             </h2>
-            <p className="text-slate-600 dark:text-slate-400">
+            <p className="text-neutral-600 dark:text-neutral-400">
               Your plan is active, but you've used all your credits. Purchase more to continue learning.
             </p>
           </div>
 
           {/* Credit options */}
           <div className="space-y-3">
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">100 Credits</p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Most popular</p>
+                  <p className="font-semibold text-neutral-900 dark:text-white">100 Credits</p>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">Most popular</p>
                 </div>
                 <p className="text-lg font-bold text-primary">₹999</p>
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">250 Credits</p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Best value</p>
+                  <p className="font-semibold text-neutral-900 dark:text-white">250 Credits</p>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">Best value</p>
                 </div>
                 <p className="text-lg font-bold text-primary">₹2,499</p>
               </div>
             </div>
 
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">500 Credits</p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Premium</p>
+                  <p className="font-semibold text-neutral-900 dark:text-white">500 Credits</p>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">Premium</p>
                 </div>
                 <p className="text-lg font-bold text-primary">₹4,999</p>
               </div>
@@ -172,7 +172,7 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
           <div className="flex gap-3 pt-4">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-medium transition-colors"
+              className="flex-1 px-4 py-2 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium transition-colors"
             >
               Close
             </button>
@@ -198,11 +198,11 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
 function PlanPurchaseModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="relative w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-6 md:p-8 shadow-2xl animate-in fade-in scale-95 duration-300">
+      <div className="relative w-full max-w-md rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 md:p-8 shadow-2xl animate-in fade-in scale-95 duration-300">
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="absolute top-4 right-4 p-2 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
           aria-label="Close"
         >
           <X className="w-5 h-5" />
@@ -211,41 +211,41 @@ function PlanPurchaseModal({ onClose }: { onClose: () => void }) {
         {/* Content */}
         <div className="space-y-6">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+            <h2 className="text-2xl font-bold text-neutral-900 dark:text-white mb-2">
               Choose Your Plan
             </h2>
-            <p className="text-slate-600 dark:text-slate-400">
+            <p className="text-neutral-600 dark:text-neutral-400">
               You have credits available, but need an active plan to generate lessons. Choose a plan that fits your needs.
             </p>
           </div>
 
           {/* Plan options */}
           <div className="space-y-3">
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
               <div className="flex items-center justify-between mb-2">
-                <p className="font-semibold text-slate-900 dark:text-white">Starter</p>
+                <p className="font-semibold text-neutral-900 dark:text-white">Starter</p>
                 <p className="text-lg font-bold text-primary">₹499/mo</p>
               </div>
-              <p className="text-sm text-slate-600 dark:text-slate-400">100 credits/month</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">100 credits/month</p>
             </div>
 
             <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 p-4 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-950/40 transition-colors ring-2 ring-emerald-300 dark:ring-emerald-800">
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <p className="font-semibold text-slate-900 dark:text-white">Pro</p>
+                  <p className="font-semibold text-neutral-900 dark:text-white">Pro</p>
                   <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-200 dark:bg-emerald-800 px-2 py-0.5 rounded">Popular</span>
                 </div>
                 <p className="text-lg font-bold text-primary">₹999/mo</p>
               </div>
-              <p className="text-sm text-slate-600 dark:text-slate-400">300 credits/month</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">300 credits/month</p>
             </div>
 
-            <div className="rounded-lg border border-slate-200 dark:border-slate-700 p-4 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
               <div className="flex items-center justify-between mb-2">
-                <p className="font-semibold text-slate-900 dark:text-white">Enterprise</p>
+                <p className="font-semibold text-neutral-900 dark:text-white">Enterprise</p>
                 <p className="text-lg font-bold text-primary">₹2,999/mo</p>
               </div>
-              <p className="text-sm text-slate-600 dark:text-slate-400">1000 credits/month</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">1000 credits/month</p>
             </div>
           </div>
 
@@ -253,7 +253,7 @@ function PlanPurchaseModal({ onClose }: { onClose: () => void }) {
           <div className="flex gap-3 pt-4">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 font-medium transition-colors"
+              className="flex-1 px-4 py-2 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium transition-colors"
             >
               Close
             </button>

@@ -55,7 +55,7 @@ export function LaserOverlay({
       }}
       className="absolute z-[101] pointer-events-none"
     >
-      <div className="relative -translate-x-1/2 -translate-y-1/2">
+      <div className="relative -tranneutral-x-1/2 -tranneutral-y-1/2">
         {/* Ring pulse */}
         <motion.div
           animate={{ scale: [1, 2.8], opacity: [0.6, 0] }}

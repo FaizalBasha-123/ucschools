@@ -106,7 +106,7 @@ export function SceneSidebar({
         width: displayWidth,
         transition: isDraggingRef.current ? 'none' : 'width 0.3s ease',
       }}
-      className="bg-card/80 dark:bg-slate-900/80 backdrop-blur-xl border-r border-border dark:border-slate-800 shadow-[2px_0_24px_rgba(0,0,0,0.02)] flex flex-col shrink-0 z-20 relative overflow-visible"
+      className="bg-card/80 dark:bg-neutral-900/80 backdrop-blur-xl border-r border-border dark:border-neutral-800 shadow-[2px_0_24px_rgba(0,0,0,0.02)] flex flex-col shrink-0 z-20 relative overflow-visible"
     >
       {/* Drag handle */}
       {!collapsed && (
@@ -114,7 +114,7 @@ export function SceneSidebar({
           onMouseDown={handleDragStart}
           className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize z-50 group hover:bg-primary/30 dark:hover:bg-primary/30 active:bg-primary/40 dark:active:bg-primary/40 transition-colors"
         >
-          <div className="absolute right-0.5 top-1/2 -translate-y-1/2 w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-primary dark:group-hover:bg-primary transition-colors" />
+          <div className="absolute right-0.5 top-1/2 -tranneutral-y-1/2 w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-primary dark:group-hover:bg-primary transition-colors" />
         </div>
       )}
 
@@ -123,14 +123,14 @@ export function SceneSidebar({
         <div className="h-10 flex items-center justify-between shrink-0 relative mt-3 mb-1 px-3">
           <button
             onClick={() => router.push('/')}
-            className="flex items-center gap-2 cursor-pointer rounded-lg px-1.5 -mx-1.5 py-1 -my-1 hover:bg-muted/80 dark:hover:bg-slate-800/60 active:scale-[0.97] transition-all duration-150"
+            className="flex items-center gap-2 cursor-pointer rounded-lg px-1.5 -mx-1.5 py-1 -my-1 hover:bg-muted/80 dark:hover:bg-neutral-800/60 active:scale-[0.97] transition-all duration-150"
             title={t('generation.backToHome')}
           >
             <span className="text-lg font-black tracking-tight text-primary">AI-Tutor</span>
           </button>
           <button
             onClick={() => onCollapseChange(true)}
-            className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center bg-muted/80 dark:bg-slate-800/80 text-muted-foreground ring-1 ring-black/[0.04] dark:ring-white/[0.06] hover:bg-muted/90 dark:hover:bg-slate-700/90 hover:text-foreground dark:hover:text-gray-200 active:scale-90 transition-all duration-200"
+            className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center bg-muted/80 dark:bg-neutral-800/80 text-muted-foreground ring-1 ring-black/[0.04] dark:ring-white/[0.06] hover:bg-muted/90 dark:hover:bg-neutral-700/90 hover:text-foreground dark:hover:text-gray-200 active:scale-90 transition-all duration-200"
           >
             <PanelLeftClose className="w-4 h-4" />
           </button>
@@ -162,7 +162,7 @@ export function SceneSidebar({
                   'group relative rounded-lg transition-all duration-200 cursor-pointer flex flex-col gap-1 p-1.5',
                   isActive
                     ? 'bg-primary/10 dark:bg-primary/20 ring-1 ring-primary/20 dark:ring-primary/40'
-                    : 'hover:bg-muted/50 dark:hover:bg-slate-800/50',
+                    : 'hover:bg-muted/50 dark:hover:bg-neutral-800/50',
                 )}
               >
                 {/* Scene Header */}
@@ -173,7 +173,7 @@ export function SceneSidebar({
                         'text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shrink-0',
                         isActive
                           ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/30'
-                          : 'bg-muted dark:bg-slate-800 text-muted-foreground',
+                          : 'bg-muted dark:bg-neutral-800 text-muted-foreground',
                       )}
                     >
                       {index + 1}
@@ -193,7 +193,7 @@ export function SceneSidebar({
                 </div>
 
                 {/* Thumbnail */}
-                <div className="relative aspect-video w-full rounded overflow-hidden bg-muted dark:bg-slate-800 ring-1 ring-black/5 dark:ring-white/5">
+                <div className="relative aspect-video w-full rounded overflow-hidden bg-muted dark:bg-neutral-800 ring-1 ring-black/5 dark:ring-white/5">
                   <div className="absolute inset-0 flex items-center justify-center">
                     {isSlide && slideContent ? (
                       <ThumbnailSlide
@@ -388,7 +388,7 @@ export function SceneSidebar({
                       'relative aspect-video w-full rounded overflow-hidden ring-1',
                       isFailed
                         ? 'bg-red-50/30 dark:bg-red-950/10 ring-red-100 dark:ring-red-900/20'
-                        : 'bg-muted dark:bg-slate-800 ring-black/5 dark:ring-white/5',
+                        : 'bg-muted dark:bg-neutral-800 ring-black/5 dark:ring-white/5',
                     )}
                   >
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5">
@@ -438,7 +438,7 @@ export function SceneSidebar({
                       )}
                     </div>
                     {!isFailed && !isPaused && (
-                      <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/40 dark:via-white/10 to-transparent" />
+                      <div className="absolute inset-0 -tranneutral-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/40 dark:via-white/10 to-transparent" />
                     )}
                   </div>
                 </div>

@@ -89,7 +89,7 @@ export function UserProfileCard() {
 
   if (!hydrated) {
     return (
-      <Card className="p-5 !gap-0 shadow-xl border-muted/40 backdrop-blur-xl bg-white/80 dark:bg-slate-900/80">
+      <Card className="p-5 !gap-0 shadow-xl border-muted/40 backdrop-blur-xl bg-white/80 dark:bg-neutral-900/80">
         <div className="flex items-center gap-3">
           <div className="size-11 rounded-full bg-muted animate-pulse" />
           <div className="flex-1 space-y-2">
@@ -102,7 +102,7 @@ export function UserProfileCard() {
   }
 
   return (
-    <Card className="p-5 !gap-0 shadow-xl border-border/40 backdrop-blur-xl bg-card dark:bg-slate-900/80">
+    <Card className="p-5 !gap-0 shadow-xl border-border/40 backdrop-blur-xl bg-card dark:bg-neutral-900/80">
       {/* File input — sr-only keeps it in the flow but invisible; label triggers it */}
       <input
         id={FILE_INPUT_ID}
@@ -122,7 +122,7 @@ export function UserProfileCard() {
           <div className="size-11 rounded-full bg-gray-50 dark:bg-gray-800 overflow-hidden ring-2 ring-primary/30 dark:ring-primary/40 group-hover/avatar:ring-primary dark:group-hover/avatar:ring-primary transition-all">
             <img src={avatar} alt="" className="size-full object-cover" />
           </div>
-          <div className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-white dark:bg-slate-800 border border-muted/60 flex items-center justify-center">
+          <div className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-white dark:bg-neutral-800 border border-muted/60 flex items-center justify-center">
             <ChevronDown
               className={cn(
                 'size-2.5 text-muted-foreground transition-transform duration-200',
@@ -189,7 +189,7 @@ export function UserProfileCard() {
                     'size-8 rounded-full overflow-hidden bg-gray-50 dark:bg-gray-800 cursor-pointer transition-all duration-150',
                     'hover:scale-110 active:scale-95',
                     avatar === url
-                      ? 'ring-2 ring-primary ring-offset-1 ring-offset-white dark:ring-offset-slate-900'
+                      ? 'ring-2 ring-primary ring-offset-1 ring-offset-white dark:ring-offset-neutral-900'
                       : 'hover:ring-1 hover:ring-muted-foreground/30',
                   )}
                 >
@@ -204,7 +204,7 @@ export function UserProfileCard() {
                   'size-8 rounded-full flex items-center justify-center cursor-pointer transition-all duration-150 border border-dashed',
                   'hover:scale-110 active:scale-95',
                   isCustomAvatar(avatar)
-                    ? 'ring-2 ring-primary ring-offset-1 ring-offset-white dark:ring-offset-slate-900 border-primary/30 bg-primary/5 dark:bg-primary/10'
+                    ? 'ring-2 ring-primary ring-offset-1 ring-offset-white dark:ring-offset-neutral-900 border-primary/30 bg-primary/5 dark:bg-primary/10'
                     : 'border-muted-foreground/30 text-muted-foreground/50 hover:border-muted-foreground/50',
                 )}
                 title={t('profile.uploadAvatar')}

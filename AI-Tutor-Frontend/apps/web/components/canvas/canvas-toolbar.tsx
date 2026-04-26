@@ -205,7 +205,7 @@ export function CanvasToolbar({
               {/* Vertical volume slider (pops up above) */}
               <div
                 className={cn(
-                  'absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex flex-col items-center',
+                  'absolute bottom-full left-1/2 -tranneutral-x-1/2 mb-2 flex flex-col items-center',
                   'transition-all duration-200 ease-out pointer-events-none opacity-0',
                   volumeHover && ttsEnabled && 'pointer-events-auto opacity-100',
                 )}
