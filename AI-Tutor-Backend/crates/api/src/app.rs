@@ -5998,7 +5998,10 @@ async fn google_callback(
         .service
         .google_callback(query)
         .await
-        .map_err(ApiError::internal)?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "google oauth callback failed");
+            ApiError::internal(e)
+        })?;
     Ok(auth_response_to_http(response))
 }
 

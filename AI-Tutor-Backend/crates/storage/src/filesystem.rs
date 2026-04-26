@@ -2389,8 +2389,8 @@ impl TutorAccountRepository for FileStorage {
                         &account.phone_number,
                         &account.phone_verified,
                         &Self::tutor_account_status_to_db(&account.status),
-                        &account.created_at.to_rfc3339(),
-                        &account.updated_at.to_rfc3339(),
+                        &account.created_at,
+                        &account.updated_at,
                     ],
                     )
                     .map_err(|err| {
@@ -2600,7 +2600,7 @@ impl CreditLedgerRepository for FileStorage {
                             &Self::credit_entry_kind_to_db(&entry.kind),
                             &entry.amount,
                             &entry.reason,
-                            &entry.created_at.to_rfc3339(),
+                            &entry.created_at,
                         ],
                     )
                     .map_err(|err| {
@@ -2626,7 +2626,7 @@ impl CreditLedgerRepository for FileStorage {
                             updated_at = EXCLUDED.updated_at
                         RETURNING account_id, balance, updated_at::TEXT AS updated_at
                         ",
-                        &[&entry.account_id, &delta, &entry.created_at.to_rfc3339()],
+                        &[&entry.account_id, &delta, &entry.created_at],
                     )
                     .map_err(|err| err.to_string())?;
                 transaction.commit().map_err(|err| err.to_string())?;
@@ -2978,9 +2978,9 @@ impl PaymentOrderRepository for FileStorage {
                             &order.udf4,
                             &order.udf5,
                             &order.raw_response,
-                            &order.created_at.to_rfc3339(),
-                            &order.updated_at.to_rfc3339(),
-                            &order.completed_at.map(|value| value.to_rfc3339()),
+                            &order.created_at,
+                            &order.updated_at,
+                            &order.completed_at,
                         ],
                     )
                     .map_err(|err| err.to_string())?;
@@ -3218,16 +3218,16 @@ impl SubscriptionRepository for FileStorage {
                                 &Self::billing_interval_to_db(&subscription.billing_interval),
                                 &subscription.credits_per_cycle,
                                 &subscription.autopay_enabled,
-                                &subscription.current_period_start.to_rfc3339(),
-                                &subscription.current_period_end.to_rfc3339(),
-                                &subscription.next_renewal_at.map(|value| value.to_rfc3339()),
+                                &subscription.current_period_start,
+                                &subscription.current_period_end,
+                                &subscription.next_renewal_at,
                                 &subscription
                                     .grace_period_until
-                                    .map(|value| value.to_rfc3339()),
-                                &subscription.cancelled_at.map(|value| value.to_rfc3339()),
+                                    ,
+                                &subscription.cancelled_at,
                                 &subscription.last_payment_order_id,
-                                &subscription.created_at.to_rfc3339(),
-                                &subscription.updated_at.to_rfc3339(),
+                                &subscription.created_at,
+                                &subscription.updated_at,
                             ],
                         )
                         .map_err(|err| err.to_string())?;
@@ -3275,16 +3275,16 @@ impl SubscriptionRepository for FileStorage {
                                 &Self::billing_interval_to_db(&subscription.billing_interval),
                                 &subscription.credits_per_cycle,
                                 &subscription.autopay_enabled,
-                                &subscription.current_period_start.to_rfc3339(),
-                                &subscription.current_period_end.to_rfc3339(),
-                                &subscription.next_renewal_at.map(|value| value.to_rfc3339()),
+                                &subscription.current_period_start,
+                                &subscription.current_period_end,
+                                &subscription.next_renewal_at,
                                 &subscription
                                     .grace_period_until
-                                    .map(|value| value.to_rfc3339()),
-                                &subscription.cancelled_at.map(|value| value.to_rfc3339()),
+                                    ,
+                                &subscription.cancelled_at,
                                 &subscription.last_payment_order_id,
-                                &subscription.created_at.to_rfc3339(),
-                                &subscription.updated_at.to_rfc3339(),
+                                &subscription.created_at,
+                                &subscription.updated_at,
                             ],
                         )
                         .map_err(|err| err.to_string())?;
@@ -3608,16 +3608,16 @@ impl InvoiceRepository for FileStorage {
                             &invoice.id,
                             &invoice.account_id,
                             &Self::invoice_type_to_db(&invoice.invoice_type),
-                            &invoice.billing_cycle_start.to_rfc3339(),
-                            &invoice.billing_cycle_end.to_rfc3339(),
+                            &invoice.billing_cycle_start,
+                            &invoice.billing_cycle_end,
                             &Self::invoice_status_to_db(&invoice.status),
                             &invoice.amount_cents,
                             &invoice.amount_after_credits,
-                            &invoice.created_at.to_rfc3339(),
-                            &invoice.finalized_at.map(|value| value.to_rfc3339()),
-                            &invoice.paid_at.map(|value| value.to_rfc3339()),
-                            &invoice.due_at.map(|value| value.to_rfc3339()),
-                            &invoice.updated_at.to_rfc3339(),
+                            &invoice.created_at,
+                            &invoice.finalized_at,
+                            &invoice.paid_at,
+                            &invoice.due_at,
+                            &invoice.updated_at,
                         ],
                     )
                     .map_err(|err| err.to_string())?;
@@ -3808,7 +3808,7 @@ impl InvoiceRepository for FileStorage {
                 let mut client =
                     Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
-                let updated_at = Utc::now().to_rfc3339();
+                let updated_at = Utc::now();
                 client
                     .execute(
                         "
@@ -3849,7 +3849,7 @@ impl InvoiceRepository for FileStorage {
                 let mut client =
                     Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
-                let now = Utc::now().to_rfc3339();
+                let now = Utc::now();
                 client
                     .execute(
                         "
@@ -3932,10 +3932,10 @@ impl InvoiceLineRepository for FileStorage {
                             &(line.quantity as i32),
                             &line.unit_price_cents,
                             &line.is_prorated,
-                            &line.period_start.to_rfc3339(),
-                            &line.period_end.to_rfc3339(),
-                            &line.created_at.to_rfc3339(),
-                            &line.updated_at.to_rfc3339(),
+                            &line.period_start,
+                            &line.period_end,
+                            &line.created_at,
+                            &line.updated_at,
                         ],
                     )
                     .map_err(|err| err.to_string())?;
@@ -4098,13 +4098,13 @@ impl PaymentIntentRepository for FileStorage {
                         &pi.payment_method_id,
                         &pi.gateway_payment_intent_id,
                         &pi.authorize_error,
-                        &pi.authorized_at.map(|value| value.to_rfc3339()),
-                        &pi.captured_at.map(|value| value.to_rfc3339()),
-                        &pi.canceled_at.map(|value| value.to_rfc3339()),
+                        &pi.authorized_at,
+                        &pi.captured_at,
+                        &pi.canceled_at,
                         &(pi.attempt_count as i32),
-                        &pi.next_retry_at.map(|value| value.to_rfc3339()),
-                        &pi.created_at.to_rfc3339(),
-                        &pi.updated_at.to_rfc3339(),
+                        &pi.next_retry_at,
+                        &pi.created_at,
+                        &pi.updated_at,
                     ],
                 ).map_err(|err| err.to_string())?;
                 Ok(())
@@ -4211,7 +4211,7 @@ impl PaymentIntentRepository for FileStorage {
                 client
                     .execute(
                         "UPDATE payment_intents SET status = $2, updated_at = $3::timestamptz WHERE id = $1",
-                        &[&pi_id, &Self::payment_intent_status_to_db(&status), &Utc::now().to_rfc3339()],
+                        &[&pi_id, &Self::payment_intent_status_to_db(&status), &Utc::now()],
                     )
                     .map_err(|err| err.to_string())?;
                 Ok(())
@@ -4329,10 +4329,10 @@ impl DunningCaseRepository for FileStorage {
                         &dc.payment_intent_id,
                         &Self::dunning_status_to_db(&dc.status),
                         &attempt_schedule_json,
-                        &dc.grace_period_end.to_rfc3339(),
-                        &dc.final_attempt_at.map(|value| value.to_rfc3339()),
-                        &dc.created_at.to_rfc3339(),
-                        &dc.updated_at.to_rfc3339(),
+                        &dc.grace_period_end,
+                        &dc.final_attempt_at,
+                        &dc.created_at,
+                        &dc.updated_at,
                     ],
                 ).map_err(|err| err.to_string())?;
                 Ok(())
@@ -4469,7 +4469,7 @@ impl DunningCaseRepository for FileStorage {
                 client
                     .execute(
                         "UPDATE dunning_cases SET status = $2, updated_at = $3::timestamptz WHERE id = $1",
-                        &[&dc_id, &Self::dunning_status_to_db(&status), &Utc::now().to_rfc3339()],
+                        &[&dc_id, &Self::dunning_status_to_db(&status), &Utc::now()],
                     )
                     .map_err(|err| err.to_string())?;
                 Ok(())
@@ -4528,8 +4528,8 @@ impl WebhookEventRepository for FileStorage {
                             &event.event_identifier,
                             &event.event_type,
                             &serde_json::to_string(&event.payload).map_err(|err| err.to_string())?,
-                            &event.processed_at.to_rfc3339(),
-                            &event.created_at.to_rfc3339(),
+                            &event.processed_at,
+                            &event.created_at,
                         ],
                     )
                     .map_err(|err| err.to_string())?;
@@ -4609,7 +4609,7 @@ impl FinancialAuditRepository for FileStorage {
                             &audit.actor,
                             &serde_json::to_string(&audit.before_state).map_err(|err| err.to_string())?,
                             &serde_json::to_string(&audit.after_state).map_err(|err| err.to_string())?,
-                            &audit.created_at.to_rfc3339(),
+                            &audit.created_at,
                         ],
                     )
                     .map_err(|err| err.to_string())?;
@@ -5223,7 +5223,7 @@ mod tests {
 
             let due = storage
                 .list_subscriptions_due_for_renewal(
-                    &(now + ChronoDuration::days(2)).to_rfc3339(),
+                    &(now + ChronoDuration::days(2)),
                     10,
                 )
                 .await
