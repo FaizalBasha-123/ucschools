@@ -173,6 +173,7 @@ pub struct StatelessChatRequest {
     pub model: Option<String>,
     pub provider_type: Option<String>,
     pub requires_api_key: Option<bool>,
+    pub generation_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,3 +247,4 @@ pub struct ChatMessageMetadata {
     pub created_at: Option<i64>,
     pub interrupted: Option<bool>,
 }
+
