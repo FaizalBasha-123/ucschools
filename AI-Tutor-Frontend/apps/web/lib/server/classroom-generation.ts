@@ -42,6 +42,7 @@ export interface GenerateClassroomInput {
   enableVideoGeneration?: boolean;
   enableTTS?: boolean;
   agentMode?: 'default' | 'generate';
+  generationMode?: string;
 }
 
 export type ClassroomGenerationStep =

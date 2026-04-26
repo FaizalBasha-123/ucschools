@@ -20,7 +20,9 @@ export interface ResolvedModel extends ModelWithInfo {
 /**
  * Resolve a language model from explicit parameters.
  *
- * Use this when model config comes from the request body.
+ * Use this when model config comes from the request body or headers.
+ * When generationMode is 'best', resolves from BEST_MODE_ env vars.
+ * Otherwise defaults to BALANCED_MODE_ env vars.
  */
 export function resolveModel(params: {
   modelString?: string;
@@ -28,10 +30,17 @@ export function resolveModel(params: {
   baseUrl?: string;
   providerType?: string;
   requiresApiKey?: boolean;
+  generationMode?: string;
 }): ResolvedModel {
-  const modelString = params.modelString || process.env.BALANCED_MODE_MODEL || process.env.BEST_MODE_MODEL;
+  const prefix = params.generationMode === 'best' ? 'BEST_MODE_' : 'BALANCED_MODE_';
+  const modelString =
+    params.modelString ||
+    process.env[`${prefix}AI_TUTOR_CHAT_SCAFFOLD_MODEL`] ||
+    process.env.BALANCED_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL;
   if (!modelString) {
-    throw new Error('BALANCED_MODE_MODEL environment variable is required but not set.');
+    throw new Error(
+      `${prefix}AI_TUTOR_CHAT_SCAFFOLD_MODEL environment variable is required but not set.`,
+    );
   }
   const { providerId, modelId } = parseModelString(modelString);
 
@@ -66,11 +75,14 @@ export function resolveModel(params: {
  *
  * The backend owns the active model selection.
  * Reads only credential and endpoint overrides from headers.
+ * Passes through x-generation-mode so the correct BALANCED_MODE_/BEST_MODE_
+ * env var set is used for the frontend generation pipeline.
  */
 export function resolveModelFromHeaders(req: NextRequest): ResolvedModel {
   return resolveModel({
     apiKey: req.headers.get('x-api-key') || undefined,
     baseUrl: req.headers.get('x-base-url') || undefined,
     requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
+    generationMode: req.headers.get('x-generation-mode') || undefined,
   });
 }

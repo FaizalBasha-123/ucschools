@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
       enable_video_generation: rawBody.enableVideoGeneration,
       enable_tts: rawBody.enableTTS,
       agent_mode: rawBody.agentMode,
+      generation_mode: rawBody.generationMode,
     };
 
     const backendUrl = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';

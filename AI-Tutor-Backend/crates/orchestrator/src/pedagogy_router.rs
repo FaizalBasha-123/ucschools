@@ -51,7 +51,7 @@ pub fn resolve_chat_pedagogy_route(
 
     let signals = extract_chat_signals(request);
     let (tier, confidence) = choose_chat_tier(&signals);
-    let model = chat_models_for_tier(tier)?;
+    let model = chat_models_for_tier(tier, request)?;
 
     Ok(PedagogyRoutingDecision {
         tier,
@@ -68,6 +68,13 @@ pub fn resolve_chat_pedagogy_route(
     })
 }
 
+fn get_mode_prefix_for_generation(request: Option<&LessonGenerationRequest>) -> &'static str {
+    match request.and_then(|r| r.generation_mode.as_deref()) {
+        Some("best") => "BEST_MODE_",
+        _ => "BALANCED_MODE_",
+    }
+}
+
 pub fn resolve_generation_model_policy(
     request: Option<&LessonGenerationRequest>,
     outlines_override: Option<&str>,
@@ -75,38 +82,19 @@ pub fn resolve_generation_model_policy(
     scene_actions_override: Option<&str>,
     scene_actions_fallback_override: Option<&str>,
 ) -> Result<(String, String, String, Option<String>)> {
-    if let Some(request) = request {
-        let _signals = extract_lesson_signals(request);
-
-        let outlines_model = select_model(
-            outlines_override,
-            &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")?,
-        )?;
-        let scene_content_model = select_model(
-            scene_content_override,
-            &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")?,
-        )?;
-        let scene_actions_model = select_model(
-            scene_actions_override,
-            &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")?,
-        )?;
-
-        let _ = scene_actions_fallback_override;
-
-        return Ok((outlines_model, scene_content_model, scene_actions_model, None));
-    }
-
+    let prefix = get_mode_prefix_for_generation(request);
+    
     let outlines_model = select_model(
         outlines_override,
-        &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")?,
+        &required_env_model(&format!("{}AI_TUTOR_GENERATION_OUTLINES_MODEL", prefix))?,
     )?;
     let scene_content_model = select_model(
         scene_content_override,
-        &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")?,
+        &required_env_model(&format!("{}AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", prefix))?,
     )?;
     let scene_actions_model = select_model(
         scene_actions_override,
-        &required_env_model("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")?,
+        &required_env_model(&format!("{}AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", prefix))?,
     )?;
 
     let _ = scene_actions_fallback_override;
@@ -317,12 +305,21 @@ fn extract_lesson_signals(request: &LessonGenerationRequest) -> LessonSignals {
     LessonSignals { score }
 }
 
-fn chat_models_for_tier(tier: PedagogyTier) -> Result<String> {
-    match tier {
-        PedagogyTier::Baseline => required_env_model("BALANCED_MODE_AI_TUTOR_CHAT_BASELINE_MODEL"),
-        PedagogyTier::Scaffold => required_env_model("BALANCED_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL"),
-        PedagogyTier::Reasoning => required_env_model("BALANCED_MODE_AI_TUTOR_CHAT_REASONING_MODEL"),
+fn get_mode_prefix_for_chat(request: &StatelessChatRequest) -> &'static str {
+    match request.generation_mode.as_deref() {
+        Some("best") => "BEST_MODE_",
+        _ => "BALANCED_MODE_",
     }
+}
+
+fn chat_models_for_tier(tier: PedagogyTier, request: &StatelessChatRequest) -> Result<String> {
+    let prefix = get_mode_prefix_for_chat(request);
+    let key = match tier {
+        PedagogyTier::Baseline => format!("{}AI_TUTOR_CHAT_BASELINE_MODEL", prefix),
+        PedagogyTier::Scaffold => format!("{}AI_TUTOR_CHAT_SCAFFOLD_MODEL", prefix),
+        PedagogyTier::Reasoning => format!("{}AI_TUTOR_CHAT_REASONING_MODEL", prefix),
+    };
+    required_env_model(&key)
 }
 
 fn required_env_model(key: &str) -> Result<String> {
@@ -396,6 +393,7 @@ mod tests {
             model: None,
             provider_type: None,
             requires_api_key: None,
+            generation_mode: None,
         }
     }
 

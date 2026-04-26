@@ -485,6 +485,7 @@ pub struct GenerateLessonPayload {
     pub user_nickname: Option<String>,
     pub user_bio: Option<String>,
     pub account_id: Option<String>,
+    pub generation_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6970,6 +6971,7 @@ fn build_generation_request(payload: GenerateLessonPayload) -> Result<LessonGene
             _ => AgentMode::Default,
         },
         account_id: payload.account_id,
+        generation_mode: payload.generation_mode,
     })
 }
 
@@ -10258,6 +10260,7 @@ mod tests {
             enable_tts: false,
             agent_mode: AgentMode::Default,
             account_id: None,
+            generation_mode: None,
         };
         let now = Utc::now();
         LessonGenerationJob {
@@ -11936,6 +11939,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
         let job = build_queued_job(
@@ -12018,6 +12022,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
 
@@ -12203,6 +12208,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
 
@@ -13047,6 +13053,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
 
@@ -13102,6 +13109,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
 
@@ -14532,6 +14540,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
 
@@ -14633,6 +14642,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
 
@@ -14727,6 +14737,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
 
@@ -14808,6 +14819,7 @@ mod tests {
             enable_tts: false,
             agent_mode: AgentMode::Default,
             account_id: None,
+            generation_mode: None,
         };
         let job = LessonGenerationJob {
             id: "job-stale".to_string(),
@@ -14873,6 +14885,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
         let job = build_queued_job("job-cancel-live".to_string(), &request, chrono::Utc::now());
@@ -14935,6 +14948,7 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
+            generation_mode: None,
         })
         .unwrap();
         let now = chrono::Utc::now();

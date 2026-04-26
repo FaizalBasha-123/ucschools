@@ -27,6 +27,9 @@ export const PLAYBACK_SPEEDS = [1, 1.25, 1.5, 2] as const;
 export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
 
 export interface SettingsState {
+  // Generation Mode
+  generationMode: 'best' | 'balanced';
+
   // Model selection
   providerId: ProviderId;
   modelId: string;
@@ -158,6 +161,7 @@ export interface SettingsState {
   chatAreaWidth: number;
 
   // Actions
+  setGenerationMode: (mode: 'best' | 'balanced') => void;
   setModel: (providerId: ProviderId, modelId: string) => void;
   setProviderConfig: (providerId: ProviderId, config: Partial<ProvidersConfig[ProviderId]>) => void;
   setProvidersConfig: (config: ProvidersConfig) => void;
@@ -566,6 +570,7 @@ export const useSettingsStore = create<SettingsState>()(
 
       return {
         // Initial state (use migrated data if available)
+        generationMode: 'balanced' as const,
         providerId: migratedData?.providerId || 'openai',
         modelId: migratedData?.modelId || '',
         providersConfig: migratedData?.providersConfig || getDefaultProvidersConfig(),
@@ -612,6 +617,7 @@ export const useSettingsStore = create<SettingsState>()(
         ...defaultWebSearchConfig,
 
         // Actions
+        setGenerationMode: (mode) => set({ generationMode: mode }),
         setModel: (providerId, modelId) => set({ providerId, modelId }),
 
         setProviderConfig: (providerId, config) =>

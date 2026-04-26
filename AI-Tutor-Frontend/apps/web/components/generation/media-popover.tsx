@@ -63,7 +63,7 @@ const VIDEO_PROVIDER_ICONS: Record<string, string> = {
   'grok-video': '/logos/grok.svg',
 };
 
-type TabId = 'image' | 'video' | 'tts' | 'asr';
+type TabId = 'tts' | 'asr';
 
 const LANG_LABELS: Record<string, string> = {
   zh: '中文',
@@ -191,7 +191,6 @@ const LANGUAGE_CODES_DISPLAY: Record<string, string> = {
 };
 
 const TABS: Array<{ id: TabId; icon: LucideIcon; label: string }> = [
-  { id: 'image', icon: ImageIcon, label: 'Image' },
   { id: 'tts', icon: Volume2, label: 'TTS' },
   { id: 'asr', icon: Mic, label: 'ASR' },
 ];
@@ -223,7 +222,7 @@ function getVoiceDisplayName(name: string, lang: string): string {
 export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
   const { t, locale } = useI18n();
   const [open, setOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabId>('image');
+  const [activeTab, setActiveTab] = useState<TabId>('tts');
   const { previewing, startPreview, stopPreview } = useTTSPreview();
 
   // ─── Store ───
@@ -258,8 +257,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
 
   // All media features are always enabled
   const enabledMap: Record<TabId, boolean> = {
-    image: true,
-    video: true,
     tts: true,
     asr: true,
   };
@@ -421,7 +418,7 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
     }
     setOpen(isOpen);
     if (isOpen) {
-      setActiveTab('image');
+      setActiveTab('tts');
     }
   };
 
@@ -435,7 +432,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
           )}
         >
           <SlidersHorizontal className="size-3.5" />
-          <ImageIcon className="size-3.5" />
           <Volume2 className="size-3.5" />
           <Mic className="size-3.5" />
         </button>
@@ -474,33 +470,6 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
 
         {/* ── Tab content ── */}
         <div className="p-3 pt-2.5">
-          {activeTab === 'image' && (
-            <TabPanel
-              icon={ImageIcon}
-              label={t('media.imageCapability')}
-            >
-              <p className="text-[11px] text-muted-foreground/50">
-                {t('media.imageHint')}
-              </p>
-            </TabPanel>
-          )}
-
-          {activeTab === 'video' && (
-            <TabPanel
-              icon={Video}
-              label={t('media.videoCapability')}
-            >
-              <GroupedSelect
-                groups={videoGroups}
-                selectedGroupId={videoProviderId}
-                selectedItemId={videoModelId}
-                onSelect={(gid, iid) => {
-                  setVideoProvider(gid as VideoProviderId);
-                  setVideoModelId(iid);
-                }}
-              />
-            </TabPanel>
-          )}
 
           {activeTab === 'tts' && (
             <TabPanel

@@ -1219,6 +1219,7 @@ mod tests {
             enable_tts: true,
             agent_mode: AgentMode::Default,
             account_id: None,
+            generation_mode: None,
         }
     }
 
