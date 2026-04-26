@@ -1,6 +1,5 @@
 'use client';
 
-import { Zap, Scale } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -32,11 +31,6 @@ export function ModeSelector() {
           '[&>svg:last-child]:size-3 [&>svg:last-child]:opacity-70',
         )}
       >
-        {generationMode === 'best' ? (
-          <Zap className="size-3.5 text-amber-500 animate-pulse" />
-        ) : (
-          <Scale className="size-3.5 text-sky-500" />
-        )}
         <SelectValue />
       </SelectTrigger>
       <SelectContent
@@ -48,9 +42,6 @@ export function ModeSelector() {
           className="cursor-pointer rounded-lg mb-1 data-[state=checked]:bg-amber-500/10 data-[state=checked]:text-amber-700 dark:data-[state=checked]:text-amber-300 transition-colors"
         >
           <div className="flex items-center gap-3 py-1">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-amber-500/20 text-amber-500">
-              <Zap className="size-4" />
-            </div>
             <div className="flex flex-col">
               <span className="font-semibold">{t('toolbar.modeBest')}</span>
               <span className="text-[10px] text-muted-foreground leading-tight mt-0.5">
@@ -64,9 +55,6 @@ export function ModeSelector() {
           className="cursor-pointer rounded-lg data-[state=checked]:bg-sky-500/10 data-[state=checked]:text-sky-700 dark:data-[state=checked]:text-sky-300 transition-colors"
         >
           <div className="flex items-center gap-3 py-1">
-            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-sky-500/20 text-sky-500">
-              <Scale className="size-4" />
-            </div>
             <div className="flex flex-col">
               <span className="font-semibold">{t('toolbar.modeBalanced')}</span>
               <span className="text-[10px] text-muted-foreground leading-tight mt-0.5">
