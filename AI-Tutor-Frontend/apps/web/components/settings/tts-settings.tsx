@@ -140,7 +140,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2 top-1/2 -tranneutral-y-1/2 text-muted-foreground hover:text-foreground"
                     >
                       {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -168,7 +168,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                     <button
                       type="button"
                       onClick={() => setShowApiKey(!showApiKey)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      className="absolute right-2 top-1/2 -tranneutral-y-1/2 text-muted-foreground hover:text-foreground"
                     >
                       {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
@@ -202,7 +202,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
                   <button
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    className="absolute right-2 top-1/2 -tranneutral-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>

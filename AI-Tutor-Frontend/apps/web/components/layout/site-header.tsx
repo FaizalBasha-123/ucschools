@@ -93,7 +93,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 md:px-8 py-3.5 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl border-b border-slate-200/40 dark:border-border/40 shadow-sm">
+      <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 md:px-8 py-3.5 bg-white/70 dark:bg-neutral-900/70 backdrop-blur-xl border-b border-neutral-200/40 dark:border-border/40 shadow-sm">
         {/* Logo */}
         <div
           className="flex items-center gap-2.5 cursor-pointer select-none group"
@@ -109,7 +109,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
             AI-Tutor
           </span>
           {variant === 'dashboard' && (
-            <span className="ml-2 px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-widest hidden md:inline-block">
+            <span className="ml-2 px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-[10px] font-bold text-neutral-500 uppercase tracking-widest hidden md:inline-block">
               Workspace
             </span>
           )}
@@ -125,20 +125,20 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
               <div className="relative">
                 <button
                   onClick={() => setThemeOpen(!themeOpen)}
-                  className="p-2 rounded-full text-slate-500 hover:bg-slate-100 dark:text-muted-foreground dark:hover:bg-muted dark:hover:text-foreground transition-all"
+                  className="p-2 rounded-full text-neutral-500 hover:bg-neutral-100 dark:text-muted-foreground dark:hover:bg-muted dark:hover:text-foreground transition-all"
                 >
                   {theme === 'light' && <Sun className="w-4 h-4" />}
                   {theme === 'dark' && <Moon className="w-4 h-4" />}
                   {theme === 'system' && <Monitor className="w-4 h-4" />}
                 </button>
                 {themeOpen && (
-                  <div className="absolute top-full mt-2 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-border/60 rounded-lg shadow-lg overflow-hidden z-50 min-w-[140px]">
+                  <div className="absolute top-full mt-2 right-0 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-border/60 rounded-lg shadow-lg overflow-hidden z-50 min-w-[140px]">
                     {(['light', 'dark', 'system'] as const).map((t_) => (
                       <button
                         key={t_}
                         onClick={() => { setTheme(t_); setThemeOpen(false); }}
                         className={cn(
-                          'w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-muted/80 transition-colors flex items-center gap-2',
+                          'w-full px-4 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-muted/80 transition-colors flex items-center gap-2',
                           theme === t_ && 'bg-emerald-50 text-emerald-600 dark:bg-primary/5 dark:text-primary',
                         )}
                       >
@@ -154,14 +154,14 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
 
               <button
                 onClick={() => setSettingsOpen(true)}
-                className="p-2 rounded-full text-slate-500 hover:bg-slate-100 dark:text-muted-foreground dark:hover:bg-muted transition-all group"
+                className="p-2 rounded-full text-neutral-500 hover:bg-neutral-100 dark:text-muted-foreground dark:hover:bg-muted transition-all group"
               >
                 <Settings className="w-4 h-4 group-hover:rotate-90 transition-transform duration-500" />
               </button>
             </div>
           )}
 
-          {variant !== 'dashboard' && <div className="w-[1px] h-5 bg-slate-200 dark:bg-border/60 mx-1" />}
+          {variant !== 'dashboard' && <div className="w-[1px] h-5 bg-neutral-200 dark:bg-border/60 mx-1" />}
 
           <div className="flex items-center gap-3">
             {navLinks.map((link) => (
@@ -169,7 +169,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
                 key={link.href}
                 type="button"
                 onClick={() => router.push(link.href)}
-                className="text-sm font-medium text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground transition-colors"
+                className="text-sm font-medium text-neutral-500 hover:text-neutral-900 dark:text-muted-foreground dark:hover:text-foreground transition-colors"
               >
                 {link.label}
               </button>
@@ -182,7 +182,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
                     <button
                       type="button"
                       onClick={() => router.push('/classroom')}
-                      className="rounded-full bg-slate-900 text-white dark:bg-primary dark:text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-slate-800 transition-all"
+                      className="rounded-full bg-neutral-900 text-white dark:bg-primary dark:text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-neutral-800 transition-all"
                     >
                       Classrooms
                     </button>
@@ -200,14 +200,14 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
                   <button
                     type="button"
                     onClick={() => router.push('/auth?mode=signin&next=/')}
-                    className="rounded-full border border-slate-300 dark:border-border/70 bg-white dark:bg-background px-4 py-2 text-sm font-medium text-slate-700 dark:text-foreground hover:bg-slate-50 dark:hover:bg-muted transition-colors"
+                    className="rounded-full border border-neutral-300 dark:border-border/70 bg-white dark:bg-background px-4 py-2 text-sm font-medium text-neutral-700 dark:text-foreground hover:bg-neutral-50 dark:hover:bg-muted transition-colors"
                   >
                     Sign in
                   </button>
                   <button
                     type="button"
                     onClick={() => router.push('/auth?mode=signup&next=/')}
-                    className="rounded-full bg-[#1ed760] text-slate-900 px-4 py-2 text-sm font-bold hover:bg-[#1fdf64] shadow-sm shadow-[#1ed760]/20 transition-all"
+                    className="rounded-full bg-[#1ed760] text-neutral-900 px-4 py-2 text-sm font-bold hover:bg-[#1fdf64] shadow-sm shadow-[#1ed760]/20 transition-all"
                   >
                     Get Started
                   </button>
@@ -219,7 +219,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
 
         {/* Mobile: Hamburger button */}
         <button
-          className="md:hidden flex items-center justify-center size-9 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="md:hidden flex items-center justify-center size-9 rounded-lg text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
           aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
           onClick={() => setMobileMenuOpen((v) => !v)}
         >
@@ -227,7 +227,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
             <span
               className={cn(
                 'block h-[2px] w-5 rounded-full bg-current transition-all duration-300 origin-center',
-                mobileMenuOpen && 'rotate-45 translate-y-[7px]',
+                mobileMenuOpen && 'rotate-45 tranneutral-y-[7px]',
               )}
             />
             <span
@@ -239,7 +239,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
             <span
               className={cn(
                 'block h-[2px] w-5 rounded-full bg-current transition-all duration-300 origin-center',
-                mobileMenuOpen && '-rotate-45 -translate-y-[7px]',
+                mobileMenuOpen && '-rotate-45 -tranneutral-y-[7px]',
               )}
             />
           </span>
@@ -257,10 +257,10 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
           {/* Slide-in panel */}
           <div
             ref={mobileMenuRef}
-            className="absolute top-0 right-0 bottom-0 w-72 bg-white dark:bg-slate-900 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300"
+            className="absolute top-0 right-0 bottom-0 w-72 bg-white dark:bg-neutral-900 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-border/40">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100 dark:border-border/40">
               <div className="flex items-center gap-2.5">
                 <div className="size-7 rounded-lg bg-primary flex items-center justify-center shadow-md shadow-primary/20">
                   <BotOff className="size-4 text-primary-foreground stroke-[2.5]" />
@@ -271,7 +271,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
               </div>
               <button
                 onClick={() => setMobileMenuOpen(false)}
-                className="size-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="size-8 rounded-lg flex items-center justify-center text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
               >
                 <X className="size-4" />
               </button>
@@ -284,18 +284,18 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
                   key={link.href}
                   type="button"
                   onClick={() => { router.push(link.href); setMobileMenuOpen(false); }}
-                  className="w-full flex items-center px-4 py-3 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors text-left"
+                  className="w-full flex items-center px-4 py-3 rounded-xl text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors text-left"
                 >
                   {link.label}
                 </button>
               ))}
 
               {/* Spacer */}
-              {navLinks.length > 0 && <div className="h-px bg-slate-100 dark:bg-border/40 mx-2 my-2" />}
+              {navLinks.length > 0 && <div className="h-px bg-neutral-100 dark:bg-border/40 mx-2 my-2" />}
 
               {/* Theme */}
               <div className="px-4 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Theme</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400 dark:text-neutral-500 mb-2">Theme</p>
                 <div className="flex gap-2">
                   {(['light', 'dark', 'system'] as const).map((t_) => (
                     <button
@@ -305,7 +305,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
                         'flex-1 flex flex-col items-center gap-1.5 py-2.5 rounded-xl border text-xs font-medium transition-all',
                         theme === t_
                           ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-slate-200 dark:border-border/50 text-slate-500 dark:text-slate-400 hover:border-primary/40',
+                          : 'border-neutral-200 dark:border-border/50 text-neutral-500 dark:text-neutral-400 hover:border-primary/40',
                       )}
                     >
                       {t_ === 'light' && <Sun className="size-4" />}
@@ -319,7 +319,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
 
               {/* Language */}
               <div className="px-4 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">Language</p>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400 dark:text-neutral-500 mb-2">Language</p>
                 <LanguageSwitcher />
               </div>
 
@@ -327,7 +327,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
               {variant !== 'dashboard' && (
                 <button
                   onClick={() => { setSettingsOpen(true); setMobileMenuOpen(false); }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
                   <Settings className="size-4" />
                   Settings
@@ -337,14 +337,14 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
 
             {/* Auth Actions */}
             {!authChecking && (
-              <div className="px-4 pb-6 pt-3 border-t border-slate-100 dark:border-border/40 space-y-2">
+              <div className="px-4 pb-6 pt-3 border-t border-neutral-100 dark:border-border/40 space-y-2">
                 {isAuthenticated ? (
                   <>
                     {(variant === 'landing' || variant === 'pricing') && (
                       <button
                         type="button"
                         onClick={() => { router.push('/classroom'); setMobileMenuOpen(false); }}
-                        className="w-full rounded-xl bg-slate-900 text-white dark:bg-primary dark:text-primary-foreground px-4 py-3 text-sm font-semibold hover:bg-slate-800 transition-all"
+                        className="w-full rounded-xl bg-neutral-900 text-white dark:bg-primary dark:text-primary-foreground px-4 py-3 text-sm font-semibold hover:bg-neutral-800 transition-all"
                       >
                         Classrooms
                       </button>
@@ -362,14 +362,14 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
                     <button
                       type="button"
                       onClick={() => { router.push('/auth?mode=signin&next=/'); setMobileMenuOpen(false); }}
-                      className="w-full rounded-xl border border-slate-300 dark:border-border/70 bg-white dark:bg-background px-4 py-3 text-sm font-medium text-slate-700 dark:text-foreground hover:bg-slate-50 dark:hover:bg-muted transition-colors"
+                      className="w-full rounded-xl border border-neutral-300 dark:border-border/70 bg-white dark:bg-background px-4 py-3 text-sm font-medium text-neutral-700 dark:text-foreground hover:bg-neutral-50 dark:hover:bg-muted transition-colors"
                     >
                       Sign in
                     </button>
                     <button
                       type="button"
                       onClick={() => { router.push('/auth?mode=signup&next=/'); setMobileMenuOpen(false); }}
-                      className="w-full rounded-xl bg-[#1ed760] text-slate-900 px-4 py-3 text-sm font-bold hover:bg-[#1fdf64] shadow-sm shadow-[#1ed760]/20 transition-all"
+                      className="w-full rounded-xl bg-[#1ed760] text-neutral-900 px-4 py-3 text-sm font-bold hover:bg-[#1fdf64] shadow-sm shadow-[#1ed760]/20 transition-all"
                     >
                       Get Started
                     </button>

@@ -109,10 +109,10 @@ export function WhiteboardHistory({ isOpen, onClose }: WhiteboardHistoryProps) {
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -8, scale: 0.95 }}
           transition={{ duration: 0.15 }}
-          className="absolute right-0 top-full mt-2 z-[130] w-72 max-h-80 bg-card dark:bg-slate-900 rounded-xl shadow-2xl border border-border dark:border-slate-800 overflow-hidden flex flex-col"
+          className="absolute right-0 top-full mt-2 z-[130] w-72 max-h-80 bg-card dark:bg-neutral-900 rounded-xl shadow-2xl border border-border dark:border-neutral-800 overflow-hidden flex flex-col"
         >
           {/* Header */}
-          <div className="px-4 py-3 border-b border-border dark:border-slate-800 flex items-center justify-between">
+          <div className="px-4 py-3 border-b border-border dark:border-neutral-800 flex items-center justify-between">
             <span className="text-sm font-semibold text-foreground">
               {t('whiteboard.history')}
             </span>
@@ -134,7 +134,7 @@ export function WhiteboardHistory({ isOpen, onClose }: WhiteboardHistoryProps) {
                   return (
                     <div
                       key={`${snap.timestamp}-${realIdx}`}
-                      className="px-4 py-2.5 flex items-center justify-between hover:bg-muted/50 dark:hover:bg-slate-800/50 transition-colors group"
+                      className="px-4 py-2.5 flex items-center justify-between hover:bg-muted/50 dark:hover:bg-neutral-800/50 transition-colors group"
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium text-foreground truncate">

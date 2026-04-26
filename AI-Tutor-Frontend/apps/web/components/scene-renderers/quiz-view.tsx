@@ -148,7 +148,7 @@ function QuizCover({
   const { t } = useI18n();
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center gap-4 relative overflow-hidden bg-card dark:bg-slate-900/50">
+    <div className="w-full h-full flex flex-col items-center justify-center gap-4 relative overflow-hidden bg-card dark:bg-neutral-900/50">
       {/* Background decoration */}
       <div className="absolute top-0 right-0 p-6 opacity-[0.03]">
         <PieChart className="w-52 h-52 text-primary" />
@@ -514,7 +514,7 @@ function QuestionCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
       className={cn(
-        'bg-card dark:bg-slate-900 rounded-2xl border p-5 relative overflow-hidden',
+        'bg-card dark:bg-neutral-900 rounded-2xl border p-5 relative overflow-hidden',
         !isReview && 'border-gray-150 dark:border-gray-700 shadow-sm',
         isReview &&
           result.status === 'correct' &&
@@ -794,7 +794,7 @@ export function QuizView({ questions, sceneId }: QuizViewProps) {
   }, [results]);
 
   return (
-    <div className="w-full h-full bg-background dark:bg-slate-950 overflow-hidden flex flex-col">
+    <div className="w-full h-full bg-background dark:bg-neutral-950 overflow-hidden flex flex-col">
       <AnimatePresence mode="wait">
         {phase === 'not_started' && (
           <motion.div

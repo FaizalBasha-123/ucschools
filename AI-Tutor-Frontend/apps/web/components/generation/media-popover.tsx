@@ -437,10 +437,10 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" side="bottom" avoidCollisions={false} className="w-80 p-0 bg-card dark:bg-slate-900 border-border dark:border-slate-800 shadow-xl">
+      <PopoverContent align="start" side="bottom" avoidCollisions={false} className="w-80 p-0 bg-card dark:bg-neutral-900 border-border dark:border-neutral-800 shadow-xl">
         {/* ── Tab bar (segmented control) ── */}
         <div className="p-2 pb-0">
-          <div className="flex gap-0.5 p-0.5 bg-muted/60 dark:bg-slate-800/60 rounded-lg">
+          <div className="flex gap-0.5 p-0.5 bg-muted/60 dark:bg-neutral-800/60 rounded-lg">
             {TABS.map((tab) => {
               const isActive = activeTab === tab.id;
               const isEnabled = enabledMap[tab.id];
@@ -452,7 +452,7 @@ export function MediaPopover({ onSettingsOpen }: MediaPopoverProps) {
                   className={cn(
                     'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-[11px] font-medium transition-all relative',
                     isActive
-                      ? 'bg-card dark:bg-slate-900 text-foreground shadow-sm ring-1 ring-border/50 dark:ring-slate-700/50'
+                      ? 'bg-card dark:bg-neutral-900 text-foreground shadow-sm ring-1 ring-border/50 dark:ring-neutral-700/50'
                       : 'text-muted-foreground hover:text-foreground/80',
                   )}
                 >
@@ -599,7 +599,7 @@ function GroupedSelect({
           <ChevronDown className="size-3 shrink-0 opacity-50 ml-2" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="w-[280px] p-0 shadow-xl border-border dark:border-slate-800" align="start">
+      <PopoverContent className="w-[280px] p-0 shadow-xl border-border dark:border-neutral-800" align="start">
         <Command>
           <CommandInput placeholder="Search options..." className="h-9 text-xs" />
           <CommandList className="max-h-60 overflow-y-auto">

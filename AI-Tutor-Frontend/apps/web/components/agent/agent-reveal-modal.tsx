@@ -172,7 +172,7 @@ export function AgentRevealModal({ agents, open, onClose, onAllRevealed }: Agent
                         }}
                       >
                         {/* Inner card body */}
-                        <div className="relative flex size-full flex-col overflow-clip rounded-[14px] bg-card dark:bg-slate-900">
+                        <div className="relative flex size-full flex-col overflow-clip rounded-[14px] bg-card dark:bg-neutral-900">
                           {/* Top gradient band with texture */}
                           <div className="relative shrink-0 overflow-hidden" style={{ height: 56 }}>
                             {/* Color gradient fill */}

@@ -43,14 +43,14 @@ export default function BillingPage() {
   // If we are strictly checking auth, hide UI completely or show loading barrier
   if (authChecking) {
     return (
-      <div className="flex min-h-screen bg-slate-50 dark:bg-slate-900/50 items-center justify-center">
+      <div className="flex min-h-screen bg-neutral-50 dark:bg-neutral-900/50 items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
       </div>
     );
   }
 
   return (
-    <div className="flex w-full min-h-screen bg-slate-50 dark:bg-slate-900/50">
+    <div className="flex w-full min-h-screen bg-neutral-50 dark:bg-neutral-900/50">
       <EnterpriseSidebar onSignOut={() => {
         clearAuthSession();
         router.push('/auth?next=/billing');
@@ -75,7 +75,7 @@ export default function BillingPage() {
 
           {/* Current Usage Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
-            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
               <div className="flex items-center gap-3 text-muted-foreground mb-4">
                 <CreditCard className="size-5 text-emerald-500" />
                 <h3 className="font-medium text-sm text-foreground">Current Plan</h3>
@@ -85,7 +85,7 @@ export default function BillingPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
               <div className="flex items-center gap-3 text-muted-foreground mb-4">
                 <Zap className="size-5 text-amber-500" />
                 <h3 className="font-medium text-sm text-foreground">Generation Credits</h3>
@@ -95,7 +95,7 @@ export default function BillingPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border/60 bg-white dark:bg-slate-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
               <div className="flex items-center gap-3 text-muted-foreground mb-4">
                 <Sparkles className="size-5 text-primary" />
                 <h3 className="font-medium text-sm text-foreground">Active Classrooms</h3>
@@ -107,9 +107,9 @@ export default function BillingPage() {
           </div>
 
           <h2 className="text-xl font-bold mb-6">Invoice History</h2>
-          <div className="rounded-xl border border-border/60 bg-white dark:bg-slate-950 overflow-hidden shadow-sm">
+          <div className="rounded-xl border border-border/60 bg-white dark:bg-neutral-950 overflow-hidden shadow-sm">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-900 border-b border-border/60">
+              <thead className="bg-neutral-50 dark:bg-neutral-900 border-b border-border/60">
                 <tr>
                   <th className="px-6 py-4 text-left font-medium text-muted-foreground">Invoice</th>
                   <th className="px-6 py-4 text-left font-medium text-muted-foreground">Date</th>

@@ -41,7 +41,7 @@ export function ModeSelector() {
       </SelectTrigger>
       <SelectContent
         align="start"
-        className="min-w-[220px] bg-card/95 backdrop-blur-md dark:bg-slate-900/95 border-border/50 dark:border-slate-800/50 shadow-2xl rounded-xl p-1"
+        className="min-w-[220px] bg-card/95 backdrop-blur-md dark:bg-neutral-900/95 border-border/50 dark:border-neutral-800/50 shadow-2xl rounded-xl p-1"
       >
         <SelectItem 
           value="best" 

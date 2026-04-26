@@ -77,7 +77,7 @@ export function LectureNotesView({ notes, currentSceneId }: LectureNotesViewProp
               'relative mb-3 last:mb-0 rounded-lg px-3 py-2.5 transition-colors duration-200 border',
               isCurrent
                 ? 'bg-primary/5 dark:bg-primary/10 border-primary/20 dark:border-primary/30 ring-1 ring-primary/10 dark:ring-primary/20'
-                : 'bg-card dark:bg-slate-900/40 border-border/50 dark:border-slate-800/50',
+                : 'bg-card dark:bg-neutral-900/40 border-border/50 dark:border-neutral-800/50',
             )}
           >
             {/* Page label row */}

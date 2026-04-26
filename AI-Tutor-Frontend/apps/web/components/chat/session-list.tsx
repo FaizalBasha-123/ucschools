@@ -68,7 +68,7 @@ export function SessionList({
               'rounded-xl border transition-all duration-500 overflow-hidden mb-2 last:mb-0',
               isActive
                 ? 'border-primary/20 dark:border-primary/30 bg-primary/5 dark:bg-primary/10 shadow-sm'
-                : 'border-border/50 dark:border-slate-800 bg-card/50 dark:bg-slate-900/50',
+                : 'border-border/50 dark:border-neutral-800 bg-card/50 dark:bg-neutral-900/50',
             )}
           >
             {/* Session Header */}

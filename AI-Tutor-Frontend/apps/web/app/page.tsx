@@ -376,7 +376,7 @@ function HomePage() {
     toast.custom(
       (id) => (
         <div
-          className="w-[356px] rounded-xl border border-amber-200/60 dark:border-amber-800/40 bg-gradient-to-r from-amber-50 via-white to-amber-50 dark:from-amber-950/60 dark:via-slate-900 dark:to-amber-950/60 shadow-lg shadow-amber-500/8 dark:shadow-amber-900/20 p-4 flex items-start gap-3 cursor-pointer"
+          className="w-[356px] rounded-xl border border-amber-200/60 dark:border-amber-800/40 bg-gradient-to-r from-amber-50 via-white to-amber-50 dark:from-amber-950/60 dark:via-neutral-900 dark:to-amber-950/60 shadow-lg shadow-amber-500/8 dark:shadow-amber-900/20 p-4 flex items-start gap-3 cursor-pointer"
           onClick={() => {
             toast.dismiss(id);
             setSettingsOpen(true);
@@ -564,7 +564,7 @@ function HomePage() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.25 }}
-          className="text-sm md:text-base font-medium text-slate-500 dark:text-slate-400 mb-8 max-w-xl text-center"
+          className="text-sm md:text-base font-medium text-neutral-500 dark:text-neutral-400 mb-8 max-w-xl text-center"
         >
           Transform curiosity into clarity through instantly generated, personalized lessons.
         </motion.p>
@@ -576,7 +576,7 @@ function HomePage() {
           transition={{ delay: 0.35 }}
           className="w-full"
         >
-          <div className="w-full rounded-2xl border border-border/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-xl shadow-black/[0.03] dark:shadow-black/20 transition-shadow focus-within:shadow-2xl focus-within:shadow-primary/[0.06]">
+          <div className="w-full rounded-2xl border border-border/60 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-xl shadow-black/[0.03] dark:shadow-black/20 transition-shadow focus-within:shadow-2xl focus-within:shadow-primary/[0.06]">
             {/* ── Greeting + Profile + Agents ── */}
             {/* ── Lesson Personalization Avatar ── */}
             <div className="relative z-20 flex items-start justify-between">
@@ -730,7 +730,7 @@ function HomePage() {
                         initial={{ opacity: 0, y: 16 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.04, duration: 0.35, ease: 'easeOut' }}
-                        className="rounded-2xl border border-border/60 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl shadow-sm shadow-black/[0.03] dark:shadow-black/20 p-4"
+                        className="rounded-2xl border border-border/60 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-sm shadow-black/[0.03] dark:shadow-black/20 p-4"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -745,13 +745,13 @@ function HomePage() {
                             item.status === 'ready' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
                             item.status === 'generating' && 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
                             item.status === 'failed' && 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
-                            item.status === 'archived' && 'bg-slate-500/10 text-slate-600 dark:text-slate-300',
+                            item.status === 'archived' && 'bg-neutral-500/10 text-neutral-600 dark:text-neutral-300',
                           )}>
                             {item.status}
                           </span>
                         </div>
 
-                        <div className="mt-3 h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                        <div className="mt-3 h-2 rounded-full bg-neutral-100 dark:bg-neutral-800 overflow-hidden">
                           <div
                             className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-500 to-emerald-500"
                             style={{ width: `${Math.max(4, Math.min(100, item.progress_pct || 0))}%` }}
@@ -813,7 +813,7 @@ function HomePage() {
                       </motion.div>
                     ))}
                     {visibleLessonShelf.length === 0 ? (
-                      <div className="col-span-full rounded-2xl border border-dashed border-border/60 bg-white/60 dark:bg-slate-900/60 p-8 text-center text-sm text-muted-foreground/60">
+                      <div className="col-span-full rounded-2xl border border-dashed border-border/60 bg-white/60 dark:bg-neutral-900/60 p-8 text-center text-sm text-muted-foreground/60">
                         {t('classroom.shelf.empty')}
                       </div>
                     ) : null}
@@ -904,7 +904,7 @@ function HomePage() {
       )}
       {/* ═══ Philosophical Marketing Layout (Landing Page Only) ═══ */}
       {(!isAuthenticated || classrooms.length === 0) && (
-        <div className="w-full mt-auto bg-slate-50 dark:bg-slate-900 border-t border-border/40 rounded-t-[3rem] shadow-[0_-20px_40px_rgba(0,0,0,0.05)] overflow-hidden relative z-10 block">
+        <div className="w-full mt-auto bg-neutral-50 dark:bg-neutral-900 border-t border-border/40 rounded-t-[3rem] shadow-[0_-20px_40px_rgba(0,0,0,0.05)] overflow-hidden relative z-10 block">
           <MissionSection />
           <UseCasesSection />
           <FinalCTA />
@@ -912,7 +912,7 @@ function HomePage() {
       )}
 
       {/* ═══ Footer ═══ */}
-      <footer className="w-full relative z-10 mt-auto pt-20 pb-8 flex flex-col items-center justify-center border-t border-border/40 bg-white/30 dark:bg-slate-900/30 backdrop-blur-sm">
+      <footer className="w-full relative z-10 mt-auto pt-20 pb-8 flex flex-col items-center justify-center border-t border-border/40 bg-white/30 dark:bg-neutral-900/30 backdrop-blur-sm">
         <div className="flex items-center gap-2 mb-4 opacity-60 cursor-default select-none">
           <BotOff className="size-5 text-primary stroke-[2]" />
           <span className="text-lg font-bold tracking-tight text-primary">
@@ -1037,7 +1037,7 @@ function GreetingBar() {
             <div className="size-8 rounded-full overflow-hidden ring-[1.5px] ring-border/30 group-hover:ring-primary/60 dark:group-hover:ring-primary/40 transition-all duration-300">
               <img src={avatar} alt="" className="size-full object-cover" />
             </div>
-            <div className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full bg-white dark:bg-slate-800 border border-border/40 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity">
+            <div className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full bg-white dark:bg-neutral-800 border border-border/40 flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity">
               <Pencil className="size-[7px] text-muted-foreground/70" />
             </div>
           </div>
@@ -1069,7 +1069,7 @@ function GreetingBar() {
             transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
             className="absolute left-4 top-3.5 z-50 w-64"
           >
-            <div className="rounded-2xl bg-white/95 dark:bg-slate-800/95 backdrop-blur-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06] shadow-[0_1px_8px_-2px_rgba(0,0,0,0.06)] dark:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.3)] px-2.5 py-2">
+            <div className="rounded-2xl bg-white/95 dark:bg-neutral-800/95 backdrop-blur-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06] shadow-[0_1px_8px_-2px_rgba(0,0,0,0.06)] dark:shadow-[0_1px_8px_-2px_rgba(0,0,0,0.3)] px-2.5 py-2">
               {/* ── Row: avatar + name ── */}
               <div
                 className="flex items-center gap-2.5 cursor-pointer transition-all duration-200"
@@ -1093,7 +1093,7 @@ function GreetingBar() {
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
-                    className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full bg-white dark:bg-slate-800 border border-border/60 flex items-center justify-center"
+                    className="absolute -bottom-0.5 -right-0.5 size-3.5 rounded-full bg-white dark:bg-neutral-800 border border-border/60 flex items-center justify-center"
                   >
                     <ChevronDown
                       className={cn(
@@ -1283,7 +1283,7 @@ function ClassroomCard({
       {/* Thumbnail — large radius, no border, subtle bg */}
       <div
         ref={thumbRef}
-        className="relative w-full aspect-[16/9] rounded-2xl bg-slate-100 dark:bg-slate-800/80 overflow-hidden transition-transform duration-200 group-hover:scale-[1.02]"
+        className="relative w-full aspect-[16/9] rounded-2xl bg-neutral-100 dark:bg-neutral-800/80 overflow-hidden transition-transform duration-200 group-hover:scale-[1.02]"
       >
         {slide && thumbWidth > 0 ? (
           <ThumbnailSlide

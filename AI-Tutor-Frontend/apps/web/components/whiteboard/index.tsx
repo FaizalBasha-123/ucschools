@@ -89,10 +89,10 @@ export function Whiteboard({ isOpen, onClose }: WhiteboardProps) {
               y: 16,
               transition: { duration: 0.5, ease: [0.4, 0, 0.2, 1] },
             }}
-            className="absolute inset-4 pointer-events-auto bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-[0_32px_80px_-20px_rgba(0,0,0,0.25)] border-2 border-primary/20 dark:border-primary/30 flex flex-col overflow-hidden z-[120] ring-4 ring-primary/10 dark:ring-primary/20"
+            className="absolute inset-4 pointer-events-auto bg-white/95 dark:bg-neutral-900/95 backdrop-blur-2xl rounded-3xl shadow-[0_32px_80px_-20px_rgba(0,0,0,0.25)] border-2 border-primary/20 dark:border-primary/30 flex flex-col overflow-hidden z-[120] ring-4 ring-primary/10 dark:ring-primary/20"
           >
             {/* Header */}
-            <div className="h-14 px-6 border-b border-border dark:border-slate-800 flex items-center justify-between shrink-0 bg-white/50 dark:bg-slate-900/50">
+            <div className="h-14 px-6 border-b border-border dark:border-neutral-800 flex items-center justify-between shrink-0 bg-white/50 dark:bg-neutral-900/50">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-xl bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary">
                   <PencilLine className="w-4 h-4" />
