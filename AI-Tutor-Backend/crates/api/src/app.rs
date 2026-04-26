@@ -1648,8 +1648,8 @@ impl LiveLessonAppService {
             .await?;
 
         let status = response.status();
+        let body = response.text().await.unwrap_or_default();
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
             return Err(anyhow!(
                 "google token exchange failed with status {}: {}",
                 status,
@@ -1657,7 +1657,9 @@ impl LiveLessonAppService {
             ));
         }
 
-        Ok(response.json::<GoogleTokenResponse>().await?)
+        tracing::info!(status = %status, body = %body, "google token exchange raw response");
+        serde_json::from_str::<GoogleTokenResponse>(&body)
+            .map_err(|e| anyhow!("google token response parse error: {} — body was: {}", e, body))
     }
 
     async fn verify_google_id_token(&self, id_token: &str) -> Result<GoogleIdTokenClaims> {
