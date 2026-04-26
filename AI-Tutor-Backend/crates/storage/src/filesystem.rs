@@ -2489,9 +2489,40 @@ impl TutorAccountRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let google_id = google_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                // Log masked URL so we can verify channel_binding is gone
+                let masked = if postgres_url.len() > 40 {
+                    format!("{}...{}", &postgres_url[..30], &postgres_url[postgres_url.len()-30..])
+                } else {
+                    "***".to_string()
+                };
+                eprintln!("[diag] connecting to postgres: {}", masked);
+
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| {
+                    format!("connect_postgres failed: {}", err)
+                })?;
+                eprintln!("[diag] connected OK");
+
+                Self::run_postgres_migrations(&mut client).map_err(|err| {
+                    format!("run_postgres_migrations failed: {}", err)
+                })?;
+                eprintln!("[diag] migrations OK");
+
+                // Test 1: simple query (no params)
+                match client.query("SELECT 1 AS test", &[]) {
+                    Ok(_) => eprintln!("[diag] simple query OK"),
+                    Err(e) => eprintln!("[diag] simple query FAILED: {}", e),
+                }
+
+                // Test 2: parameterized query with a string
+                match client.query("SELECT $1::TEXT AS echo", &[&google_id]) {
+                    Ok(_) => eprintln!("[diag] param query OK"),
+                    Err(e) => {
+                        eprintln!("[diag] param query FAILED: {}", e);
+                        return Err(format!("param query test failed: {}", e));
+                    }
+                }
+
+                // Test 3: actual query
                 let row = client
                     .query_opt(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
@@ -2500,7 +2531,11 @@ impl TutorAccountRepository for FileStorage {
                          FROM tutor_accounts WHERE google_id = $1",
                         &[&google_id],
                     )
-                    .map_err(|err| err.to_string())?;
+                    .map_err(|err| {
+                        eprintln!("[diag] tutor_accounts query FAILED: {}", err);
+                        err.to_string()
+                    })?;
+                eprintln!("[diag] tutor_accounts query OK, row={}", row.is_some());
                 row.map(Self::postgres_row_to_tutor_account).transpose()
             })
             .await
