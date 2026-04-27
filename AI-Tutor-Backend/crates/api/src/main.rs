@@ -87,13 +87,8 @@ async fn run_startup_readiness_checks(
         "1" | "true" | "yes" | "on"
     );
     if operator_otp_enabled {
-        let has_redis = is_configured_secret(std::env::var("AI_TUTOR_REDIS_URL").ok())
-            || is_configured_secret(std::env::var("REDIS_URL").ok());
-        if !has_redis {
-            return Err(anyhow!(
-                "startup readiness failed: operator OTP is enabled but AI_TUTOR_REDIS_URL/REDIS_URL is not configured"
-            ));
-        }
+        ai_tutor_api::app::init_operator_db()
+            .map_err(|e| anyhow!("startup readiness failed: operator db initialization error: {:?}", e))?;
 
         if !is_configured_secret(std::env::var("AI_TUTOR_OPERATOR_ALLOWED_EMAILS").ok()) {
             return Err(anyhow!(
