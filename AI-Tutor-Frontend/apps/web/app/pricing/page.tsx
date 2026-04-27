@@ -123,7 +123,17 @@ function PricingPageContent() {
   const creditPrice = 0.5;
 
   const [enterpriseOpen, setEnterpriseOpen] = useState(false);
-...
+  const [enterpriseForm, setEnterpriseForm] = useState({
+    school_name: '',
+    contact_name: '',
+    contact_email: '',
+    contact_phone: '',
+    message: '',
+  });
+  const [enterpriseLoading, setEnterpriseLoading] = useState(false);
+  const [enterpriseSuccess, setEnterpriseSuccess] = useState(false);
+  const [enterpriseError, setEnterpriseError] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadBilling() {
       if (!hasAuthSessionHint()) {
@@ -181,6 +191,11 @@ function PricingPageContent() {
   };
 
   const handleCheckout = (planId: string) => {
+    const apiKey = process.env.NEXT_PUBLIC_EASEBUZZ_KEY;
+    if (!apiKey) {
+      alert('Payment system error: API key not loaded. Please contact support.');
+      return;
+    }
     // Route to auth before billing checkout flow.
     router.push('/auth?next=/billing');
   };
@@ -300,6 +315,17 @@ function PricingPageContent() {
 
       {/* Hero Section */}
       <section className="pt-16 pb-12 px-4 text-center max-w-3xl mx-auto">
+        {creditBalance > 0 && !billingLoading && (
+          <div className="mb-8 flex justify-center">
+            <button
+              onClick={() => router.push('/classroom')}
+              className="group flex items-center gap-2 rounded-full bg-emerald-50 px-6 py-2.5 text-sm font-bold text-emerald-600 ring-1 ring-emerald-200 transition-all hover:bg-emerald-100 hover:ring-emerald-300"
+            >
+              <Zap className="size-4 fill-emerald-600" />
+              You have {creditBalance} credits. Skip to Classroom →
+            </button>
+          </div>
+        )}
         <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-neutral-900 mb-6">
           Invest in your workflow.
         </h1>
