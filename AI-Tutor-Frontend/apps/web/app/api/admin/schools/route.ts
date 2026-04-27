@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 export async function GET(request: NextRequest) {
   try {
     const apiBaseUrl = process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const sessionId = cookieStore.get('ai_tutor_operator_session');
     if (!sessionId) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     const res = await fetch(`${apiBaseUrl}/api/admin/schools`, {
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const apiBaseUrl = process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const sessionId = cookieStore.get('ai_tutor_operator_session');
     if (!sessionId) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     const body = await request.json();
