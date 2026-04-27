@@ -81,7 +81,7 @@ export default function OperatorLoginPage() {
       const response = await fetch('/api/operator/auth/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: otp }),
+        body: JSON.stringify({ email, otp_code: otp }),
         cache: 'no-store',
       });
 
