@@ -95,6 +95,10 @@ pub trait TutorAccountRepository: Send + Sync {
         &self,
         phone_number: &str,
     ) -> Result<Option<TutorAccount>, String>;
+    async fn get_tutor_account_by_email(
+        &self,
+        email: &str,
+    ) -> Result<Option<TutorAccount>, String>;
     async fn list_all_tutor_accounts(&self, limit: usize) -> Result<Vec<TutorAccount>, String>;
 }
 
@@ -245,4 +249,19 @@ pub trait FinancialAuditRepository: Send + Sync {
         limit: usize,
     ) -> Result<Vec<FinancialAuditLog>, String>;
     async fn list_all_audit_logs(&self, limit: usize) -> Result<Vec<FinancialAuditLog>, String>;
+}
+
+#[async_trait]
+pub trait SchoolRepository: Send + Sync {
+    async fn save_school(&self, school: &ai_tutor_domain::school::School) -> Result<(), String>;
+    async fn get_school(&self, id: &str) -> Result<Option<ai_tutor_domain::school::School>, String>;
+    async fn list_schools(&self, limit: usize) -> Result<Vec<ai_tutor_domain::school::School>, String>;
+    /// Assign a user to a school (or remove if school_id is None)
+    async fn set_user_school(&self, account_id: &str, school_id: Option<&str>) -> Result<(), String>;
+    /// List all accounts belonging to a school
+    async fn list_school_members(&self, school_id: &str) -> Result<Vec<TutorAccount>, String>;
+    
+    async fn save_school_invoice(&self, invoice: &ai_tutor_domain::school::SchoolInvoice) -> Result<(), String>;
+    async fn get_school_invoice(&self, id: &str) -> Result<Option<ai_tutor_domain::school::SchoolInvoice>, String>;
+    async fn list_school_invoices(&self, school_id: &str) -> Result<Vec<ai_tutor_domain::school::SchoolInvoice>, String>;
 }

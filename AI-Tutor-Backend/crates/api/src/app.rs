@@ -86,8 +86,8 @@ use ai_tutor_storage::{
         InvoiceLineRepository, InvoiceRepository, LessonAdaptiveRepository,
         LessonJobRepository, LessonRepository, LessonShelfRepository,
         PaymentIntentRepository, PaymentOrderRepository, PromoCodeRepository,
-        RuntimeActionExecutionRepository, RuntimeSessionRepository, SubscriptionRepository,
-        TutorAccountRepository, WebhookEventRepository,
+        RuntimeActionExecutionRepository, RuntimeSessionRepository, SchoolRepository,
+        SubscriptionRepository, TutorAccountRepository, WebhookEventRepository,
     },
 };
 use crate::notifications::{
@@ -276,6 +276,8 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
         || path == "/api/admin/jobs"
         || path == "/api/admin/audit-logs"
         || path == "/api/admin/system/toggle-maintenance"
+        || path == "/api/admin/schools"
+        || path.starts_with("/api/admin/schools/")
     {
         return Some(ApiRole::Admin);
     }
@@ -554,6 +556,9 @@ pub struct AdminUser {
     pub account_id: String,
     pub email: Option<String>,
     pub created_at_unix: i64,
+    pub plan: Option<String>,
+    pub credits: f64,
+    pub school_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -581,6 +586,105 @@ pub struct AdminAuditLogsResponse {
 pub struct ToggleMaintenanceResponse {
     pub status: &'static str,
     pub is_maintenance_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchoolResponse {
+    pub id: String,
+    pub name: String,
+    pub admin_email: String,
+    pub plan: String,
+    pub credit_pool: f64,
+    pub member_count: usize,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchoolsListResponse {
+    pub schools: Vec<SchoolResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSchoolRequest {
+    pub name: String,
+    pub admin_email: String,
+    pub plan: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchoolMember {
+    pub account_id: String,
+    pub email: String,
+    pub plan: Option<String>,
+    pub credits: f64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchoolMembersResponse {
+    pub school_id: String,
+    pub school_name: String,
+    pub members: Vec<SchoolMember>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AssignUserSchoolRequest {
+    pub account_id: String,
+    /// If Some, assigns user to the school. If None, removes the user from any school.
+    pub school_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ContactEnterpriseRequest {
+    pub school_name: String,
+    pub contact_name: String,
+    pub contact_email: String,
+    pub contact_phone: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkProvisionMembersRequest {
+    pub school_id: String,
+    pub emails: Vec<String>,
+    pub plan_code: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BulkProvisionMembersResponse {
+    pub added: usize,
+    pub updated: usize,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct GenerateSchoolInvoiceRequest {
+    pub school_id: String,
+    pub due_date: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct GenerateSchoolInvoiceResponse {
+    pub invoice_id: String,
+    pub amount_cents: i64,
+    pub payment_link: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SchoolInvoiceResponse {
+    pub id: String,
+    pub amount_cents: i64,
+    pub payment_link: Option<String>,
+    pub status: String,
+    pub due_at: String,
+    pub created_at: String,
+    pub paid_at: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContactEnterpriseResponse {
+    pub success: bool,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1271,6 +1375,14 @@ pub trait LessonAppService: Send + Sync {
     async fn get_admin_jobs(&self) -> Result<AdminJobsListResponse>;
     async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse>;
     async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse>;
+    async fn list_schools(&self) -> Result<SchoolsListResponse>;
+    async fn create_school(&self, payload: CreateSchoolRequest) -> Result<SchoolResponse>;
+    async fn get_school_members(&self, school_id: &str) -> Result<SchoolMembersResponse>;
+    async fn assign_user_school(&self, payload: AssignUserSchoolRequest) -> Result<()>;
+    async fn contact_enterprise(&self, payload: ContactEnterpriseRequest) -> Result<ContactEnterpriseResponse>;
+    async fn bulk_provision_members(&self, payload: BulkProvisionMembersRequest) -> Result<BulkProvisionMembersResponse>;
+    async fn generate_school_invoice(&self, payload: GenerateSchoolInvoiceRequest) -> Result<GenerateSchoolInvoiceResponse>;
+    async fn list_school_invoices(&self, school_id: &str) -> Result<Vec<SchoolInvoiceResponse>>;
     async fn generate_lesson(
         &self,
         payload: GenerateLessonPayload,
@@ -1781,6 +1893,27 @@ impl LiveLessonAppService {
             return Ok(existing);
         }
 
+        tracing::info!("upsert step 1.5: fallback looking up account by email");
+        let pre_registered = self
+            .storage
+            .get_tutor_account_by_email(&claims.email)
+            .await
+            .map_err(|err| anyhow!("email lookup failed: {err}"))?;
+
+        if let Some(mut existing) = pre_registered {
+            if existing.status == TutorAccountStatus::PreRegistered {
+                tracing::info!(account_id = %existing.id, "upsert step 2: activating pre-registered account");
+                existing.google_id = claims.sub.clone();
+                existing.status = TutorAccountStatus::PartialAuth;
+                existing.updated_at = chrono::Utc::now();
+                self.storage
+                    .save_tutor_account(&existing)
+                    .await
+                    .map_err(|err| anyhow!("save pre-registered failed: {err}"))?;
+                return Ok(existing);
+            }
+        }
+
         tracing::info!("upsert step 2: creating new account");
         let now = chrono::Utc::now();
         let account = TutorAccount {
@@ -1790,6 +1923,7 @@ impl LiveLessonAppService {
             phone_number: None,
             phone_verified: false,
             status: TutorAccountStatus::PartialAuth,
+            school_id: None,
             created_at: now,
             updated_at: now,
         };
@@ -4296,17 +4430,36 @@ impl LessonAppService for LiveLessonAppService {
     }
 
     async fn get_admin_users(&self) -> Result<AdminUsersListResponse> {
-        let accounts = self
-            .storage
-            .list_all_tutor_accounts(100_000)
-            .await
-            .map_err(|err| anyhow!(err))?;
-        
-        let users = accounts.into_iter().map(|a| AdminUser {
-            account_id: a.id,
-            email: Some(a.email),
-            created_at_unix: a.created_at.timestamp(),
-        }).collect();
+        let accounts = self.storage.list_all_tutor_accounts(100_000).await.map_err(|e| anyhow!(e))?;
+        let subscriptions = self.storage.list_all_subscriptions(100_000).await.map_err(|e| anyhow!(e))?;
+
+        // Build a fast lookup: account_id -> active plan_code
+        let mut plan_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for sub in &subscriptions {
+            if matches!(sub.status, ai_tutor_domain::billing::SubscriptionStatus::Active) {
+                plan_map.insert(sub.account_id.clone(), sub.plan_code.clone());
+            }
+        }
+
+        let mut users = Vec::with_capacity(accounts.len());
+        for a in accounts {
+            let plan = plan_map.get(&a.id).cloned();
+            // Fetch individual credit balance (best effort — default to 0 if missing)
+            let credits = self.storage
+                .get_credit_balance(&a.id)
+                .await
+                .ok()
+                .map(|b| b.balance)
+                .unwrap_or(0.0);
+            users.push(AdminUser {
+                account_id: a.id,
+                email: Some(a.email),
+                created_at_unix: a.created_at.timestamp(),
+                plan,
+                credits,
+                school_id: a.school_id,
+            });
+        }
 
         Ok(AdminUsersListResponse { users })
     }
@@ -4348,6 +4501,238 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
+    async fn list_schools(&self) -> Result<SchoolsListResponse> {
+        let schools = self.storage.list_schools(500).await.map_err(|e| anyhow!(e))?;
+        let mut responses = Vec::with_capacity(schools.len());
+        for s in schools {
+            let members = self.storage.list_school_members(&s.id).await.unwrap_or_default();
+            responses.push(SchoolResponse {
+                id: s.id,
+                name: s.name,
+                admin_email: s.admin_email,
+                plan: s.plan,
+                credit_pool: s.credit_pool,
+                member_count: members.len(),
+                created_at: s.created_at.to_rfc3339(),
+            });
+        }
+        Ok(SchoolsListResponse { schools: responses })
+    }
+
+    async fn create_school(&self, payload: CreateSchoolRequest) -> Result<SchoolResponse> {
+        let now = chrono::Utc::now();
+        let school = ai_tutor_domain::school::School {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: payload.name,
+            admin_email: payload.admin_email,
+            plan: payload.plan.unwrap_or_else(|| "free".to_string()),
+            credit_pool: 0.0,
+            created_at: now,
+            updated_at: now,
+        };
+        self.storage.save_school(&school).await.map_err(|e| anyhow!(e))?;
+        Ok(SchoolResponse {
+            id: school.id,
+            name: school.name,
+            admin_email: school.admin_email,
+            plan: school.plan,
+            credit_pool: school.credit_pool,
+            member_count: 0,
+            created_at: school.created_at.to_rfc3339(),
+        })
+    }
+
+    async fn get_school_members(&self, school_id: &str) -> Result<SchoolMembersResponse> {
+        let school = self.storage.get_school(school_id).await.map_err(|e| anyhow!(e))?
+            .ok_or_else(|| anyhow!("School not found"))?;
+        let members = self.storage.list_school_members(school_id).await.map_err(|e| anyhow!(e))?;
+        let subscriptions = self.storage.list_all_subscriptions(100_000).await.map_err(|e| anyhow!(e))?;
+        let mut plan_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for sub in &subscriptions {
+            if matches!(sub.status, ai_tutor_domain::billing::SubscriptionStatus::Active) {
+                plan_map.insert(sub.account_id.clone(), sub.plan_code.clone());
+            }
+        }
+        let mut result = Vec::new();
+        for m in members {
+            let credits = self.storage.get_credit_balance(&m.id).await.ok().map(|b| b.balance).unwrap_or(0.0);
+            result.push(SchoolMember {
+                account_id: m.id.clone(),
+                email: m.email,
+                plan: plan_map.get(&m.id).cloned(),
+                credits,
+                created_at: m.created_at.to_rfc3339(),
+            });
+        }
+        Ok(SchoolMembersResponse {
+            school_id: school.id,
+            school_name: school.name,
+            members: result,
+        })
+    }
+
+    async fn assign_user_school(&self, payload: AssignUserSchoolRequest) -> Result<()> {
+        let account = self.storage.get_tutor_account_by_id(&payload.account_id).await.map_err(|e| anyhow!(e))?;
+        if account.is_none() {
+            return Err(anyhow!("User not found"));
+        }
+        if let Some(school_id) = &payload.school_id {
+            let school = self.storage.get_school(school_id).await.map_err(|e| anyhow!(e))?;
+            if school.is_none() {
+                return Err(anyhow!("School not found"));
+            }
+        }
+        self.storage.set_user_school(&payload.account_id, payload.school_id.as_deref()).await.map_err(|e| anyhow!(e))?;
+        Ok(())
+    }
+
+    async fn contact_enterprise(&self, payload: ContactEnterpriseRequest) -> Result<ContactEnterpriseResponse> {
+        use crate::notifications::EnterpriseContactNotification;
+        self.notification_service.send_enterprise_contact(EnterpriseContactNotification {
+            school_name: payload.school_name,
+            contact_name: payload.contact_name,
+            contact_email: payload.contact_email,
+            contact_phone: payload.contact_phone,
+            message: payload.message,
+        }).await.map_err(|err| {
+            tracing::error!(error = %err, "Failed to send enterprise contact notification");
+            anyhow!("Failed to send contact notification: {err}")
+        })?;
+        
+        Ok(ContactEnterpriseResponse {
+            success: true,
+            message: "We have received your message and will contact you soon.".to_string(),
+        })
+    }
+
+    async fn bulk_provision_members(&self, payload: BulkProvisionMembersRequest) -> Result<BulkProvisionMembersResponse> {
+        let school = self.storage.get_school(&payload.school_id).await.map_err(|e| anyhow!(e))?;
+        if school.is_none() {
+            return Err(anyhow!("School not found"));
+        }
+
+        let mut added = 0;
+        let mut updated = 0;
+        let mut errors = Vec::new();
+        let now = chrono::Utc::now();
+
+        for email in payload.emails {
+            let email = email.trim().to_string();
+            if email.is_empty() {
+                continue;
+            }
+
+            match self.storage.get_tutor_account_by_email(&email).await {
+                Ok(Some(mut existing)) => {
+                    existing.school_id = Some(payload.school_id.clone());
+                    existing.updated_at = now;
+                    if let Err(e) = self.storage.save_tutor_account(&existing).await {
+                        errors.push(format!("Failed to update {email}: {e}"));
+                    } else {
+                        updated += 1;
+                        // Also update their subscription to the school's plan if needed
+                        // But wait, the plan is attached to the user or the school?
+                        // For now we just link the user to the school. The billing logic handles it.
+                    }
+                }
+                Ok(None) => {
+                    let account = TutorAccount {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        email: email.clone(),
+                        google_id: format!("pending-{email}"),
+                        phone_number: None,
+                        phone_verified: false,
+                        status: TutorAccountStatus::PreRegistered,
+                        school_id: Some(payload.school_id.clone()),
+                        created_at: now,
+                        updated_at: now,
+                    };
+                    if let Err(e) = self.storage.save_tutor_account(&account).await {
+                        errors.push(format!("Failed to create {email}: {e}"));
+                    } else {
+                        added += 1;
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("Failed to lookup {email}: {e}"));
+                }
+            }
+        }
+
+        Ok(BulkProvisionMembersResponse { added, updated, errors })
+    }
+
+    async fn generate_school_invoice(&self, payload: GenerateSchoolInvoiceRequest) -> Result<GenerateSchoolInvoiceResponse> {
+        let school = self.storage.get_school(&payload.school_id).await.map_err(|e| anyhow!(e))?;
+        let school = school.ok_or_else(|| anyhow!("School not found"))?;
+        
+        let members = self.storage.list_school_members(&payload.school_id).await.map_err(|e| anyhow!(e))?;
+        
+        // Algorithmic pricing: map plan codes to monthly cost
+        // e.g. Free = 0, Plus = 500 cents, Pro = 1200 cents
+        let mut amount_cents = 0;
+        for member in members {
+            if member.status != TutorAccountStatus::PreRegistered {
+                amount_cents += match payload.school_id.as_str() {
+                    _ if school.plan == "plus" => 500,
+                    _ if school.plan == "pro" => 1200,
+                    _ => 0,
+                };
+            } else {
+                // Should we charge for pre-registered users? Yes, because they take up a seat.
+                amount_cents += match school.plan.as_str() {
+                    "plus" => 500,
+                    "pro" => 1200,
+                    _ => 0,
+                };
+            }
+        }
+
+        // Generate payment link using Easebuzz (or dummy link if no gateway)
+        let invoice_id = uuid::Uuid::new_v4().to_string();
+        let payment_link = if amount_cents > 0 {
+            Some(format!("https://buy.stripe.com/test_dummy_{invoice_id}"))
+        } else {
+            None
+        };
+
+        let invoice = ai_tutor_domain::school::SchoolInvoice {
+            id: invoice_id.clone(),
+            school_id: payload.school_id,
+            amount_cents,
+            payment_link: payment_link.clone(),
+            status: ai_tutor_domain::school::SchoolInvoiceStatus::Pending,
+            due_at: payload.due_date,
+            created_at: chrono::Utc::now(),
+            paid_at: None,
+        };
+
+        self.storage.save_school_invoice(&invoice).await.map_err(|e| anyhow!(e))?;
+
+        Ok(GenerateSchoolInvoiceResponse {
+            invoice_id,
+            amount_cents,
+            payment_link,
+        })
+    }
+
+    async fn list_school_invoices(&self, school_id: &str) -> Result<Vec<SchoolInvoiceResponse>> {
+        let invoices = self.storage.list_school_invoices(school_id).await.map_err(|e| anyhow!(e))?;
+        Ok(invoices.into_iter().map(|i| SchoolInvoiceResponse {
+            id: i.id,
+            amount_cents: i.amount_cents,
+            payment_link: i.payment_link,
+            status: match i.status {
+                ai_tutor_domain::school::SchoolInvoiceStatus::Pending => "pending".to_string(),
+                ai_tutor_domain::school::SchoolInvoiceStatus::Paid => "paid".to_string(),
+                ai_tutor_domain::school::SchoolInvoiceStatus::Overdue => "overdue".to_string(),
+                ai_tutor_domain::school::SchoolInvoiceStatus::Cancelled => "cancelled".to_string(),
+            },
+            due_at: i.due_at.to_rfc3339(),
+            created_at: i.created_at.to_rfc3339(),
+            paid_at: i.paid_at.map(|d| d.to_rfc3339()),
+        }).collect())
+    }
     async fn get_admin_subscription_stats(&self) -> Result<AdminSubscriptionStatsResponse> {
         let subscriptions = self
             .storage
@@ -6102,10 +6487,16 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/admin/jobs", get(get_admin_jobs))
         .route("/api/admin/audit-logs", get(get_admin_audit_logs))
         .route("/api/admin/system/toggle-maintenance", post(toggle_maintenance))
+        .route("/api/admin/schools", get(list_schools).post(create_school_handler))
+        .route("/api/admin/schools/{id}/members", get(get_school_members))
+        .route("/api/admin/schools/members/bulk", post(bulk_provision_members_handler))
+        .route("/api/admin/schools/{id}/invoices", get(list_school_invoices_handler).post(generate_school_invoice_handler))
+        .route("/api/admin/schools/assign-user", post(assign_user_school_handler))
             .route("/api/subscriptions/create", post(create_subscription))
             .route("/api/subscriptions/me", get(get_subscription))
             .route("/api/subscriptions/{id}/cancel", post(cancel_subscription))
         .route("/api/system/status", get(get_system_status))
+        .route("/api/public/contact-enterprise", post(contact_enterprise_handler))
         .route("/api/system/ops-gate", get(get_ops_gate))
         .route("/api/lessons/generate", post(generate_lesson))
         .route("/api/lessons/generate-async", post(generate_lesson_async))
@@ -6686,18 +7077,81 @@ async fn toggle_maintenance(
         .map_err(ApiError::internal)
 }
 
-    async fn create_subscription(
-        State(state): State<AppState>,
-        Extension(account): Extension<AuthenticatedAccountContext>,
-        Json(payload): Json<CreateSubscriptionRequest>,
-    ) -> Result<Json<SubscriptionResponse>, ApiError> {
-        state
-            .service
-            .create_subscription(&account.account_id, payload)
-            .await
-            .map(Json)
-            .map_err(ApiError::internal)
-    }
+async fn list_schools(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<SchoolsListResponse>, ApiError> {
+    state.service.list_schools().await.map(Json).map_err(ApiError::internal)
+}
+
+async fn create_school_handler(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Json(payload): Json<CreateSchoolRequest>,
+) -> Result<Json<SchoolResponse>, ApiError> {
+    state.service.create_school(payload).await.map(Json).map_err(ApiError::internal)
+}
+
+async fn get_school_members(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Path(school_id): Path<String>,
+) -> Result<Json<SchoolMembersResponse>, ApiError> {
+    state.service.get_school_members(&school_id).await.map(Json).map_err(ApiError::internal)
+}
+
+async fn assign_user_school_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<AssignUserSchoolRequest>,
+) -> Result<Json<()>, ApiError> {
+    state.service.assign_user_school(payload).await.map_err(ApiError::internal)?;
+    Ok(Json(()))
+}
+
+async fn bulk_provision_members_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<BulkProvisionMembersRequest>,
+) -> Result<Json<BulkProvisionMembersResponse>, ApiError> {
+    let res = state.service.bulk_provision_members(payload).await.map_err(ApiError::internal)?;
+    Ok(Json(res))
+}
+
+async fn generate_school_invoice_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<GenerateSchoolInvoiceRequest>,
+) -> Result<Json<GenerateSchoolInvoiceResponse>, ApiError> {
+    let res = state.service.generate_school_invoice(payload).await.map_err(ApiError::internal)?;
+    Ok(Json(res))
+}
+
+async fn list_school_invoices_handler(
+    State(state): State<AppState>,
+    axum::extract::Path(school_id): axum::extract::Path<String>,
+) -> Result<Json<Vec<SchoolInvoiceResponse>>, ApiError> {
+    let res = state.service.list_school_invoices(&school_id).await.map_err(ApiError::internal)?;
+    Ok(Json(res))
+}
+
+async fn contact_enterprise_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<ContactEnterpriseRequest>,
+) -> Result<Json<ContactEnterpriseResponse>, ApiError> {
+    let res = state.service.contact_enterprise(payload).await.map_err(ApiError::internal)?;
+    Ok(Json(res))
+}
+
+async fn create_subscription(
+    State(state): State<AppState>,
+    Extension(account): Extension<AuthenticatedAccountContext>,
+    Json(payload): Json<CreateSubscriptionRequest>,
+) -> Result<Json<SubscriptionResponse>, ApiError> {
+    state
+        .service
+        .create_subscription(&account.account_id, payload)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
 
     async fn get_subscription(
         State(state): State<AppState>,
@@ -10007,7 +10461,48 @@ mod tests {
                 })
             }
 
+            async fn get_admin_jobs(&self) -> Result<AdminJobsListResponse> {
+                Ok(AdminJobsListResponse { jobs: vec![] })
+            }
+
+            async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse> {
+                Ok(AdminAuditLogsResponse { logs: vec![] })
+            }
+
+            async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse> {
+                Ok(ToggleMaintenanceResponse { status: "ok", is_maintenance_mode: false })
+            }
+
+            async fn list_schools(&self) -> Result<SchoolsListResponse> {
+                Ok(SchoolsListResponse { schools: vec![] })
+            }
+
+            async fn create_school(&self, payload: CreateSchoolRequest) -> Result<SchoolResponse> {
+                Ok(SchoolResponse {
+                    id: "mock-school".to_string(),
+                    name: payload.name,
+                    admin_email: payload.admin_email,
+                    plan: payload.plan.unwrap_or_else(|| "free".to_string()),
+                    credit_pool: 0.0,
+                    member_count: 0,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                })
+            }
+
+            async fn get_school_members(&self, _school_id: &str) -> Result<SchoolMembersResponse> {
+                Ok(SchoolMembersResponse {
+                    school_id: "mock".to_string(),
+                    school_name: "Mock School".to_string(),
+                    members: vec![],
+                })
+            }
+
+            async fn assign_user_school(&self, _payload: AssignUserSchoolRequest) -> Result<()> {
+                Ok(())
+            }
+
         async fn generate_lesson(
+
             &self,
             _payload: GenerateLessonPayload,
         ) -> Result<GenerateLessonResponse> {

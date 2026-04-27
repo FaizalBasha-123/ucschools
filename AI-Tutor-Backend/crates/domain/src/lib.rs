@@ -10,3 +10,4 @@ pub mod lesson;
 pub mod provider;
 pub mod runtime;
 pub mod scene;
+pub mod school;
