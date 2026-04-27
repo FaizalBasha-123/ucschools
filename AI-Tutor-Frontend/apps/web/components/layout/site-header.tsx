@@ -28,8 +28,8 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
   const [settingsSection, setSettingsSection] = useState<SettingsSection | undefined>(undefined);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const [authChecking, setAuthChecking] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecking, setAuthChecking] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(hasAuthSessionHint());
 
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
@@ -38,22 +38,20 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
       const hasSession = hasAuthSessionHint();
       if (!hasSession) {
         setIsAuthenticated(false);
-        setAuthChecking(false);
         return;
       }
+      
       try {
+        // Background verify, but we already set isAuthenticated to true if hint exists
         const ok = await verifyAuthSession();
         if (!ok) {
           clearAuthSession();
           setIsAuthenticated(false);
-        } else {
-          setIsAuthenticated(true);
         }
       } catch {
+        // Only revert to false if verification explicitly fails
         clearAuthSession();
         setIsAuthenticated(false);
-      } finally {
-        setAuthChecking(false);
       }
     };
     hydrateAuth();
