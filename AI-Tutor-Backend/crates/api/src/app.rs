@@ -271,6 +271,11 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
         || path == "/api/admin/stats/subscriptions"
         || path == "/api/admin/stats/payments"
         || path == "/api/admin/stats/promo-codes"
+        || path == "/api/admin/users"
+        || path == "/api/admin/settings"
+        || path == "/api/admin/jobs"
+        || path == "/api/admin/audit-logs"
+        || path == "/api/admin/system/toggle-maintenance"
     {
         return Some(ApiRole::Admin);
     }
@@ -560,6 +565,22 @@ pub struct AdminUsersListResponse {
 pub struct AdminSettingsResponse {
     pub operator_roles: String,
     pub api_base_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminJobsListResponse {
+    pub jobs: Vec<ai_tutor_domain::job::LessonGenerationJob>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminAuditLogsResponse {
+    pub logs: Vec<ai_tutor_domain::billing::FinancialAuditLog>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToggleMaintenanceResponse {
+    pub status: &'static str,
+    pub is_maintenance_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1247,6 +1268,9 @@ pub trait LessonAppService: Send + Sync {
     async fn get_admin_promo_code_stats(&self) -> Result<AdminPromoCodeStatsResponse>;
     async fn get_admin_users(&self) -> Result<AdminUsersListResponse>;
     async fn get_admin_settings(&self) -> Result<AdminSettingsResponse>;
+    async fn get_admin_jobs(&self) -> Result<AdminJobsListResponse>;
+    async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse>;
+    async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse>;
     async fn generate_lesson(
         &self,
         payload: GenerateLessonPayload,
@@ -3599,7 +3623,7 @@ impl LiveLessonAppService {
         let auth_blueprint = auth_blueprint_status();
         let deployment_blueprint = deployment_blueprint();
         let credit_policy = credit_policy();
-        let runtime_alerts = derive_runtime_alerts(
+        let mut runtime_alerts = derive_runtime_alerts(
             &provider_runtime,
             queue_status_error.as_deref(),
             provider_status_error.as_deref(),
@@ -3608,6 +3632,10 @@ impl LiveLessonAppService {
             &auth_blueprint,
             &credit_policy,
         );
+        let flag_path = self.storage.root_dir().join(".maintenance");
+        if flag_path.exists() {
+            runtime_alerts.push("Maintenance mode is manually enabled. API may reject new generation requests.".to_string());
+        }
         let runtime_alert_level = derive_runtime_alert_level(&runtime_alerts).to_string();
 
         Ok(SystemStatusResponse {
@@ -4292,6 +4320,31 @@ impl LessonAppService for LiveLessonAppService {
         Ok(AdminSettingsResponse {
             operator_roles,
             api_base_url,
+        })
+    }
+
+    async fn get_admin_jobs(&self) -> Result<AdminJobsListResponse> {
+        let jobs = self.storage.list_all_jobs(500).await.map_err(|e| anyhow!(e))?;
+        Ok(AdminJobsListResponse { jobs })
+    }
+
+    async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse> {
+        let logs = self.storage.list_all_audit_logs(500).await.map_err(|e| anyhow!(e))?;
+        Ok(AdminAuditLogsResponse { logs })
+    }
+
+    async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse> {
+        let flag_path = self.storage.root_dir().join(".maintenance");
+        let is_maintenance_mode = if flag_path.exists() {
+            let _ = std::fs::remove_file(&flag_path);
+            false
+        } else {
+            let _ = std::fs::write(&flag_path, b"1");
+            true
+        };
+        Ok(ToggleMaintenanceResponse {
+            status: if is_maintenance_mode { "Maintenance mode enabled" } else { "Maintenance mode disabled" },
+            is_maintenance_mode,
         })
     }
 
@@ -6046,6 +6099,9 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/admin/stats/promo-codes", get(get_admin_promo_code_stats))
         .route("/api/admin/users", get(get_admin_users))
         .route("/api/admin/settings", get(get_admin_settings))
+        .route("/api/admin/jobs", get(get_admin_jobs))
+        .route("/api/admin/audit-logs", get(get_admin_audit_logs))
+        .route("/api/admin/system/toggle-maintenance", post(toggle_maintenance))
             .route("/api/subscriptions/create", post(create_subscription))
             .route("/api/subscriptions/me", get(get_subscription))
             .route("/api/subscriptions/{id}/cancel", post(cancel_subscription))
@@ -6589,6 +6645,42 @@ async fn get_admin_settings(
     state
         .service
         .get_admin_settings()
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn get_admin_jobs(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<AdminJobsListResponse>, ApiError> {
+    state
+        .service
+        .get_admin_jobs()
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn get_admin_audit_logs(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<AdminAuditLogsResponse>, ApiError> {
+    state
+        .service
+        .get_admin_audit_logs()
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn toggle_maintenance(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<ToggleMaintenanceResponse>, ApiError> {
+    state
+        .service
+        .toggle_maintenance()
         .await
         .map(Json)
         .map_err(ApiError::internal)

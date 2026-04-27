@@ -1,0 +1,31 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+
+export async function GET(request: NextRequest) {
+  try {
+    const apiBaseUrl = process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
+    const cookieStore = cookies();
+    const sessionId = cookieStore.get('ai_tutor_operator_session');
+    
+    if (!sessionId) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const res = await fetch(`${apiBaseUrl}/api/admin/audit-logs`, {
+      method: 'GET',
+      headers: {
+        'Cookie': `ai_tutor_operator_session=${sessionId.value}`,
+      },
+      cache: 'no-store'
+    });
+
+    if (!res.ok) {
+      return NextResponse.json({ success: false, error: `Backend error: ${res.status}` }, { status: res.status });
+    }
+
+    const data = await res.json();
+    return NextResponse.json({ success: true, ...data });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
+  }
+}

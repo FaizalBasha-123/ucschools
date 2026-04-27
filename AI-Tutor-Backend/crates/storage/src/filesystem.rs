@@ -2180,6 +2180,43 @@ impl LessonJobRepository for FileStorage {
 
         Ok(Some(job))
     }
+
+    async fn list_all_jobs(&self, limit: usize) -> Result<Vec<LessonGenerationJob>, String> {
+        let _guard = self.job_lock.lock().await;
+        if let Some(db_path) = self.job_db_path.clone() {
+            return tokio::task::spawn_blocking(move || -> Result<Vec<LessonGenerationJob>, String> {
+                let connection = Connection::open(db_path).map_err(|err| err.to_string())?;
+                let mut statement = connection.prepare(
+                    "SELECT job_json FROM lesson_jobs ORDER BY updated_at DESC LIMIT ?1"
+                ).map_err(|err| err.to_string())?;
+                
+                let rows = statement.query_map(params![limit as i64], |row| row.get::<_, String>(0))
+                    .map_err(|err| err.to_string())?;
+                
+                let mut jobs = Vec::new();
+                for row in rows {
+                    if let Ok(json_str) = row {
+                        if let Ok(job) = serde_json::from_str::<LessonGenerationJob>(&json_str) {
+                            jobs.push(job);
+                        }
+                    }
+                }
+                Ok(jobs)
+            }).await.map_err(|e| e.to_string())?;
+        }
+        
+        Self::ensure_dir(&self.jobs_dir()).await.map_err(|e| e.to_string())?;
+        let mut reader = fs::read_dir(self.jobs_dir()).await.map_err(|e| e.to_string())?;
+        let mut jobs = Vec::new();
+        while let Some(entry) = reader.next_entry().await.map_err(|e| e.to_string())? {
+            if let Some(job) = Self::read_json::<LessonGenerationJob>(&entry.path()).await.unwrap_or(None) {
+                jobs.push(job);
+            }
+        }
+        jobs.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        jobs.truncate(limit);
+        Ok(jobs)
+    }
 }
 
 #[async_trait]
@@ -4621,6 +4658,40 @@ impl FinancialAuditRepository for FileStorage {
             .into_iter()
             .filter(|log| log.account_id == account_id)
             .collect::<Vec<_>>();
+        logs.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        logs.truncate(limit);
+        Ok(logs)
+    }
+
+    async fn list_all_audit_logs(&self, limit: usize) -> Result<Vec<FinancialAuditLog>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let sql_limit = i64::try_from(limit).map_err(|_| "limit exceeds i64".to_string())?;
+            return tokio::task::spawn_blocking(move || -> Result<Vec<FinancialAuditLog>, String> {
+                let mut client =
+                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let rows = client
+                    .query(
+                        "
+                        SELECT id, account_id, event_type, entity_type, entity_id, actor,
+                               before_state_json, after_state_json,
+                               created_at
+                        FROM financial_audit_logs
+                        ORDER BY created_at DESC
+                        LIMIT $1
+                        ",
+                        &[&sql_limit],
+                    )
+                    .map_err(|err| err.to_string())?;
+                rows.into_iter()
+                    .map(Self::postgres_row_to_financial_audit_log)
+                    .collect()
+            })
+            .await
+            .map_err(|err| err.to_string())?;
+        }
+
+        let mut logs = self.list_financial_audit_logs().await?;
         logs.sort_by(|left, right| right.created_at.cmp(&left.created_at));
         logs.truncate(limit);
         Ok(logs)
