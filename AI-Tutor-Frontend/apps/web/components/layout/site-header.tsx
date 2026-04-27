@@ -8,6 +8,7 @@ import { LanguageSwitcher } from '@/components/language-switcher';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { SettingsDialog } from '@/components/settings';
 import { UserMenu } from './user-menu';
+import { CreditsDisplay } from './credits-display';
 import { clearAuthSession, hasAuthSessionHint, verifyAuthSession } from '@/lib/auth/session';
 import { cn } from '@/lib/utils';
 import type { SettingsSection } from '@/lib/types/settings';
@@ -177,7 +178,10 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
 
             {!authChecking && (
               isAuthenticated ? (
-                <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
+                <div className="flex items-center gap-3">
+                  <CreditsDisplay />
+                  <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
+                </div>
               ) : (
                 <>
                   <button
