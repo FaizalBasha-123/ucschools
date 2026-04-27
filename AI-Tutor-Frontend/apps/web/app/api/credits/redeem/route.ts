@@ -16,8 +16,14 @@ function authHeadersFrom(request: NextRequest): HeadersInit {
   const headers: Record<string, string> = {};
   const authorization = request.headers.get('authorization');
   const cookie = request.headers.get('cookie');
+  const xAuthToken = request.headers.get('x-auth-token');
+  const xSessionToken = request.headers.get('x-session-token');
+
   if (authorization) headers.authorization = authorization;
   if (cookie) headers.cookie = cookie;
+  if (xAuthToken) headers['x-auth-token'] = xAuthToken;
+  if (xSessionToken) headers['x-session-token'] = xSessionToken;
+  
   return headers;
 }
 
