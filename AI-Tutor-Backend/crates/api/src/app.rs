@@ -215,11 +215,13 @@ fn build_cors_layer() -> CorsLayer {
         .unwrap_or_default();
 
     let layer = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
             header::HeaderName::from_static("x-account-id"),
+            header::HeaderName::from_static("x-auth-token"),
+            header::HeaderName::from_static("x-session-token"),
         ]);
 
     if allowed_origins.is_empty() {
