@@ -31,8 +31,8 @@ export function EnterpriseSidebar({ onSignOut, variant = 'user' }: EnterpriseSid
 
   const adminLinks = [
     { href: '/admin', label: 'Overview', icon: Activity },
-    { href: '#', label: 'User Management', icon: Users },
-    { href: '#', label: 'System Health', icon: Database },
+    { href: '/admin/users', label: 'User Management', icon: Users },
+    { href: '/admin/health', label: 'System Health', icon: Database },
     { href: '/admin/settings', label: 'Settings', icon: Settings },
   ];
 
