@@ -41,17 +41,18 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
         return;
       }
       
+      // Trust the local session - don't revert to false unless we absolutely have to
+      setIsAuthenticated(true);
+
       try {
-        // Background verify, but we already set isAuthenticated to true if hint exists
         const ok = await verifyAuthSession();
         if (!ok) {
-          clearAuthSession();
-          setIsAuthenticated(false);
+          // Instead of clearing everything, just log it. 
+          // We let the specific page handle the redirect if a token is actually dead.
+          console.warn('Background auth verification failed (401)');
         }
-      } catch {
-        // Only revert to false if verification explicitly fails
-        clearAuthSession();
-        setIsAuthenticated(false);
+      } catch (error) {
+        console.error('Auth check error:', error);
       }
     };
     hydrateAuth();
