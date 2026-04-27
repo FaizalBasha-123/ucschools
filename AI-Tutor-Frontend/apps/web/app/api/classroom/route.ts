@@ -52,19 +52,31 @@ export async function GET(request: NextRequest) {
   try {
     const id = request.nextUrl.searchParams.get('id');
 
-    if (!id) {
+    if (!id || !isValidClassroomId(id)) {
       return apiError(
-        API_ERROR_CODES.MISSING_REQUIRED_FIELD,
+        API_ERROR_CODES.INVALID_REQUEST,
         400,
-        'Missing required parameter: id',
+        'Invalid or missing classroom ID',
       );
     }
 
+    // 1. Check local filesystem storage first (for shared classrooms)
+    const localClassroom = await readClassroom(id);
+    if (localClassroom) {
+      // Security Check: Ensure we don't serve a classroom tagged as default
+      // even if it somehow got into the shared storage.
+      if ((localClassroom.stage as any).isDefault) {
+        return apiError(API_ERROR_CODES.UNAUTHORIZED, 403, 'Default classrooms cannot be shared');
+      }
+      return apiSuccess({ classroom: localClassroom });
+    }
+
+    // 2. Fallback to Rust backend for generated lessons/legacy paths
     const backendUrl = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
     const backendRes = await fetch(`${backendUrl}/api/lessons/${id}`, {
       method: 'GET',
     });
-
+...
     if (backendRes.status === 404) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Classroom not found');
     }
