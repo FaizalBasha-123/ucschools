@@ -432,7 +432,8 @@ async fn send_via_smtp_auth(
         .await
         .map_err(|err| anyhow!("smtp tcp connect failed: {err}"))?;
 
-    if config.use_tls {
+    // Port 465 uses Implicit TLS. Others use STARTTLS.
+    if config.port == 465 {
         let connector = native_tls::TlsConnector::builder()
             .build()
             .map_err(|err| anyhow!("smtp tls connector build failed: {err}"))?;
@@ -441,8 +442,17 @@ async fn send_via_smtp_auth(
             .connect(&config.host, stream)
             .await
             .map_err(|err| anyhow!("smtp tls handshake failed: {err}"))?;
-        run_smtp_session(
-            tls_stream,
+            
+        let (read_half, mut write_half) = tokio::io::split(tls_stream);
+        let mut reader = BufReader::new(read_half);
+
+        expect_smtp_code(&mut reader, 220).await?;
+        send_smtp_command(&mut write_half, "EHLO ai-tutor.local").await?;
+        expect_smtp_code(&mut reader, 250).await?;
+
+        run_smtp_auth_and_send(
+            &mut reader,
+            &mut write_half,
             &config.user,
             &config.password,
             from_email,
@@ -453,22 +463,66 @@ async fn send_via_smtp_auth(
         )
         .await
     } else {
-        run_smtp_session(
-            stream,
-            &config.user,
-            &config.password,
-            from_email,
-            to_email,
-            subject,
-            html,
-            text_fallback,
-        )
-        .await
+        let (read_half, mut write_half) = tokio::io::split(stream);
+        let mut reader = BufReader::new(read_half);
+
+        expect_smtp_code(&mut reader, 220).await?;
+        send_smtp_command(&mut write_half, "EHLO ai-tutor.local").await?;
+        expect_smtp_code(&mut reader, 250).await?;
+
+        if config.use_tls {
+            send_smtp_command(&mut write_half, "STARTTLS").await?;
+            expect_smtp_code(&mut reader, 220).await?;
+
+            let stream = reader.into_inner().unsplit(write_half);
+            
+            let connector = native_tls::TlsConnector::builder()
+                .build()
+                .map_err(|err| anyhow!("smtp tls connector build failed: {err}"))?;
+            let connector = TokioTlsConnector::from(connector);
+            let tls_stream = connector
+                .connect(&config.host, stream)
+                .await
+                .map_err(|err| anyhow!("smtp starttls handshake failed: {err}"))?;
+                
+            let (read_half, mut write_half) = tokio::io::split(tls_stream);
+            let mut reader = BufReader::new(read_half);
+
+            send_smtp_command(&mut write_half, "EHLO ai-tutor.local").await?;
+            expect_smtp_code(&mut reader, 250).await?;
+
+            run_smtp_auth_and_send(
+                &mut reader,
+                &mut write_half,
+                &config.user,
+                &config.password,
+                from_email,
+                to_email,
+                subject,
+                html,
+                text_fallback,
+            )
+            .await
+        } else {
+            run_smtp_auth_and_send(
+                &mut reader,
+                &mut write_half,
+                &config.user,
+                &config.password,
+                from_email,
+                to_email,
+                subject,
+                html,
+                text_fallback,
+            )
+            .await
+        }
     }
 }
 
-async fn run_smtp_session<S>(
-    stream: S,
+async fn run_smtp_auth_and_send<R, W>(
+    reader: &mut BufReader<R>,
+    write_half: &mut W,
     user: &str,
     password: &str,
     from_email: &str,
@@ -478,34 +532,29 @@ async fn run_smtp_session<S>(
     text_fallback: &str,
 ) -> Result<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
 {
-    let (read_half, mut write_half) = tokio::io::split(stream);
-    let mut reader = BufReader::new(read_half);
 
-    expect_smtp_code(&mut reader, 220).await?;
-    send_smtp_command(&mut write_half, "EHLO ai-tutor.local").await?;
-    expect_smtp_code(&mut reader, 250).await?;
-
-    send_smtp_command(&mut write_half, "AUTH LOGIN").await?;
-    expect_smtp_code(&mut reader, 334).await?;
+    send_smtp_command(write_half, "AUTH LOGIN").await?;
+    expect_smtp_code(reader, 334).await?;
 
     let user_b64 = base64::engine::general_purpose::STANDARD.encode(user.as_bytes());
-    send_smtp_command(&mut write_half, &user_b64).await?;
-    expect_smtp_code(&mut reader, 334).await?;
+    send_smtp_command(write_half, &user_b64).await?;
+    expect_smtp_code(reader, 334).await?;
 
     let pass_b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
-    send_smtp_command(&mut write_half, &pass_b64).await?;
-    expect_smtp_code(&mut reader, 235).await?;
+    send_smtp_command(write_half, &pass_b64).await?;
+    expect_smtp_code(reader, 235).await?;
 
-    send_smtp_command(&mut write_half, &format!("MAIL FROM:<{}>", from_email)).await?;
-    expect_smtp_code(&mut reader, 250).await?;
+    send_smtp_command(write_half, &format!("MAIL FROM:<{}>", from_email)).await?;
+    expect_smtp_code(reader, 250).await?;
 
-    send_smtp_command(&mut write_half, &format!("RCPT TO:<{}>", to_email)).await?;
-    expect_smtp_code(&mut reader, 250).await?;
+    send_smtp_command(write_half, &format!("RCPT TO:<{}>", to_email)).await?;
+    expect_smtp_code(reader, 250).await?;
 
-    send_smtp_command(&mut write_half, "DATA").await?;
-    expect_smtp_code(&mut reader, 354).await?;
+    send_smtp_command(write_half, "DATA").await?;
+    expect_smtp_code(reader, 354).await?;
 
     let boundary = format!("boundary-{}", uuid::Uuid::new_v4());
     let body = format!(
@@ -530,10 +579,10 @@ where
         .flush()
         .await
         .map_err(|err| anyhow!("smtp flush failed: {err}"))?;
-    expect_smtp_code(&mut reader, 250).await?;
+    expect_smtp_code(reader, 250).await?;
 
-    send_smtp_command(&mut write_half, "QUIT").await?;
-    let _ = expect_smtp_code(&mut reader, 221).await;
+    send_smtp_command(write_half, "QUIT").await?;
+    let _ = expect_smtp_code(reader, 221).await;
 
     Ok(())
 }
