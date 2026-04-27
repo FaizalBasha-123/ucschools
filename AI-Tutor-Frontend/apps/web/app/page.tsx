@@ -433,6 +433,26 @@ function HomePage() {
     setError(null);
 
     try {
+      // 1. First Check Billing Status
+      const billingRes = await fetch('/api/billing/dashboard', {
+        method: 'GET',
+        headers: authHeaders(),
+        cache: 'no-store',
+      });
+
+      if (billingRes.ok) {
+        const billingData = await billingRes.json();
+        const creditBalance = billingData.data?.entitlement?.credit_balance ?? 0;
+        const hasActiveSubscription = billingData.data?.entitlement?.has_active_subscription ?? false;
+
+        if (!hasActiveSubscription && creditBalance <= 0) {
+          toast.error('Insufficient credits', { description: 'Please choose a plan to generate lessons.' });
+          router.push('/pricing');
+          return;
+        }
+      }
+
+      // 2. Proceed with generation preparation if billing is okay
       const userProfile = useUserProfileStore.getState();
       const requirements: UserRequirements = {
         requirement: form.requirement,

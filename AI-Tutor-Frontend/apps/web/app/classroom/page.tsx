@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { getAuthSession, verifyAuthSession } from '@/lib/auth/session';
+import { getAuthSession, verifyAuthSession, authHeaders } from '@/lib/auth/session';
 import { listStages, createStage } from '@/lib/utils/stage-storage';
 import { toast } from 'sonner';
 
@@ -19,6 +19,25 @@ export default function ClassroomsPage() {
           router.replace('/auth?mode=signin&next=/classroom');
           return;
         }
+
+        // --- Billing Gatekeeper ---
+        const billingRes = await fetch('/api/billing/dashboard', {
+          method: 'GET',
+          headers: authHeaders(),
+          cache: 'no-store',
+        });
+
+        if (billingRes.ok) {
+          const billingData = await billingRes.json();
+          const creditBalance = billingData.data?.entitlement?.credit_balance ?? 0;
+          const hasActiveSubscription = billingData.data?.entitlement?.has_active_subscription ?? false;
+
+          if (!hasActiveSubscription && creditBalance <= 0) {
+            router.replace('/pricing');
+            return;
+          }
+        }
+        // ---------------------------
 
         const stages = await listStages();
         
