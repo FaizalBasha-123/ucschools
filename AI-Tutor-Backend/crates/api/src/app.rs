@@ -553,7 +553,7 @@ pub struct AuthSessionResponse {
     pub phone_number: Option<String>,
     pub redirect_to: String,
     pub partial_auth_token: Option<String>,
-    #[serde(skip_serializing, skip_deserializing, default)]
+    #[serde(default)]
     pub session_token: Option<String>,
 }
 
@@ -1793,6 +1793,28 @@ impl LiveLessonAppService {
 
         account.phone_number = Some(phone_number.to_string());
         account.phone_verified = true;
+        account.status = TutorAccountStatus::Active;
+        account.updated_at = chrono::Utc::now();
+        self.storage
+            .save_tutor_account(&account)
+            .await
+            .map_err(|err| anyhow!(err))?;
+        Ok(account)
+    }
+
+    async fn activate_account_without_phone(
+        &self,
+        account_id: &str,
+    ) -> Result<TutorAccount> {
+        let Some(mut account) = self
+            .storage
+            .get_tutor_account_by_id(account_id)
+            .await
+            .map_err(|err| anyhow!(err))?
+        else {
+            return Err(anyhow!("account not found for auto-activation: {}", account_id));
+        };
+
         account.status = TutorAccountStatus::Active;
         account.updated_at = chrono::Utc::now();
         self.storage
@@ -3707,7 +3729,9 @@ impl LessonAppService for LiveLessonAppService {
         let account = self.upsert_google_account(&claims).await?;
 
         tracing::info!(status = ?account.status, "Auth Callback: Account resolved, checking verification status");
-        if matches!(account.status, TutorAccountStatus::Active) && account.phone_verified {
+        let phone_auth_required = env_flag("AI_TUTOR_FIREBASE_PHONE_AUTH_ENABLED");
+        let phone_ok = !phone_auth_required || account.phone_verified;
+        if matches!(account.status, TutorAccountStatus::Active) && phone_ok {
             let session_token = issue_session_token(&account)?;
             tracing::info!("Auth Callback: Login successful, issuing session");
             return Ok(AuthSessionResponse {
@@ -3715,6 +3739,22 @@ impl LessonAppService for LiveLessonAppService {
                 status: "active".to_string(),
                 email: account.email,
                 phone_number: account.phone_number,
+                redirect_to: auth_success_redirect(),
+                partial_auth_token: None,
+                session_token: Some(session_token),
+            });
+        }
+        // Account status is PartialAuth or phone verification is required but missing
+        if !matches!(account.status, TutorAccountStatus::Active) && !phone_auth_required {
+            // Phone auth is disabled – auto-activate the account so Google-only login works
+            tracing::info!("Auth Callback: Phone auth disabled, auto-activating account");
+            let activated = self.activate_account_without_phone(&account.id).await?;
+            let session_token = issue_session_token(&activated)?;
+            return Ok(AuthSessionResponse {
+                account_id: activated.id,
+                status: "active".to_string(),
+                email: activated.email,
+                phone_number: activated.phone_number,
                 redirect_to: auth_success_redirect(),
                 partial_auth_token: None,
                 session_token: Some(session_token),
@@ -3795,10 +3835,14 @@ impl LessonAppService for LiveLessonAppService {
         else {
             return Err(anyhow!("tutor account not found: {}", account_id));
         };
-        if !matches!(account.status, TutorAccountStatus::Active) || !account.phone_verified {
+        let phone_auth_required = env_flag("AI_TUTOR_FIREBASE_PHONE_AUTH_ENABLED");
+        if !matches!(account.status, TutorAccountStatus::Active)
+            || (phone_auth_required && !account.phone_verified)
+        {
             return Err(anyhow!(
-                "account {} must be active and phone verified before checkout",
-                account_id
+                "account {} must be active{} before checkout",
+                account_id,
+                if phone_auth_required { " and phone verified" } else { "" }
             ));
         }
         let product = billing_catalog()

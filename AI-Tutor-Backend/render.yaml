@@ -90,6 +90,14 @@ services:
       - key: AI_TUTOR_GOOGLE_OAUTH_STATE_SECRET
         sync: false
 
+      # --- Firebase Phone Auth ---
+      - key: AI_TUTOR_FIREBASE_PHONE_AUTH_ENABLED
+        value: "1"
+      - key: AI_TUTOR_FIREBASE_PROJECT_ID
+        value: "ai-tutor-phone-auth"
+      - key: AI_TUTOR_VERIFY_PHONE_PATH
+        value: "/auth/verify-phone"
+
       # --- LLM Providers ---
       # OpenRouter powers chat/generation.
       - key: OPENROUTER_API_KEY
