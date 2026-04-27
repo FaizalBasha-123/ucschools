@@ -187,9 +187,7 @@ function VerifyPhoneContent() {
       {/* Top Header */}
       <div className="mb-6 flex flex-col items-center justify-center">
         <div className="mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-2xl border-2 border-emerald-400/40 bg-gradient-to-br from-emerald-50 to-white shadow-lg shadow-emerald-500/10">
-          {step === 'verifying' ? (
-            <Loader2 className="size-6 animate-spin text-emerald-600" />
-          ) : step === 'otp' ? (
+          {step === 'verifying' || step === 'otp' ? (
             <ShieldCheck className="size-6 text-emerald-600" />
           ) : (
             <Phone className="size-6 text-emerald-600" />
@@ -312,7 +310,6 @@ function VerifyPhoneContent() {
 
         {step === 'verifying' && (
           <div className="flex flex-col items-center justify-center py-6 gap-3">
-            <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
             <p className="text-sm text-neutral-500">Activating your account...</p>
           </div>
         )}

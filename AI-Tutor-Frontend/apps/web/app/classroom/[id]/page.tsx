@@ -3,6 +3,7 @@
 import { Stage } from '@/components/stage';
 import { ThemeProvider } from '@/lib/hooks/use-theme';
 import { SiteHeader } from '@/components/layout/site-header';
+import { ClassroomSidebar } from '@/components/classroom/classroom-sidebar';
 import { useStageStore } from '@/lib/store';
 import { loadImageMapping } from '@/lib/utils/image-storage';
 import { useEffect, useRef, useState, useCallback } from 'react';
@@ -228,50 +229,56 @@ export default function ClassroomDetailPage() {
 
   return (
     <ThemeProvider>
-      <SiteHeader variant="dashboard" />
-      <MediaStageProvider value={classroomId}>
-        <div className="h-screen flex flex-col overflow-hidden pt-16">
-          {!loading && !error && (
-            <div className="fixed right-3 bottom-3 z-40 flex flex-col gap-2 md:right-4 md:bottom-4">
-              <button
-                onClick={handleExportVideo}
-                disabled={exporting}
-                className="rounded-lg border border-border/70 bg-white/95 px-3 py-2 text-xs font-medium shadow-sm backdrop-blur hover:bg-muted disabled:opacity-60"
-              >
-                <span className="inline-flex items-center gap-1.5">
-                  <Download className="size-3.5" />
-                  {exporting ? t('classroom.exportingVideo') : t('classroom.exportVideo')}
-                </span>
-              </button>
+      <div className="flex h-screen overflow-hidden bg-white dark:bg-neutral-950">
+        <ClassroomSidebar currentStageId={classroomId} />
+        
+        <div className="flex-1 flex flex-col min-w-0 relative">
+          <SiteHeader variant="dashboard" />
+          <MediaStageProvider value={classroomId}>
+            <div className="flex-1 flex flex-col overflow-hidden pt-16">
+              {!loading && !error && (
+                <div className="fixed right-3 bottom-3 z-40 flex flex-col gap-2 md:right-4 md:bottom-4">
+                  <button
+                    onClick={handleExportVideo}
+                    disabled={exporting}
+                    className="rounded-lg border border-border/70 bg-white/95 px-3 py-2 text-xs font-medium shadow-sm backdrop-blur hover:bg-muted disabled:opacity-60"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Download className="size-3.5" />
+                      {exporting ? t('classroom.exportingVideo') : t('classroom.exportVideo')}
+                    </span>
+                  </button>
+                </div>
+              )}
+              {loading ? (
+                <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+                  <div className="text-center text-muted-foreground">
+                    <p>{t('classroom.loading')}</p>
+                  </div>
+                </div>
+              ) : error ? (
+                <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+                  <div className="text-center">
+                    <p className="text-destructive mb-4">{t('classroom.errorPrefix')}: {error}</p>
+                    <button
+                      onClick={() => {
+                        setError(null);
+                        setLoading(true);
+                        loadClassroom();
+                      }}
+                      className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                    >
+                      {t('classroom.retry')}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <Stage onRetryOutline={retrySingleOutline} />
+              )}
             </div>
-          )}
-          {loading ? (
-            <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-              <div className="text-center text-muted-foreground">
-                <p>{t('classroom.loading')}</p>
-              </div>
-            </div>
-          ) : error ? (
-            <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-              <div className="text-center">
-                <p className="text-destructive mb-4">{t('classroom.errorPrefix')}: {error}</p>
-                <button
-                  onClick={() => {
-                    setError(null);
-                    setLoading(true);
-                    loadClassroom();
-                  }}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-                >
-                  {t('classroom.retry')}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <Stage onRetryOutline={retrySingleOutline} />
-          )}
+          </MediaStageProvider>
         </div>
-      </MediaStageProvider>
+      </div>
     </ThemeProvider>
   );
 }

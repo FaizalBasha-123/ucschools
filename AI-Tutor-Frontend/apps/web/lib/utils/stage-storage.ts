@@ -25,6 +25,7 @@ export interface StageListItem {
   id: string;
   name: string;
   description?: string;
+  isDefault?: boolean;
   sceneCount: number;
   createdAt: number;
   updatedAt: number;
@@ -147,6 +148,7 @@ export async function listStages(): Promise<StageListItem[]> {
           id: stage.id,
           name: stage.name,
           description: stage.description,
+          isDefault: !!stage.isDefault,
           sceneCount,
           createdAt: stage.createdAt,
           updatedAt: stage.updatedAt,
@@ -223,6 +225,28 @@ export async function renameStage(stageId: string, newName: string): Promise<voi
     log.info(`Renamed stage ${stageId} to "${newName}"`);
   } catch (error) {
     log.error('Failed to rename stage:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create a new empty stage
+ */
+export async function createStage(name: string, isDefault = false): Promise<string> {
+  try {
+    const id = `stage-${Date.now()}`;
+    const now = Date.now();
+    await db.stages.put({
+      id,
+      name,
+      isDefault,
+      createdAt: now,
+      updatedAt: now,
+    });
+    log.info(`Created new stage: ${id} (default=${isDefault})`);
+    return id;
+  } catch (error) {
+    log.error('Failed to create stage:', error);
     throw error;
   }
 }

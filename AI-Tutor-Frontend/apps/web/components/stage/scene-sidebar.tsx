@@ -11,6 +11,7 @@ import {
   Globe,
   AlertCircle,
   RefreshCw,
+  Share2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ThumbnailSlide } from '@/components/slide-renderer/components/ThumbnailSlide';
@@ -18,6 +19,7 @@ import { useStageStore, useCanvasStore } from '@/lib/store';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import type { SceneType, SlideContent } from '@/lib/types/stage';
 import { PENDING_SCENE_ID } from '@/lib/store/stage';
+import { ShareLessonDialog } from '../classroom/share-lesson-dialog';
 
 interface SceneSidebarProps {
   readonly collapsed: boolean;
@@ -38,13 +40,15 @@ export function SceneSidebar({
 }: SceneSidebarProps) {
   const { t } = useI18n();
   const router = useRouter();
-  const { scenes, currentSceneId, setCurrentSceneId, generatingOutlines, generationStatus } =
+  const { scenes, currentSceneId, setCurrentSceneId, generatingOutlines, generationStatus, stage } =
     useStageStore();
   const failedOutlines = useStageStore.use.failedOutlines();
   const viewportSize = useCanvasStore.use.viewportSize();
   const viewportRatio = useCanvasStore.use.viewportRatio();
 
   const [retryingOutlineId, setRetryingOutlineId] = useState<string | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [sharingScene, setSharingScene] = useState<{ id: string; title: string } | null>(null);
 
   const handleRetryOutline = async (outlineId: string) => {
     if (!onRetryOutline) return;
@@ -167,7 +171,7 @@ export function SceneSidebar({
               >
                 {/* Scene Header */}
                 <div className="flex justify-between items-center px-2 pt-0.5">
-                  <div className="flex items-center gap-2 max-w-full">
+                  <div className="flex items-center gap-2 max-w-[85%]">
                     <span
                       className={cn(
                         'text-[10px] font-black w-4 h-4 rounded-full flex items-center justify-center shrink-0',
@@ -190,6 +194,16 @@ export function SceneSidebar({
                       {scene.title}
                     </span>
                   </div>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSharingScene({ id: scene.id, title: scene.title });
+                      setShareDialogOpen(true);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-primary/10 dark:hover:bg-primary/20 rounded-md transition-all text-neutral-400 hover:text-primary shrink-0"
+                  >
+                    <Share2 size={12} />
+                  </button>
                 </div>
 
                 {/* Thumbnail */}
@@ -449,6 +463,16 @@ export function SceneSidebar({
         {/* Spacer to push toggle button area */}
         <div className="mt-auto" />
       </div>
+
+      {sharingScene && (
+        <ShareLessonDialog 
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+          sceneId={sharingScene.id}
+          sceneTitle={sharingScene.title}
+          currentStageId={stage?.id || ''}
+        />
+      )}
     </div>
   );
 }
