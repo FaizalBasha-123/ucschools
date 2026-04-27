@@ -79,7 +79,10 @@ export function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = getSessionToken();
   return {
     ...(extra || {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token ? { 
+      Authorization: `Bearer ${token}`,
+      'X-Auth-Token': token
+    } : {}),
   };
 }
 
