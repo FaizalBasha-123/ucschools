@@ -54,9 +54,9 @@ function AuthPageContent() {
     e.preventDefault();
     setError(null);
 
-    // Frontend Validations
-    if (!email) {
-      setError('Email address is required.');
+    const input = email.trim();
+    if (!input) {
+      setError('Please enter an email or phone number.');
       return;
     }
 
@@ -66,19 +66,44 @@ function AuthPageContent() {
         return;
       }
       if (!agreed) {
-        setError('You must agree to the Terms of Service and Privacy Policy.');
+        setError('You must agree to the Terms of Service.');
         return;
       }
     }
 
     setLoadingEmail(true);
 
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    
-    // Hardcoded API graceful rejection (since backend doesn't support email auth)
-    setError('Email authentication is not currently configured in the deployment environment. Please sign in with Google for now.');
-    setLoadingEmail(false);
+    try {
+      // Logic: Detect if input is phone or email
+      const isPhone = /^\+?[1-9]\d{1,14}$/.test(input.replace(/\s/g, ''));
+      
+      if (isPhone) {
+        // Redirect to specialized phone verification page with the number
+        const params = new URLSearchParams({
+          phone: input,
+          mode: mode,
+          next: nextPath
+        });
+        router.push(`/auth/verify-phone?${params.toString()}`);
+      } else {
+        // Handle Email Magic Link or Password (assuming Magic Link for Enterprise safety)
+        const response = await fetch('/api/auth/request-magic-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: input, firstName, lastName, mode, next: nextPath })
+        });
+        
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to send login link');
+        
+        setError(null);
+        alert(`A secure login link has been sent to ${input}. Please check your inbox.`);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoadingEmail(false);
+    }
   };
 
   return (
