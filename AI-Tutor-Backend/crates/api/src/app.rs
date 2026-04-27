@@ -249,6 +249,7 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
     if path == "/api/credits/me"
         || path == "/api/credits/ledger"
         || path == "/api/billing/catalog"
+        || path == "/api/billing/dashboard"
         || path == "/api/billing/checkout"
         || path == "/api/billing/orders"
         || path == "/api/billing/easebuzz/callback"
