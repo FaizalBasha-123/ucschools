@@ -536,6 +536,33 @@ pub struct GoogleAuthLoginResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemConfig {
+    pub lesson_backend: String,
+    pub storage_backend: String,
+    pub notifications_backend: String,
+    pub storage_connection_url: String,
+    pub cache_backend: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminUser {
+    pub account_id: String,
+    pub email: Option<String>,
+    pub created_at_unix: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminUsersListResponse {
+    pub users: Vec<AdminUser>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminSettingsResponse {
+    pub operator_roles: String,
+    pub api_base_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthSessionResponse {
     pub account_id: String,
     pub status: String,
@@ -1218,6 +1245,8 @@ pub trait LessonAppService: Send + Sync {
     async fn get_admin_subscription_stats(&self) -> Result<AdminSubscriptionStatsResponse>;
     async fn get_admin_payment_stats(&self) -> Result<AdminPaymentStatsResponse>;
     async fn get_admin_promo_code_stats(&self) -> Result<AdminPromoCodeStatsResponse>;
+    async fn get_admin_users(&self) -> Result<AdminUsersListResponse>;
+    async fn get_admin_settings(&self) -> Result<AdminSettingsResponse>;
     async fn generate_lesson(
         &self,
         payload: GenerateLessonPayload,
@@ -4238,6 +4267,34 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
+    async fn get_admin_users(&self) -> Result<AdminUsersListResponse> {
+        let accounts = self
+            .storage
+            .list_all_tutor_accounts(100_000)
+            .await
+            .map_err(|err| anyhow!(err))?;
+        
+        let users = accounts.into_iter().map(|a| AdminUser {
+            account_id: a.id,
+            email: Some(a.email),
+            created_at_unix: a.created_at.timestamp(),
+        }).collect();
+
+        Ok(AdminUsersListResponse { users })
+    }
+
+    async fn get_admin_settings(&self) -> Result<AdminSettingsResponse> {
+        let operator_roles = read_optional_env("AI_TUTOR_OPERATOR_EMAIL_ROLES")
+            .unwrap_or_default();
+        let api_base_url = read_optional_env("AI_TUTOR_API_BASE_URL")
+            .unwrap_or_else(|| "http://localhost:8099".to_string());
+        
+        Ok(AdminSettingsResponse {
+            operator_roles,
+            api_base_url,
+        })
+    }
+
     async fn get_admin_subscription_stats(&self) -> Result<AdminSubscriptionStatsResponse> {
         let subscriptions = self
             .storage
@@ -5987,6 +6044,8 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/admin/stats/subscriptions", get(get_admin_subscription_stats))
         .route("/api/admin/stats/payments", get(get_admin_payment_stats))
         .route("/api/admin/stats/promo-codes", get(get_admin_promo_code_stats))
+        .route("/api/admin/users", get(get_admin_users))
+        .route("/api/admin/settings", get(get_admin_settings))
             .route("/api/subscriptions/create", post(create_subscription))
             .route("/api/subscriptions/me", get(get_subscription))
             .route("/api/subscriptions/{id}/cancel", post(cancel_subscription))
@@ -6506,6 +6565,30 @@ async fn get_admin_promo_code_stats(
     state
         .service
         .get_admin_promo_code_stats()
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn get_admin_users(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<AdminUsersListResponse>, ApiError> {
+    state
+        .service
+        .get_admin_users()
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn get_admin_settings(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<AdminSettingsResponse>, ApiError> {
+    state
+        .service
+        .get_admin_settings()
         .await
         .map(Json)
         .map_err(ApiError::internal)
@@ -9818,6 +9901,17 @@ mod tests {
                     total_redemptions: 342,
                     total_credits_granted: 1026.0,
                     average_redemption_rate: 0.76,
+                })
+            }
+
+            async fn get_admin_users(&self) -> Result<AdminUsersListResponse> {
+                Ok(AdminUsersListResponse { users: vec![] })
+            }
+
+            async fn get_admin_settings(&self) -> Result<AdminSettingsResponse> {
+                Ok(AdminSettingsResponse {
+                    operator_roles: "mock@ai-tutor.local=admin".to_string(),
+                    api_base_url: "http://localhost:8099".to_string(),
                 })
             }
 
