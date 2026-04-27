@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
       // Security Check: Ensure we don't serve a classroom tagged as default
       // even if it somehow got into the shared storage.
       if ((localClassroom.stage as any).isDefault) {
-        return apiError(API_ERROR_CODES.UNAUTHORIZED, 403, 'Default classrooms cannot be shared');
+        return apiError(API_ERROR_CODES.INVALID_REQUEST, 403, 'Default classrooms cannot be shared');
       }
       return apiSuccess({ classroom: localClassroom });
     }

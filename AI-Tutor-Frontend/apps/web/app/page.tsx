@@ -62,7 +62,7 @@ import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDraftCache } from '@/lib/hooks/use-draft-cache';
 import { SpeechButton } from '@/components/audio/speech-button';
-import { clearAuthSession, getAuthSession, hasAuthSessionHint, verifyAuthSession } from '@/lib/auth/session';
+import { authHeaders, clearAuthSession, getAuthSession, hasAuthSessionHint, verifyAuthSession } from '@/lib/auth/session';
 
 const log = createLogger('Home');
 

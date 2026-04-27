@@ -158,16 +158,6 @@ function PricingPageContent() {
     }
     loadBilling();
   }, []);
-  const [enterpriseForm, setEnterpriseForm] = useState({
-    school_name: '',
-    contact_name: '',
-    contact_email: '',
-    contact_phone: '',
-    message: ''
-  });
-  const [enterpriseLoading, setEnterpriseLoading] = useState(false);
-  const [enterpriseSuccess, setEnterpriseSuccess] = useState(false);
-  const [enterpriseError, setEnterpriseError] = useState<string | null>(null);
 
   const handleEnterpriseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
