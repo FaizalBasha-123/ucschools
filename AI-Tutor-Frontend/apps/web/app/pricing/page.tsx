@@ -317,33 +317,40 @@ function PricingPageContent() {
           </div>
         )}
         <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-neutral-900 mb-6">
-          Invest in your workflow.
+          Pricing
         </h1>
-        <p className="text-lg text-neutral-500 max-w-2xl mx-auto">
-          Choose the perfect plan for your classroom generation needs. Upgrade, downgrade, or buy individual credits whenever you want.
-        </p>
-        <div className="mt-8 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
+        <div className="mt-8 inline-flex flex-col items-center gap-4">
+          <div className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white p-1 shadow-sm">
+            <button
+              type="button"
+              onClick={() => setBillingMode('monthly')}
+              className={`rounded-full px-5 py-2 text-sm font-semibold transition-colors ${
+                billingMode === 'monthly'
+                  ? 'bg-neutral-900 text-white'
+                  : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              onClick={() => setBillingMode('annual')}
+              className={`rounded-full px-5 py-2 text-sm font-semibold transition-colors ${
+                billingMode === 'annual'
+                  ? 'bg-neutral-900 text-white'
+                  : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+              }`}
+            >
+              Annual
+            </button>
+          </div>
+          
           <button
             type="button"
-            onClick={() => setBillingMode('monthly')}
-            className={`rounded-full px-5 py-2 text-sm font-semibold transition-colors ${
-              billingMode === 'monthly'
-                ? 'bg-neutral-900 text-white'
-                : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
-            }`}
+            onClick={openPromoModal}
+            className="text-sm font-medium text-emerald-600 hover:text-emerald-700 underline underline-offset-4"
           >
-            Monthly billing
-          </button>
-          <button
-            type="button"
-            onClick={() => setBillingMode('annual')}
-            className={`rounded-full px-5 py-2 text-sm font-semibold transition-colors ${
-              billingMode === 'annual'
-                ? 'bg-neutral-900 text-white'
-                : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
-            }`}
-          >
-            Annual billing
+            Have a promo code?
           </button>
         </div>
       </section>

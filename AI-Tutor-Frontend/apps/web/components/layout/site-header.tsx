@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/hooks/use-i18n';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { SettingsDialog } from '@/components/settings';
+import { UserMenu } from './user-menu';
 import { clearAuthSession, hasAuthSessionHint, verifyAuthSession } from '@/lib/auth/session';
 import { cn } from '@/lib/utils';
 import type { SettingsSection } from '@/lib/types/settings';
@@ -177,24 +178,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
 
             {!authChecking && (
               isAuthenticated ? (
-                <>
-                  {(variant === 'landing' || variant === 'pricing') && (
-                    <button
-                      type="button"
-                      onClick={() => router.push('/classroom')}
-                      className="rounded-full bg-neutral-900 text-white dark:bg-primary dark:text-primary-foreground px-4 py-2 text-sm font-semibold hover:bg-neutral-800 transition-all"
-                    >
-                      Classrooms
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={handleSignOut}
-                    className="rounded-full bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-600 hover:bg-emerald-100 dark:bg-primary/10 dark:text-primary dark:hover:bg-primary/20 transition-colors ml-2"
-                  >
-                    Sign out
-                  </button>
-                </>
+                <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
               ) : (
                 <>
                   <button
