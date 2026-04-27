@@ -30,6 +30,21 @@ function AuthCallbackPageContent() {
         }
 
         const data = json.data || json;
+        if (data.status && typeof data.status === 'string' && data.status === 'partial_auth') {
+          // Phone verification required — store partial context and redirect
+          if (data.partial_auth_token) {
+            sessionStorage.setItem('partialAuthToken', data.partial_auth_token);
+          }
+          if (data.account_id) {
+            sessionStorage.setItem('partialAuthAccountId', data.account_id);
+          }
+          if (data.email) {
+            sessionStorage.setItem('partialAuthEmail', data.email);
+          }
+          const target = data.redirect_to || '/auth/verify-phone';
+          router.replace(target);
+          return;
+        }
         if (data.status && typeof data.status === 'string' && data.status !== 'active') {
           throw new Error(`Authentication incomplete: ${data.status}`);
         }

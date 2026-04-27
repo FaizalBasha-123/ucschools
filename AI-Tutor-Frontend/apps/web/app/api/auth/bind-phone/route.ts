@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 
 function backendUrlBase(): string {
@@ -9,24 +9,32 @@ function backendUrlBase(): string {
   );
 }
 
-export async function GET(request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const qs = request.nextUrl.searchParams.toString();
-    const backendRes = await fetch(`${backendUrlBase()}/api/auth/google/callback?${qs}`, {
-      method: 'GET',
+    const body = await request.json();
+
+    const backendRes = await fetch(`${backendUrlBase()}/api/auth/bind-phone`, {
+      method: 'POST',
       headers: {
+        'content-type': 'application/json',
         cookie: request.headers.get('cookie') || '',
       },
-      redirect: 'manual',
+      body: JSON.stringify(body),
       cache: 'no-store',
     });
 
     const setCookie = backendRes.headers.get('set-cookie');
-    const location = backendRes.headers.get('location');
     const text = await backendRes.text();
 
-    if (!backendRes.ok && backendRes.status !== 302) {
-      return apiError('INTERNAL_ERROR', backendRes.status, 'Google callback failed', text);
+    if (!backendRes.ok) {
+      let errorMsg = 'Phone verification failed';
+      try {
+        const parsed = JSON.parse(text);
+        errorMsg = parsed.error || parsed.message || errorMsg;
+      } catch {
+        // use default
+      }
+      return apiError('INTERNAL_ERROR', backendRes.status, errorMsg, text);
     }
 
     let payload: Record<string, unknown> = {};
@@ -36,9 +44,6 @@ export async function GET(request: NextRequest) {
       } catch {
         payload = { raw: text };
       }
-    }
-    if (location && !payload.redirect_to) {
-      payload.redirect_to = location;
     }
 
     const response = apiSuccess(payload);
@@ -52,7 +57,7 @@ export async function GET(request: NextRequest) {
     return apiError(
       'INTERNAL_ERROR',
       500,
-      'Google callback failed',
+      'Phone verification failed',
       error instanceof Error ? error.message : String(error),
     );
   }
