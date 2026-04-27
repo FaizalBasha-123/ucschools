@@ -51,6 +51,7 @@ pub trait LessonJobRepository: Send + Sync {
     async fn create_job(&self, job: &LessonGenerationJob) -> Result<(), String>;
     async fn update_job(&self, job: &LessonGenerationJob) -> Result<(), String>;
     async fn get_job(&self, job_id: &str) -> Result<Option<LessonGenerationJob>, String>;
+    async fn list_all_jobs(&self, limit: usize) -> Result<Vec<LessonGenerationJob>, String>;
 }
 
 #[async_trait]
@@ -243,4 +244,5 @@ pub trait FinancialAuditRepository: Send + Sync {
         account_id: &str,
         limit: usize,
     ) -> Result<Vec<FinancialAuditLog>, String>;
+    async fn list_all_audit_logs(&self, limit: usize) -> Result<Vec<FinancialAuditLog>, String>;
 }

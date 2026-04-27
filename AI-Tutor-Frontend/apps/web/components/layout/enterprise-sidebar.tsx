@@ -12,6 +12,8 @@ import {
   Activity,
   Users,
   Database,
+  ListTodo,
+  FileText,
 } from 'lucide-react';
 import { clearAuthSession } from '@/lib/auth/session';
 
@@ -31,7 +33,9 @@ export function EnterpriseSidebar({ onSignOut, variant = 'user' }: EnterpriseSid
 
   const adminLinks = [
     { href: '/admin', label: 'Overview', icon: Activity },
+    { href: '/admin/jobs', label: 'Job Queue', icon: ListTodo },
     { href: '/admin/users', label: 'User Management', icon: Users },
+    { href: '/admin/audit', label: 'Audit Trails', icon: FileText },
     { href: '/admin/health', label: 'System Health', icon: Database },
     { href: '/admin/settings', label: 'Settings', icon: Settings },
   ];

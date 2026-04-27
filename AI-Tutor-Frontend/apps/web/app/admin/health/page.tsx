@@ -228,6 +228,40 @@ export default function AdminHealthPage() {
             </div>
           )}
 
+          {/* Safety Kill Switch */}
+          {health && (
+            <div className="mt-12 pt-8 border-t border-border/60">
+              <h3 className="font-bold text-lg text-red-600 dark:text-red-400 mb-4 flex items-center gap-2">
+                <ShieldCheck className="size-5" /> Emergency Controls
+              </h3>
+              <div className="rounded-2xl border border-red-200 bg-red-50 dark:border-red-900/50 dark:bg-red-950/20 p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                <div>
+                  <h4 className="font-semibold text-red-900 dark:text-red-300">Global Maintenance Mode</h4>
+                  <p className="text-sm text-red-700 dark:text-red-400 mt-1 max-w-xl">
+                    Engaging this switch will immediately halt all new AI generation requests and place the platform into emergency maintenance mode. Ongoing active jobs may be safely halted. 
+                  </p>
+                </div>
+                <Button 
+                  variant="destructive" 
+                  size="lg" 
+                  className="shrink-0 font-bold tracking-wide"
+                  onClick={async () => {
+                    if (confirm('Are you absolutely sure you want to toggle Global Maintenance Mode?')) {
+                      try {
+                        const res = await fetch('/api/admin/health/toggle', { method: 'POST' });
+                        if (res.ok) fetchHealth();
+                      } catch (e) {
+                        alert('Failed to toggle maintenance mode');
+                      }
+                    }
+                  }}
+                >
+                  TOGGLE KILL SWITCH
+                </Button>
+              </div>
+            </div>
+          )}
+
         </div>
       </main>
     </div>
