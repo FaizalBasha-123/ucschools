@@ -118,9 +118,36 @@ function PricingPageContent() {
   const [promoLoading, setPromoLoading] = useState(false);
   const [promoMessage, setPromoMessage] = useState<string | null>(null);
   const [promoError, setPromoError] = useState<string | null>(null);
+  const [creditBalance, setCreditBalance] = useState<number>(0);
+  const [billingLoading, setBillingLoading] = useState(true);
   const creditPrice = 0.5;
 
   const [enterpriseOpen, setEnterpriseOpen] = useState(false);
+...
+  useEffect(() => {
+    async function loadBilling() {
+      if (!hasAuthSessionHint()) {
+        setBillingLoading(false);
+        return;
+      }
+      try {
+        const res = await fetch('/api/billing/dashboard', {
+          method: 'GET',
+          headers: authHeaders(),
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCreditBalance(data.data?.entitlement?.credit_balance ?? 0);
+        }
+      } catch (err) {
+        console.error('Failed to load billing for pricing page:', err);
+      } finally {
+        setBillingLoading(false);
+      }
+    }
+    loadBilling();
+  }, []);
   const [enterpriseForm, setEnterpriseForm] = useState({
     school_name: '',
     contact_name: '',

@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
     const backendRes = await fetch(`${backendUrl}/api/lessons/${id}`, {
       method: 'GET',
     });
-...
+
     if (backendRes.status === 404) {
       return apiError(API_ERROR_CODES.INVALID_REQUEST, 404, 'Classroom not found');
     }

@@ -51,19 +51,18 @@ export default function CheckBillingPage() {
         const creditBalance = data.data?.entitlement?.credit_balance ?? 0;
         const hasActiveSubscription = data.data?.entitlement?.has_active_subscription ?? false;
 
-        // Determine flow based on billing state
-        if (hasActiveSubscription && creditBalance > 0) {
-          // Scenario 1: All good - redirect to classroom
-          router.replace('/classroom');
-        } else if (hasActiveSubscription && creditBalance === 0) {
-          // Scenario 2: Has plan but no credits - show popup
-          setStatus('modal-credits');
-        } else if (!hasActiveSubscription && creditBalance === 0) {
-          // Scenario 3: No plan and no credits - redirect to pricing
+        // MANDATORY: If no active subscription, always show pricing page on sign-in
+        if (!hasActiveSubscription) {
           router.replace('/pricing');
+          return;
+        }
+
+        // If has subscription but no credits, show top-up
+        if (creditBalance <= 0) {
+          setStatus('modal-credits');
         } else {
-          // Scenario 4: No plan but has credits - show popup
-          setStatus('modal-plan');
+          // Has subscription and credits - proceed
+          router.replace('/classroom');
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to check billing status';
@@ -88,12 +87,20 @@ export default function CheckBillingPage() {
       {status === 'error' && (
         <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950 p-6 max-w-md text-center">
           <p className="text-red-800 dark:text-red-200 font-medium mb-4">{error}</p>
-          <button
-            onClick={() => router.replace('/classroom')}
-            className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
-          >
-            Continue Anyway
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => window.location.reload()}
+              className="flex-1 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => router.replace('/pricing')}
+              className="flex-1 px-4 py-2 rounded-lg border border-neutral-300 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+            >
+              View Plans
+            </button>
+          </div>
         </div>
       )}
 
