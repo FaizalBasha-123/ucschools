@@ -1,7 +1,6 @@
 const SESSION_TOKEN_KEY = 'aiTutorSessionToken';
 const ACCOUNT_EMAIL_KEY = 'aiTutorAccountEmail';
 const ACCOUNT_ID_KEY = 'aiTutorAccountId';
-const SESSION_ACTIVE_KEY = 'aiTutorSessionActive';
 
 export type AuthSession = {
   token?: string;
@@ -9,53 +8,43 @@ export type AuthSession = {
   email?: string;
 };
 
-function readStorageFlag(key: string): boolean {
-  if (typeof window === 'undefined') return false;
-  try {
-    return localStorage.getItem(key) === '1';
-  } catch {
-    return false;
-  }
-}
-
-export function hasAuthSessionHint(): boolean {
-  return !!getSessionToken() || readStorageFlag(SESSION_ACTIVE_KEY);
-}
-
 export function getSessionToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
     const token = localStorage.getItem(SESSION_TOKEN_KEY);
-    return token && token.trim().length > 0 ? token : null;
+    // Secure check: true tokens are substantial JWTs or IDs
+    return token && token.trim().length > 10 ? token : null;
   } catch {
     return null;
   }
 }
 
+export function hasAuthSessionHint(): boolean {
+  return !!getSessionToken();
+}
+
 export function getAuthSession(): AuthSession | null {
   const token = getSessionToken();
-  if (!token && !hasAuthSessionHint()) return null;
-  if (typeof window === 'undefined') return token ? { token } : {};
+  if (!token) return null;
   try {
     return {
-      ...(token ? { token } : {}),
+      token,
       accountId: localStorage.getItem(ACCOUNT_ID_KEY) || undefined,
       email: localStorage.getItem(ACCOUNT_EMAIL_KEY) || undefined,
     };
   } catch {
-    return token ? { token } : {};
+    return { token };
   }
 }
 
 export function setAuthSession(session: AuthSession): void {
   if (typeof window === 'undefined') return;
   try {
-    if (session.token && session.token.trim().length > 0) {
+    if (session.token && session.token.trim().length > 10) {
       localStorage.setItem(SESSION_TOKEN_KEY, session.token);
     } else {
       localStorage.removeItem(SESSION_TOKEN_KEY);
     }
-    localStorage.setItem(SESSION_ACTIVE_KEY, '1');
     if (session.accountId) localStorage.setItem(ACCOUNT_ID_KEY, session.accountId);
     if (session.email) localStorage.setItem(ACCOUNT_EMAIL_KEY, session.email);
   } catch {
@@ -67,7 +56,6 @@ export function clearAuthSession(): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.removeItem(SESSION_TOKEN_KEY);
-    localStorage.removeItem(SESSION_ACTIVE_KEY);
     localStorage.removeItem(ACCOUNT_ID_KEY);
     localStorage.removeItem(ACCOUNT_EMAIL_KEY);
   } catch {
@@ -77,22 +65,36 @@ export function clearAuthSession(): void {
 
 export function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = getSessionToken();
-  return {
-    ...(extra || {}),
-    ...(token ? { 
-      Authorization: `Bearer ${token}`,
-      'X-Auth-Token': token
-    } : {}),
-  };
+  const headers: Record<string, string> = {};
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+    headers['X-Auth-Token'] = token;
+    headers['X-Session-Token'] = token;
+  }
+
+  if (extra) {
+    if (!(extra instanceof Headers) && !Array.isArray(extra)) {
+      Object.assign(headers, extra);
+    }
+  }
+
+  return headers;
 }
 
 export async function verifyAuthSession(): Promise<boolean> {
-  const response = await fetch('/api/subscriptions/me', {
-    method: 'GET',
-    cache: 'no-store',
-    headers: authHeaders(),
-    credentials: 'include',
-  });
-
-  return response.ok;
+  const token = getSessionToken();
+  if (!token) return false;
+  
+  try {
+    const response = await fetch('/api/subscriptions/me', {
+      method: 'GET',
+      cache: 'no-store',
+      headers: authHeaders(),
+      credentials: 'include',
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
