@@ -61,8 +61,40 @@ export function UserMenu({ onOpenSettings }: UserMenuProps) {
     },
   ];
 
+  const [credits, setCredits] = useState<number | null>(null);
+
+  useEffect(() => {
+    async function loadCredits() {
+      try {
+        const res = await fetch('/api/billing/dashboard', {
+          method: 'GET',
+          headers: authHeaders(),
+          cache: 'no-store',
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setCredits(data.data?.entitlement?.credit_balance ?? 0);
+        }
+      } catch (err) {
+        console.error('Failed to load credits for header:', err);
+      }
+    }
+    loadCredits();
+    // Refresh credits every 30 seconds
+    const interval = setInterval(loadCredits, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative flex items-center gap-3" ref={menuRef}>
+      {credits !== null && (
+        <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 shadow-sm">
+          <Zap size={14} className="text-emerald-600 fill-emerald-600" />
+          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+            {credits} Credits
+          </span>
+        </div>
+      )}
       <button
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 p-1 pr-2 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-all border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700"
