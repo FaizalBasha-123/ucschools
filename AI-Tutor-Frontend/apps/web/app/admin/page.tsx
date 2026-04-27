@@ -229,19 +229,19 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* Payment Success Rate Card */}
+            {/* Total Revenue Card */}
             <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm flex flex-col relative overflow-hidden min-h-[140px]">
               <div className="flex items-center gap-3 text-muted-foreground mb-4">
                 <Settings className="size-5 text-amber-500" />
-                <h3 className="font-medium text-sm text-foreground">Payment Health</h3>
+                <h3 className="font-medium text-sm text-foreground">Total Revenue</h3>
               </div>
               {paymentStats ? (
                 <div>
                   <div className="text-3xl font-bold text-foreground">
-                    {(paymentStats.success_rate * 100).toFixed(1)}%
+                    ${paymentStats.total_revenue.toFixed(2)}
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    {paymentStats.successful_payments}/{paymentStats.total_payments} successful
+                    {(paymentStats.success_rate * 100).toFixed(1)}% success rate ({paymentStats.successful_payments}/{paymentStats.total_payments})
                   </p>
                 </div>
               ) : (

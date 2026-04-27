@@ -52,6 +52,15 @@ pub struct OperatorOtpNotification {
     pub expires_in_minutes: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct EnterpriseContactNotification {
+    pub school_name: String,
+    pub contact_name: String,
+    pub contact_email: String,
+    pub contact_phone: Option<String>,
+    pub message: String,
+}
+
 #[async_trait]
 pub trait NotificationService: Send + Sync {
     async fn send_payment_success_notification(
@@ -73,6 +82,8 @@ pub trait NotificationService: Send + Sync {
     ) -> Result<()>;
 
     async fn send_operator_otp(&self, payload: OperatorOtpNotification) -> Result<()>;
+
+    async fn send_enterprise_contact(&self, payload: EnterpriseContactNotification) -> Result<()>;
 }
 
 #[derive(Debug, Default)]
@@ -130,6 +141,15 @@ impl NotificationService for NoopNotificationService {
         warn!(
             email = %payload.operator_email,
             "Skipping operator OTP notification (noop service)"
+        );
+        Ok(())
+    }
+
+    async fn send_enterprise_contact(&self, payload: EnterpriseContactNotification) -> Result<()> {
+        info!(
+            school = %payload.school_name,
+            email = %payload.contact_email,
+            "Skipping enterprise contact notification (noop service)"
         );
         Ok(())
     }
@@ -344,6 +364,42 @@ impl NotificationService for SmtpNotificationService {
         self.send_html_email(
             &payload.operator_email,
             "Your AI-Tutor operator login code",
+            html,
+            text,
+        )
+        .await
+    }
+
+    async fn send_enterprise_contact(&self, payload: EnterpriseContactNotification) -> Result<()> {
+        let phone = payload.contact_phone.unwrap_or_else(|| "Not provided".to_string());
+        
+        // We will just construct a simple HTML and Text body without needing a dedicated template file for now
+        let html = format!(
+            r#"
+            <h2>New Enterprise Contact Request</h2>
+            <p><strong>School Name:</strong> {}</p>
+            <p><strong>Contact Name:</strong> {}</p>
+            <p><strong>Email:</strong> {}</p>
+            <p><strong>Phone:</strong> {}</p>
+            <h3>Message</h3>
+            <p>{}</p>
+            "#,
+            payload.school_name,
+            payload.contact_name,
+            payload.contact_email,
+            phone,
+            payload.message.replace("\n", "<br>")
+        );
+        
+        let text = format!(
+            "New Enterprise Contact Request\n\nSchool Name: {}\nContact Name: {}\nEmail: {}\nPhone: {}\n\nMessage:\n{}",
+            payload.school_name, payload.contact_name, payload.contact_email, phone, payload.message
+        );
+
+        // Hardcode the destination email as per requirement
+        self.send_html_email(
+            "upcraft.consulting@gmail.com",
+            &format!("Enterprise Lead: {}", payload.school_name),
             html,
             text,
         )

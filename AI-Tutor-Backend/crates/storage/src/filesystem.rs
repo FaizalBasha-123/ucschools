@@ -37,8 +37,8 @@ use crate::repositories::{
     CreditLedgerRepository, DunningCaseRepository, FinancialAuditRepository,
     InvoiceLineRepository, InvoiceRepository, LessonAdaptiveRepository, LessonJobRepository,
     LessonRepository, LessonShelfRepository, PaymentIntentRepository, PaymentOrderRepository,
-    PromoCodeRepository, RuntimeActionExecutionRepository, RuntimeSessionRepository, SubscriptionRepository,
-    TutorAccountRepository, WebhookEventRepository,
+    PromoCodeRepository, RuntimeActionExecutionRepository, RuntimeSessionRepository, SchoolRepository,
+    SubscriptionRepository, TutorAccountRepository, WebhookEventRepository,
 };
 
 const STALE_JOB_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -288,11 +288,49 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
                 ON financial_audit_logs (account_id, created_at DESC);
         "#,
     },
+    PostgresMigration {
+        version: 7,
+        name: "enterprise_schools",
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS schools (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                admin_email TEXT NOT NULL,
+                plan TEXT NOT NULL DEFAULT 'free',
+                credit_pool DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            );
+
+            ALTER TABLE tutor_accounts
+                ADD COLUMN IF NOT EXISTS school_id TEXT REFERENCES schools(id) ON DELETE SET NULL;
+
+            CREATE INDEX IF NOT EXISTS idx_tutor_accounts_school_id
+                ON tutor_accounts (school_id);
+        "#,
+    },
+    PostgresMigration {
+        version: 8,
+        name: "school_invoices",
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS school_invoices (
+                id TEXT PRIMARY KEY,
+                school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+                amount_cents BIGINT NOT NULL,
+                payment_link TEXT,
+                status TEXT NOT NULL,
+                due_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                paid_at TIMESTAMPTZ
+            );
+        "#,
+    },
 ];
 
 impl FileStorage {
     fn tutor_account_status_to_db(status: &TutorAccountStatus) -> &'static str {
         match status {
+            TutorAccountStatus::PreRegistered => "pre_registered",
             TutorAccountStatus::PartialAuth => "partial_auth",
             TutorAccountStatus::Active => "active",
         }
@@ -300,6 +338,7 @@ impl FileStorage {
 
     fn tutor_account_status_from_db(value: &str) -> Result<TutorAccountStatus, String> {
         match value {
+            "pre_registered" => Ok(TutorAccountStatus::PreRegistered),
             "partial_auth" => Ok(TutorAccountStatus::PartialAuth),
             "active" => Ok(TutorAccountStatus::Active),
             other => Err(format!("unsupported tutor account status `{other}`")),
@@ -310,6 +349,7 @@ impl FileStorage {
         let status = Self::tutor_account_status_from_db(row.get::<_, String>("status").as_str())?;
         let created_at: chrono::DateTime<Utc> = row.get("created_at");
         let updated_at: chrono::DateTime<Utc> = row.get("updated_at");
+        let school_id = row.try_get("school_id").unwrap_or(None);
 
         Ok(TutorAccount {
             id: row.get("id"),
@@ -318,12 +358,47 @@ impl FileStorage {
             phone_number: row.get("phone_number"),
             phone_verified: row.get("phone_verified"),
             status,
+            school_id,
             created_at,
             updated_at,
         })
     }
 
+    fn postgres_row_to_school_invoice(row: postgres::Row) -> Result<ai_tutor_domain::school::SchoolInvoice, String> {
+        let status_str = row.get::<_, String>("status");
+        let status = match status_str.as_str() {
+            "pending" => ai_tutor_domain::school::SchoolInvoiceStatus::Pending,
+            "paid" => ai_tutor_domain::school::SchoolInvoiceStatus::Paid,
+            "overdue" => ai_tutor_domain::school::SchoolInvoiceStatus::Overdue,
+            "cancelled" => ai_tutor_domain::school::SchoolInvoiceStatus::Cancelled,
+            other => return Err(format!("unsupported school invoice status `{other}`")),
+        };
+        Ok(ai_tutor_domain::school::SchoolInvoice {
+            id: row.get("id"),
+            school_id: row.get("school_id"),
+            amount_cents: row.get("amount_cents"),
+            payment_link: row.try_get("payment_link").unwrap_or(None),
+            status,
+            due_at: row.get("due_at"),
+            created_at: row.get("created_at"),
+            paid_at: row.try_get("paid_at").unwrap_or(None),
+        })
+    }
+
+    fn postgres_row_to_school(row: postgres::Row) -> Result<ai_tutor_domain::school::School, String> {
+        Ok(ai_tutor_domain::school::School {
+            id: row.get("id"),
+            name: row.get("name"),
+            admin_email: row.get("admin_email"),
+            plan: row.get("plan"),
+            credit_pool: row.get("credit_pool"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        })
+    }
+
     fn credit_entry_kind_to_db(kind: &CreditEntryKind) -> &'static str {
+
         match kind {
             CreditEntryKind::Grant => "grant",
             CreditEntryKind::Debit => "debit",
@@ -2541,6 +2616,37 @@ impl TutorAccountRepository for FileStorage {
             .find(|account| account.phone_number.as_deref() == Some(phone_number)))
     }
 
+    async fn get_tutor_account_by_email(
+        &self,
+        email: &str,
+    ) -> Result<Option<TutorAccount>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let email = email.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client)
+                    .map_err(|err| err.to_string())?;
+                let row = client
+                    .query_opt(
+                        "SELECT id, email, google_id, phone_number, phone_verified, status,
+                                created_at,
+                                updated_at
+                         FROM tutor_accounts WHERE email = $1",
+                        &[&email],
+                    )
+                    .map_err(|err| err.to_string())?;
+                row.map(Self::postgres_row_to_tutor_account).transpose()
+            })
+            .await
+            .map_err(|err| err.to_string())?;
+        }
+
+        let accounts = self.list_tutor_accounts().await?;
+        Ok(accounts
+            .into_iter()
+            .find(|account| account.email == email))
+    }
+
     async fn list_all_tutor_accounts(&self, limit: usize) -> Result<Vec<TutorAccount>, String> {
         if let Some(postgres_url) = self.postgres_url.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<TutorAccount>, String> {
@@ -4697,6 +4803,208 @@ impl FinancialAuditRepository for FileStorage {
         Ok(logs)
     }
 }
+
+#[async_trait]
+impl SchoolRepository for FileStorage {
+    async fn save_school(&self, school: &ai_tutor_domain::school::School) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let school = school.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                client.execute(
+                    "INSERT INTO schools (id, name, admin_email, plan, credit_pool, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7)
+                     ON CONFLICT (id) DO UPDATE SET
+                         name = EXCLUDED.name,
+                         admin_email = EXCLUDED.admin_email,
+                         plan = EXCLUDED.plan,
+                         credit_pool = EXCLUDED.credit_pool,
+                         updated_at = EXCLUDED.updated_at",
+                    &[&school.id, &school.name, &school.admin_email, &school.plan,
+                      &school.credit_pool, &school.created_at, &school.updated_at],
+                ).map_err(|e| e.to_string())?;
+                Ok(())
+            }).await.map_err(|e| e.to_string())?;
+        }
+        // Filesystem fallback: store as JSON
+        let path = self.root_dir().join("schools").join(format!("{}.json", school.id));
+        tokio::fs::create_dir_all(path.parent().unwrap()).await.map_err(|e| e.to_string())?;
+        let bytes = serde_json::to_vec_pretty(school).map_err(|e| e.to_string())?;
+        tokio::fs::write(&path, bytes).await.map_err(|e| e.to_string())
+    }
+
+    async fn get_school(&self, id: &str) -> Result<Option<ai_tutor_domain::school::School>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let id = id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Option<ai_tutor_domain::school::School>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                let row = client.query_opt(
+                    "SELECT id, name, admin_email, plan, credit_pool, created_at, updated_at FROM schools WHERE id = $1",
+                    &[&id],
+                ).map_err(|e| e.to_string())?;
+                row.map(Self::postgres_row_to_school).transpose()
+            }).await.map_err(|e| e.to_string())?;
+        }
+        let path = self.root_dir().join("schools").join(format!("{id}.json"));
+        match Self::read_json::<ai_tutor_domain::school::School>(&path).await {
+            Ok(val) => Ok(val),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn list_schools(&self, limit: usize) -> Result<Vec<ai_tutor_domain::school::School>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let sql_limit = i64::try_from(limit).map_err(|_| "limit overflow".to_string())?;
+            return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::school::School>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                let rows = client.query(
+                    "SELECT id, name, admin_email, plan, credit_pool, created_at, updated_at FROM schools ORDER BY created_at DESC LIMIT $1",
+                    &[&sql_limit],
+                ).map_err(|e| e.to_string())?;
+                rows.into_iter().map(Self::postgres_row_to_school).collect()
+            }).await.map_err(|e| e.to_string())?;
+        }
+        // Filesystem fallback
+        let dir = self.root_dir().join("schools");
+        let Ok(mut reader) = tokio::fs::read_dir(&dir).await else { return Ok(vec![]); };
+        let mut schools = Vec::new();
+        while let Some(entry) = reader.next_entry().await.map_err(|e| e.to_string())? {
+            if let Some(s) = Self::read_json::<ai_tutor_domain::school::School>(&entry.path()).await.unwrap_or(None) {
+                schools.push(s);
+            }
+        }
+        schools.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        schools.truncate(limit);
+        Ok(schools)
+    }
+
+    async fn set_user_school(&self, account_id: &str, school_id: Option<&str>) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let account_id = account_id.to_string();
+            let school_id = school_id.map(|s| s.to_string());
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                client.execute(
+                    "UPDATE tutor_accounts SET school_id = $1, updated_at = NOW() WHERE id = $2",
+                    &[&school_id, &account_id],
+                ).map_err(|e| e.to_string())?;
+                Ok(())
+            }).await.map_err(|e| e.to_string())?;
+        }
+        // Filesystem: update the JSON file for the account
+        let accounts_dir = self.root_dir().join("accounts");
+        let path = accounts_dir.join(format!("{account_id}.json"));
+        if let Ok(Some(mut account)) = Self::read_json::<ai_tutor_domain::auth::TutorAccount>(&path).await {
+            account.school_id = school_id.map(|s| s.to_string());
+            let bytes = serde_json::to_vec_pretty(&account).map_err(|e| e.to_string())?;
+            tokio::fs::write(&path, bytes).await.map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    async fn list_school_members(&self, school_id: &str) -> Result<Vec<ai_tutor_domain::auth::TutorAccount>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let school_id = school_id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::auth::TutorAccount>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                let rows = client.query(
+                    "SELECT id, email, google_id, phone_number, phone_verified, status, school_id, created_at, updated_at
+                     FROM tutor_accounts WHERE school_id = $1 ORDER BY created_at DESC",
+                    &[&school_id],
+                ).map_err(|e| e.to_string())?;
+                rows.into_iter().map(Self::postgres_row_to_tutor_account).collect()
+            }).await.map_err(|e| e.to_string())?;
+        }
+        // Filesystem fallback: scan all accounts
+        let all = self.list_all_tutor_accounts(100_000).await?;
+        Ok(all.into_iter().filter(|a| a.school_id.as_deref() == Some(school_id)).collect())
+    }
+
+    async fn save_school_invoice(&self, invoice: &ai_tutor_domain::school::SchoolInvoice) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let invoice = invoice.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                let status_str = match invoice.status {
+                    ai_tutor_domain::school::SchoolInvoiceStatus::Pending => "pending",
+                    ai_tutor_domain::school::SchoolInvoiceStatus::Paid => "paid",
+                    ai_tutor_domain::school::SchoolInvoiceStatus::Overdue => "overdue",
+                    ai_tutor_domain::school::SchoolInvoiceStatus::Cancelled => "cancelled",
+                };
+                client.execute(
+                    "INSERT INTO school_invoices (id, school_id, amount_cents, payment_link, status, due_at, created_at, paid_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                     ON CONFLICT (id) DO UPDATE SET
+                         status = EXCLUDED.status,
+                         payment_link = EXCLUDED.payment_link,
+                         paid_at = EXCLUDED.paid_at",
+                    &[&invoice.id, &invoice.school_id, &invoice.amount_cents, &invoice.payment_link,
+                      &status_str, &invoice.due_at, &invoice.created_at, &invoice.paid_at],
+                ).map_err(|e| e.to_string())?;
+                Ok(())
+            }).await.map_err(|e| e.to_string())?;
+        }
+        let path = self.root_dir().join("school_invoices").join(format!("{}.json", invoice.id));
+        tokio::fs::create_dir_all(path.parent().unwrap()).await.map_err(|e| e.to_string())?;
+        let bytes = serde_json::to_vec_pretty(invoice).map_err(|e| e.to_string())?;
+        tokio::fs::write(&path, bytes).await.map_err(|e| e.to_string())
+    }
+
+    async fn get_school_invoice(&self, id: &str) -> Result<Option<ai_tutor_domain::school::SchoolInvoice>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let id = id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Option<ai_tutor_domain::school::SchoolInvoice>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                let row = client.query_opt(
+                    "SELECT id, school_id, amount_cents, payment_link, status, due_at, created_at, paid_at FROM school_invoices WHERE id = $1",
+                    &[&id],
+                ).map_err(|e| e.to_string())?;
+                row.map(Self::postgres_row_to_school_invoice).transpose()
+            }).await.map_err(|e| e.to_string())?;
+        }
+        let path = self.root_dir().join("school_invoices").join(format!("{id}.json"));
+        match Self::read_json::<ai_tutor_domain::school::SchoolInvoice>(&path).await {
+            Ok(val) => Ok(val),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn list_school_invoices(&self, school_id: &str) -> Result<Vec<ai_tutor_domain::school::SchoolInvoice>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let school_id = school_id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::school::SchoolInvoice>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                let rows = client.query(
+                    "SELECT id, school_id, amount_cents, payment_link, status, due_at, created_at, paid_at
+                     FROM school_invoices WHERE school_id = $1 ORDER BY created_at DESC",
+                    &[&school_id],
+                ).map_err(|e| e.to_string())?;
+                rows.into_iter().map(Self::postgres_row_to_school_invoice).collect()
+            }).await.map_err(|e| e.to_string())?;
+        }
+        let dir = self.root_dir().join("school_invoices");
+        let Ok(mut reader) = tokio::fs::read_dir(&dir).await else { return Ok(vec![]); };
+        let mut invoices = Vec::new();
+        while let Some(entry) = reader.next_entry().await.map_err(|e| e.to_string())? {
+            if let Some(i) = Self::read_json::<ai_tutor_domain::school::SchoolInvoice>(&entry.path()).await.unwrap_or(None) {
+                if i.school_id == school_id {
+                    invoices.push(i);
+                }
+            }
+        }
+        invoices.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(invoices)
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
