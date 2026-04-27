@@ -35,12 +35,17 @@ export default function CheckBillingPage() {
 
       try {
         // Fetch billing dashboard with real API call
-        const response = await fetch('/api/billing/dashboard', {
-          method: 'GET',
-          headers: authHeaders(),
-          cache: 'no-store',
-        });
+        try {
+          // Optimized: Call the Rust backend directly if the public API URL is configured
+          // otherwise fallback to the local Next.js proxy.
+          const apiBase = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || '';
+          const url = apiBase ? `${apiBase}/api/billing/dashboard` : '/api/billing/dashboard';
 
+          const res = await fetch(url, {
+            method: 'GET',
+            headers: authHeaders(),
+            cache: 'no-store',
+          });
         if (!response.ok) {
           throw new Error(`Billing check failed: ${response.status}`);
         }

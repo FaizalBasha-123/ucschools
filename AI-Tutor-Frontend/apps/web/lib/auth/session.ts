@@ -65,12 +65,13 @@ export function clearAuthSession(): void {
 
 export function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = getSessionToken();
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = {
+    'X-Auth-Token': token || '',
+    'X-Session-Token': token || '',
+  };
   
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-    headers['X-Auth-Token'] = token;
-    headers['X-Session-Token'] = token;
   }
 
   if (extra) {
@@ -82,16 +83,39 @@ export function authHeaders(extra?: HeadersInit): HeadersInit {
   return headers;
 }
 
+/**
+ * Enterprise-grade fetch utility that bypasses the slow Vercel proxy 
+ * when a direct backend URL is available.
+ */
+export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const apiBase = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || '';
+  
+  // Normalize path
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  
+  // If we have a direct backend URL and the path starts with /api (but not internal next routes)
+  // we hit the Rust backend directly.
+  const isApiCall = cleanPath.startsWith('/api/') && !cleanPath.startsWith('/api/auth/callback');
+  const url = (apiBase && isApiCall) 
+    ? `${apiBase}${cleanPath}` 
+    : cleanPath;
+
+  const mergedOptions: RequestInit = {
+    ...options,
+    headers: authHeaders(options.headers),
+  };
+
+  return fetch(url, mergedOptions);
+}
+
 export async function verifyAuthSession(): Promise<boolean> {
   const token = getSessionToken();
   if (!token) return false;
   
   try {
-    const response = await fetch('/api/subscriptions/me', {
+    const response = await apiFetch('/api/subscriptions/me', {
       method: 'GET',
       cache: 'no-store',
-      headers: authHeaders(),
-      credentials: 'include',
     });
     return response.ok;
   } catch {
