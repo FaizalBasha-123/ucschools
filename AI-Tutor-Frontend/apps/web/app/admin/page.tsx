@@ -29,25 +29,13 @@ export default function AdminPage() {
   useEffect(() => {
     const enforceAuth = async () => {
       setAuthChecking(true);
-      if (!hasAuthSessionHint()) {
-        router.push('/auth?next=/admin');
-        return;
-      }
       try {
-        const isValid = await verifyAuthSession();
-        if (!isValid) {
-          clearAuthSession();
-          router.push('/auth?next=/admin');
-          return;
-        }
-        
-        setAuthChecking(false);
-        // Fetch admin data after auth is verified
         await refreshAdminData();
       } catch (err) {
-        log.error('Auth check failed', err);
-        clearAuthSession();
-        router.push('/auth?next=/admin');
+        log.error('Operator auth check failed', err);
+        router.push('/operator');
+      } finally {
+        setAuthChecking(false);
       }
     };
     enforceAuth();
@@ -72,6 +60,12 @@ export default function AdminPage() {
         headers,
         cache: 'no-store',
       });
+
+      if (overviewRes.status === 401) {
+        log.warn('Operator session expired or invalid');
+        router.push('/operator');
+        return;
+      }
 
       if (overviewRes.status === 403) {
         log.warn('Access denied to admin panel - insufficient permissions');
@@ -115,9 +109,13 @@ export default function AdminPage() {
 
   return (
     <div className="flex w-full min-h-screen bg-neutral-50 dark:bg-neutral-900/50">
-      <EnterpriseSidebar onSignOut={() => {
-        clearAuthSession();
-        router.push('/auth?next=/admin');
+      <EnterpriseSidebar onSignOut={async () => {
+        try {
+          await fetch('/api/operator/auth/logout', { method: 'POST' });
+        } catch (e) {
+          log.error('Failed to logout operator', e);
+        }
+        router.push('/operator');
       }} />
       
       <main className="flex-1 overflow-y-auto">

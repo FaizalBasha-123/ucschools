@@ -21,7 +21,12 @@ export async function POST(request: NextRequest) {
 
     const setCookie = backendRes.headers.get('set-cookie');
     const text = await backendRes.text();
-    const json = text ? JSON.parse(text) : { ok: backendRes.ok, message: backendRes.statusText };
+    let json;
+    try {
+      json = text ? JSON.parse(text) : { ok: backendRes.ok, message: backendRes.statusText };
+    } catch {
+      json = { ok: backendRes.ok, error: text || backendRes.statusText };
+    }
 
     if (!backendRes.ok) {
       return apiError('INTERNAL_ERROR', backendRes.status, 'Failed to logout operator session', json?.error || text);
