@@ -109,14 +109,17 @@ export default function AdminPage() {
 
   return (
     <div className="flex w-full min-h-screen bg-neutral-50 dark:bg-neutral-900/50">
-      <EnterpriseSidebar onSignOut={async () => {
-        try {
-          await fetch('/api/operator/auth/logout', { method: 'POST' });
-        } catch (e) {
-          log.error('Failed to logout operator', e);
-        }
-        router.push('/operator');
-      }} />
+      <EnterpriseSidebar 
+        variant="admin"
+        onSignOut={async () => {
+          try {
+            await fetch('/api/operator/auth/logout', { method: 'POST' });
+          } catch (e) {
+            log.error('Failed to logout operator', e);
+          }
+          router.push('/operator');
+        }} 
+      />
       
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-8 pt-12">

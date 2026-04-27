@@ -9,21 +9,34 @@ import {
   Settings,
   BookOpen,
   LogOut,
+  Activity,
+  Users,
+  Database,
 } from 'lucide-react';
 import { clearAuthSession } from '@/lib/auth/session';
 
 interface EnterpriseSidebarProps {
   onSignOut: () => void;
+  variant?: 'user' | 'admin';
 }
 
-export function EnterpriseSidebar({ onSignOut }: EnterpriseSidebarProps) {
+export function EnterpriseSidebar({ onSignOut, variant = 'user' }: EnterpriseSidebarProps) {
   const pathname = usePathname();
 
-  const links = [
+  const userLinks = [
     { href: '/', label: 'Classrooms', icon: LayoutDashboard },
     { href: '/billing', label: 'Billing', icon: CreditCard },
-    { href: '/admin', label: 'Operator', icon: Settings },
+    { href: '/operator', label: 'Operator', icon: Settings },
   ];
+
+  const adminLinks = [
+    { href: '/admin', label: 'Overview', icon: Activity },
+    { href: '#', label: 'User Management', icon: Users },
+    { href: '#', label: 'System Health', icon: Database },
+    { href: '/admin/settings', label: 'Settings', icon: Settings },
+  ];
+
+  const links = variant === 'admin' ? adminLinks : userLinks;
 
   return (
     <aside className="w-64 flex-shrink-0 border-r border-border/40 bg-white/50 dark:bg-neutral-950/50 backdrop-blur-xl h-[100dvh] flex flex-col justify-between">
