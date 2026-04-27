@@ -32,6 +32,15 @@ function VerifyPhoneContent() {
     }
   }, [router]);
 
+  useEffect(() => {
+    // Cleanup recaptcha on unmount
+    return () => {
+      import('@/lib/auth/firebase').then(({ clearRecaptchaVerifier }) => {
+        clearRecaptchaVerifier();
+      }).catch(() => {});
+    };
+  }, []);
+
   const handleSendOtp = useCallback(async () => {
     setError(null);
     const fullPhone = `${countryCode}${phone.replace(/\D/g, '')}`;
@@ -42,8 +51,7 @@ function VerifyPhoneContent() {
     setLoading(true);
     try {
       // Dynamic import to avoid SSR issues with Firebase
-      const { sendPhoneOtp, clearRecaptchaVerifier } = await import('@/lib/auth/firebase');
-      clearRecaptchaVerifier(); // Reset in case of retry
+      const { sendPhoneOtp } = await import('@/lib/auth/firebase');
       const result = await sendPhoneOtp(fullPhone);
       setConfirmationResult(result);
       setStep('otp');
