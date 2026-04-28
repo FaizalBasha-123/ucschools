@@ -1,4 +1,8 @@
-/// Billing product definitions and catalog
+/// Billing product definitions and catalog.
+///
+/// This module delegates to the env-var-driven billing catalog in `app.rs`
+/// to ensure a single source of truth for product codes, prices, and credits.
+/// The subscription scheduler and other internal consumers import from here.
 use serde::{Deserialize, Serialize};
 use ai_tutor_domain::billing::BillingProductKind;
 
@@ -12,45 +16,67 @@ pub struct BillingProductDefinition {
     pub amount_minor: i64,
 }
 
+/// Returns the billing catalog.
+///
+/// Products are driven by environment variables with sensible defaults.
+/// This is the single source of truth — the API layer and the subscription
+/// scheduler both use this function.
 pub fn billing_catalog() -> Vec<BillingProductDefinition> {
+    let currency = billing_currency();
     vec![
+        BillingProductDefinition {
+            product_code: "plus_monthly".to_string(),
+            kind: BillingProductKind::Subscription,
+            title: "AI Tutor Plus Monthly".to_string(),
+            credits: env_f64("AI_TUTOR_PLUS_MONTHLY_CREDITS", 30.0),
+            currency: currency.clone(),
+            amount_minor: env_i64(
+                "AI_TUTOR_PLUS_MONTHLY_PRICE_MINOR",
+                (env_f64("AI_TUTOR_PLUS_MONTHLY_PRICE_USD", 5.0) * 100.0).round() as i64,
+            ),
+        },
+        BillingProductDefinition {
+            product_code: "pro_monthly".to_string(),
+            kind: BillingProductKind::Subscription,
+            title: "AI Tutor Pro Monthly".to_string(),
+            credits: env_f64("AI_TUTOR_PRO_MONTHLY_CREDITS", 80.0),
+            currency: currency.clone(),
+            amount_minor: env_i64(
+                "AI_TUTOR_PRO_MONTHLY_PRICE_MINOR",
+                (env_f64("AI_TUTOR_PRO_MONTHLY_PRICE_USD", 12.0) * 100.0).round() as i64,
+            ),
+        },
         BillingProductDefinition {
             product_code: "bundle_small".to_string(),
             kind: BillingProductKind::Bundle,
-            title: "Small Bundle".to_string(),
-            credits: 500.0,
-            currency: billing_currency(),
-            amount_minor: 19_900, // ₹199
+            title: "AI Tutor Credit Bundle Small".to_string(),
+            credits: env_f64("AI_TUTOR_BUNDLE_SMALL_CREDITS", 10.0),
+            currency: currency.clone(),
+            amount_minor: env_i64(
+                "AI_TUTOR_BUNDLE_SMALL_PRICE_MINOR",
+                (env_f64("AI_TUTOR_BUNDLE_SMALL_PRICE_USD", 5.0) * 100.0).round() as i64,
+            ),
         },
         BillingProductDefinition {
             product_code: "bundle_large".to_string(),
             kind: BillingProductKind::Bundle,
-            title: "Large Bundle".to_string(),
-            credits: 2000.0,
-            currency: billing_currency(),
-            amount_minor: 49_900, // ₹499
-        },
-        BillingProductDefinition {
-            product_code: "subscription_pro".to_string(),
-            kind: BillingProductKind::Subscription,
-            title: "Pro Subscription".to_string(),
-            credits: 1000.0, // per month
-            currency: billing_currency(),
-            amount_minor: 29_900, // ₹299/month
-        },
-        BillingProductDefinition {
-            product_code: "subscription_team".to_string(),
-            kind: BillingProductKind::Subscription,
-            title: "Team Subscription".to_string(),
-            credits: 5000.0, // per month
-            currency: billing_currency(),
-            amount_minor: 99_900, // ₹999/month
+            title: "AI Tutor Credit Bundle Large".to_string(),
+            credits: env_f64("AI_TUTOR_BUNDLE_LARGE_CREDITS", 65.0),
+            currency,
+            amount_minor: env_i64(
+                "AI_TUTOR_BUNDLE_LARGE_PRICE_MINOR",
+                (env_f64("AI_TUTOR_BUNDLE_LARGE_PRICE_USD", 32.5) * 100.0).round() as i64,
+            ),
         },
     ]
 }
 
 pub fn billing_currency() -> String {
-    "INR".to_string()
+    std::env::var("AI_TUTOR_BILLING_CURRENCY")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "USD".to_string())
 }
 
 pub fn billing_product_kind_label(kind: &BillingProductKind) -> &'static str {
@@ -58,4 +84,18 @@ pub fn billing_product_kind_label(kind: &BillingProductKind) -> &'static str {
         BillingProductKind::Subscription => "subscription",
         BillingProductKind::Bundle => "bundle",
     }
+}
+
+fn env_f64(key: &str, default: f64) -> f64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(default)
+}
+
+fn env_i64(key: &str, default: i64) -> i64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .unwrap_or(default)
 }

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     sync::Arc,
@@ -52,6 +53,9 @@ pub struct FileStorage {
     postgres_url: Option<String>,
     postgres_ready: Arc<AtomicBool>,
     job_lock: Arc<Mutex<()>>,
+    /// Per-account lock for file-backed credit operations to prevent TOCTOU races.
+    /// Only used when postgres_url is None (file-backed mode).
+    credit_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -493,6 +497,7 @@ impl FileStorage {
             postgres_url: None,
             postgres_ready: Arc::new(AtomicBool::new(false)),
             job_lock: Arc::new(Mutex::new(())),
+            credit_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -505,6 +510,7 @@ impl FileStorage {
             postgres_url: None,
             postgres_ready: Arc::new(AtomicBool::new(false)),
             job_lock: Arc::new(Mutex::new(())),
+            credit_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -517,6 +523,7 @@ impl FileStorage {
             postgres_url: None,
             postgres_ready: Arc::new(AtomicBool::new(false)),
             job_lock: Arc::new(Mutex::new(())),
+            credit_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -529,6 +536,7 @@ impl FileStorage {
             postgres_url: None,
             postgres_ready: Arc::new(AtomicBool::new(false)),
             job_lock: Arc::new(Mutex::new(())),
+            credit_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -547,7 +555,18 @@ impl FileStorage {
             postgres_url,
             postgres_ready: Arc::new(AtomicBool::new(false)),
             job_lock: Arc::new(Mutex::new(())),
+            credit_locks: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Acquire a per-account lock for file-backed credit operations.
+    /// This prevents TOCTOU race conditions when concurrent requests
+    /// try to read-modify-write the same account's credit balance.
+    async fn acquire_credit_lock(&self, account_id: &str) -> Arc<Mutex<()>> {
+        let mut locks = self.credit_locks.lock().await;
+        locks.entry(account_id.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
     }
 
     fn ensure_postgres_ready_blocking(
@@ -2460,22 +2479,19 @@ impl TutorAccountRepository for FileStorage {
             .map_err(|err| err.to_string())?;
         }
 
-        let existing_accounts = self.list_tutor_accounts().await?;
-        for existing in existing_accounts {
-            if existing.id == account.id {
-                continue;
-            }
-            if existing.google_id == account.google_id {
+        // Uniqueness checks using indexed lookups instead of full scan.
+        // This avoids O(n) on number of users for every account save.
+        if let Some(existing) = self.get_tutor_account_by_google_id(&account.google_id).await? {
+            if existing.id != account.id {
                 return Err(format!(
                     "google account {} is already linked to another tutor account",
                     account.google_id
                 ));
             }
-            if let (Some(existing_phone), Some(account_phone)) = (
-                existing.phone_number.as_deref(),
-                account.phone_number.as_deref(),
-            ) {
-                if existing_phone == account_phone {
+        }
+        if let Some(account_phone) = account.phone_number.as_deref() {
+            if let Some(existing) = self.get_tutor_account_by_phone(account_phone).await? {
+                if existing.id != account.id {
                     return Err(format!(
                         "phone number {} is already linked to another tutor account",
                         account_phone
@@ -2526,40 +2542,14 @@ impl TutorAccountRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let google_id = google_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
-                // Log masked URL so we can verify channel_binding is gone
-                let masked = if postgres_url.len() > 40 {
-                    format!("{}...{}", &postgres_url[..30], &postgres_url[postgres_url.len()-30..])
-                } else {
-                    "***".to_string()
-                };
-                eprintln!("[diag] connecting to postgres: {}", masked);
-
                 let mut client = Self::connect_postgres(&postgres_url).map_err(|err| {
                     format!("connect_postgres failed: {}", err)
                 })?;
-                eprintln!("[diag] connected OK");
 
                 Self::run_postgres_migrations(&mut client).map_err(|err| {
                     format!("run_postgres_migrations failed: {}", err)
                 })?;
-                eprintln!("[diag] migrations OK");
 
-                // Test 1: simple query (no params)
-                match client.query("SELECT 1 AS test", &[]) {
-                    Ok(_) => eprintln!("[diag] simple query OK"),
-                    Err(e) => eprintln!("[diag] simple query FAILED: {}", e),
-                }
-
-                // Test 2: parameterized query with a string
-                match client.query("SELECT $1::TEXT AS echo", &[&google_id]) {
-                    Ok(_) => eprintln!("[diag] param query OK"),
-                    Err(e) => {
-                        eprintln!("[diag] param query FAILED: {}", e);
-                        return Err(format!("param query test failed: {}", e));
-                    }
-                }
-
-                // Test 3: actual query
                 let row = client
                     .query_opt(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
@@ -2568,11 +2558,7 @@ impl TutorAccountRepository for FileStorage {
                          FROM tutor_accounts WHERE google_id = $1",
                         &[&google_id],
                     )
-                    .map_err(|err| {
-                        eprintln!("[diag] tutor_accounts query FAILED: {}", err);
-                        err.to_string()
-                    })?;
-                eprintln!("[diag] tutor_accounts query OK, row={}", row.is_some());
+                    .map_err(|err| err.to_string())?;
                 row.map(Self::postgres_row_to_tutor_account).transpose()
             })
             .await
@@ -2749,6 +2735,11 @@ impl CreditLedgerRepository for FileStorage {
             .map_err(|err| err.to_string())?;
         }
 
+        // Acquire per-account lock to prevent TOCTOU race conditions
+        // in the file-backed read-modify-write sequence.
+        let account_lock = self.acquire_credit_lock(&entry.account_id).await;
+        let _guard = account_lock.lock().await;
+
         let entry_path = self.credit_entry_path(&entry.id);
         if entry_path.exists() {
             return Err(format!("credit entry {} already exists", entry.id));
@@ -2770,10 +2761,14 @@ impl CreditLedgerRepository for FileStorage {
                     updated_at: entry.created_at,
                 });
 
-        let mut new_balance = existing_balance.balance + entry.amount;
-        if matches!(entry.kind, CreditEntryKind::Debit) && entry.amount > 0.0 {
-            new_balance = existing_balance.balance - entry.amount.abs();
-        }
+        // Use explicit match on entry kind with abs() to ensure correct
+        // direction regardless of whether the caller passes positive or
+        // negative amounts. This mirrors the Postgres transactional path.
+        let delta = match entry.kind {
+            CreditEntryKind::Debit => -entry.amount.abs(),
+            CreditEntryKind::Grant | CreditEntryKind::Refund => entry.amount.abs(),
+        };
+        let new_balance = existing_balance.balance + delta;
 
         let balance_record = CreditBalance {
             account_id: entry.account_id.clone(),

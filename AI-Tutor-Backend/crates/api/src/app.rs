@@ -4118,12 +4118,23 @@ impl LessonAppService for LiveLessonAppService {
     }
 
     async fn get_billing_dashboard(&self, account_id: &str) -> Result<BillingDashboardResponse> {
-        let billing_context = self.load_billing_context(account_id).await?;
-        let unpaid_invoices = self
-            .storage
-            .get_unpaid_invoices_for_account(account_id)
-            .await
-            .map_err(|err| anyhow!(err))?;
+        // Parallelize all main lookups
+        let (context_res, unpaid_res, dunning_res, orders_res, ledger_res, invoices_res) = tokio::join!(
+            self.load_billing_context(account_id),
+            self.storage.get_unpaid_invoices_for_account(account_id),
+            self.storage.list_active_dunning_cases(),
+            self.list_payment_orders(account_id, 10),
+            self.get_credit_ledger(account_id, 10),
+            self.storage.list_invoices_for_account(account_id, 10)
+        );
+
+        let billing_context = context_res?;
+        let unpaid_invoices = unpaid_res.map_err(|err| anyhow!(err))?;
+        let active_dunning_cases = dunning_res.map_err(|err| anyhow!(err))?;
+        let recent_orders = orders_res?.orders;
+        let recent_ledger_entries = ledger_res?.entries;
+        let recent_invoices_raw = invoices_res.map_err(|err| anyhow!(err))?;
+
         let blocking_unpaid_invoice_count = unpaid_invoices
             .iter()
             .filter(|invoice| {
@@ -4134,22 +4145,12 @@ impl LessonAppService for LiveLessonAppService {
             })
             .count();
 
-        let active_dunning_case_count = self
-            .storage
-            .list_active_dunning_cases()
-            .await
-            .map_err(|err| anyhow!(err))?
+        let active_dunning_case_count = active_dunning_cases
             .into_iter()
             .filter(|case_item| case_item.account_id == account_id)
             .count();
 
-        let recent_orders = self.list_payment_orders(account_id, 10).await?.orders;
-        let recent_ledger_entries = self.get_credit_ledger(account_id, 10).await?.entries;
-        let recent_invoices = self
-            .storage
-            .list_invoices_for_account(account_id, 10)
-            .await
-            .map_err(|err| anyhow!(err))?
+        let recent_invoices = recent_invoices_raw
             .into_iter()
             .map(|invoice| BillingInvoiceSummaryResponse {
                 id: invoice.id,
@@ -4229,19 +4230,18 @@ impl LessonAppService for LiveLessonAppService {
     }
 
     async fn load_billing_context(&self, account_id: &str) -> Result<BillingContext> {
-        // Load current credit balance
-        let balance = self
-            .storage
-            .get_credit_balance(account_id)
-            .await
-            .map_err(|err| anyhow!("Failed to load credit balance: {}", err))?;
+        // Parallelize all four lookups for maximum throughput
+        let (balance_res, subscriptions_res, unpaid_res, dunning_res) = tokio::join!(
+            self.storage.get_credit_balance(account_id),
+            self.storage.list_subscriptions_for_account(account_id, 1),
+            self.storage.get_unpaid_invoices_for_account(account_id),
+            self.storage.list_active_dunning_cases()
+        );
 
-        // Load active subscription (get most recent one for this account)
-        let subscriptions = self
-            .storage
-            .list_subscriptions_for_account(account_id, 1)
-            .await
-            .map_err(|err| anyhow!("Failed to load subscriptions: {}", err))?;
+        let balance = balance_res.map_err(|err| anyhow!("Failed to load credit balance: {}", err))?;
+        let subscriptions = subscriptions_res.map_err(|err| anyhow!("Failed to load subscriptions: {}", err))?;
+        let unpaid_invoices = unpaid_res.map_err(|err| anyhow!("Failed to load unpaid invoices: {}", err))?;
+        let active_dunning_cases = dunning_res.map_err(|err| anyhow!("Failed to load active dunning cases: {}", err))?;
 
         let active_subscription = subscriptions.first().and_then(|sub| {
             // Only return if status is Active
@@ -4254,11 +4254,6 @@ impl LessonAppService for LiveLessonAppService {
 
         let mut context = BillingContext::new(balance.balance, active_subscription);
 
-        let unpaid_invoices = self
-            .storage
-            .get_unpaid_invoices_for_account(account_id)
-            .await
-            .map_err(|err| anyhow!("Failed to load unpaid invoices: {}", err))?;
         let has_blocking_unpaid_invoice = unpaid_invoices.iter().any(|invoice| {
             matches!(
                 invoice.status,
@@ -4266,11 +4261,6 @@ impl LessonAppService for LiveLessonAppService {
             )
         });
 
-        let active_dunning_cases = self
-            .storage
-            .list_active_dunning_cases()
-            .await
-            .map_err(|err| anyhow!("Failed to load active dunning cases: {}", err))?;
         let in_dunning_grace = active_dunning_cases.iter().any(|case_item| {
             case_item.account_id == account_id && case_item.grace_period_end > chrono::Utc::now()
         });
@@ -4290,6 +4280,26 @@ impl LessonAppService for LiveLessonAppService {
             account_id: &str,
             payload: CreateSubscriptionRequest,
         ) -> Result<SubscriptionResponse> {
+            // Validate account exists and is active before creating subscription
+            let Some(account) = self
+                .storage
+                .get_tutor_account_by_id(account_id)
+                .await
+                .map_err(|err| anyhow!(err))?
+            else {
+                return Err(anyhow!("tutor account not found: {}", account_id));
+            };
+            let phone_auth_required = env_flag("AI_TUTOR_FIREBASE_PHONE_AUTH_ENABLED");
+            if !matches!(account.status, TutorAccountStatus::Active)
+                || (phone_auth_required && !account.phone_verified)
+            {
+                return Err(anyhow!(
+                    "account {} must be active{} before creating a subscription",
+                    account_id,
+                    if phone_auth_required { " and phone verified" } else { "" }
+                ));
+            }
+
             let billing_catalog = billing_catalog();
             let plan = billing_catalog
                 .iter()
@@ -4334,6 +4344,27 @@ impl LessonAppService for LiveLessonAppService {
                 .save_subscription(&subscription)
                 .await
                 .map_err(|err| anyhow!(err))?;
+
+            // Grant initial cycle credits immediately so the user doesn't
+            // have to wait 30 days until the first renewal cycle.
+            if plan.credits > 0.0 {
+                let initial_credit = CreditLedgerEntry {
+                    id: format!("subscription-initial-{}", subscription.id),
+                    account_id: account_id.to_string(),
+                    kind: CreditEntryKind::Grant,
+                    amount: plan.credits,
+                    reason: format!("subscription_initial:{}", subscription.plan_code),
+                    created_at: now,
+                };
+                if let Err(err) = self.storage.apply_credit_entry(&initial_credit).await {
+                    warn!(
+                        subscription_id = %subscription.id,
+                        account_id = %account_id,
+                        error = %err,
+                        "Failed to grant initial subscription credits"
+                    );
+                }
+            }
 
             Ok(SubscriptionResponse {
                 id: subscription.id,
@@ -5799,9 +5830,21 @@ impl LessonAppService for LiveLessonAppService {
             });
         }
 
-        // Add credit entry to ledger
+        // Claim the promo code slot FIRST to prevent double-redemption.
+        // If the credit grant below fails, the slot is still claimed and
+        // the user can contact support, which is safer than granting
+        // credits without marking the promo as redeemed.
+        self
+            .storage
+            .update_promo_code_redemption(code, account_id)
+            .await
+            .map_err(|err| anyhow!("Failed to claim promo code slot: {}", err))?;
+
+        // Grant credits with a deterministic ID for idempotency.
+        // If this exact entry was already applied (e.g. retry after timeout),
+        // the storage layer's duplicate check will catch it.
         let credit_entry = CreditLedgerEntry {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: format!("promo-{}-{}", code, account_id),
             account_id: account_id.to_string(),
             kind: CreditEntryKind::Grant,
             amount: promo.grant_credits,
@@ -5814,13 +5857,6 @@ impl LessonAppService for LiveLessonAppService {
             .apply_credit_entry(&credit_entry)
             .await
             .map_err(|err| anyhow!("Failed to apply credit entry: {}", err))?;
-
-        // Update promo code redemption tracking
-        self
-            .storage
-            .update_promo_code_redemption(code, account_id)
-            .await
-            .map_err(|err| anyhow!("Failed to update promo code: {}", err))?;
 
         Ok(RedeemPromoCodeResponse {
             success: true,

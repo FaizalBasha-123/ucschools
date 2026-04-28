@@ -7,6 +7,7 @@ import 'animate.css';
 import 'katex/dist/katex.min.css';
 import { ThemeProvider } from '@/lib/hooks/use-theme';
 import { I18nProvider } from '@/lib/hooks/use-i18n';
+import { CreditsProvider } from '@/lib/contexts/credits-context';
 import { Toaster } from '@/components/ui/sonner';
 import { ServerProvidersInit } from '@/components/server-providers-init';
 
@@ -35,9 +36,11 @@ export default function RootLayout({
       >
         <ThemeProvider>
           <I18nProvider>
-            <ServerProvidersInit />
-            {children}
-            <Toaster position="top-center" />
+            <CreditsProvider>
+              <ServerProvidersInit />
+              {children}
+              <Toaster position="top-center" />
+            </CreditsProvider>
           </I18nProvider>
         </ThemeProvider>
       </body>

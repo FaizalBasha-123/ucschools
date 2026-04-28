@@ -176,9 +176,12 @@ impl SubscriptionScheduler {
             .await
             .map_err(|err| anyhow!("Failed to save payment order: {}", err))?;
 
-        // Grant credits
+        // Grant credits with a deterministic ID for idempotency.
+        // If the scheduler crashes after granting but before updating
+        // next_renewal_at, the retry will detect the duplicate entry.
+        let renewal_marker = subscription.current_period_end.timestamp();
         let credit_entry = CreditLedgerEntry {
-            id: Uuid::new_v4().to_string(),
+            id: format!("scheduler-renewal-{}-{}", subscription.id, renewal_marker),
             account_id: subscription.account_id.clone(),
             kind: CreditEntryKind::Grant,
             amount: subscription.credits_per_cycle,
@@ -186,10 +189,18 @@ impl SubscriptionScheduler {
             created_at: now,
         };
 
-        self.storage
-            .apply_credit_entry(&credit_entry)
-            .await
-            .map_err(|err| anyhow!("Failed to apply credit entry: {}", err))?;
+        match self.storage.apply_credit_entry(&credit_entry).await {
+            Ok(_) => {}
+            Err(err) if err.contains("already exists") => {
+                // Idempotency guard: renewal credits already granted for this period.
+                tracing::warn!(
+                    subscription_id = %subscription.id,
+                    renewal_marker,
+                    "Skipped duplicate scheduler renewal credit entry"
+                );
+            }
+            Err(err) => return Err(anyhow!("Failed to apply credit entry: {}", err)),
+        }
 
         let invoice_id = format!(
             "subscription-scheduler-invoice-{}-{}",
