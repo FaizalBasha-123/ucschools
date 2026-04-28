@@ -88,21 +88,15 @@ export function authHeaders(extra?: HeadersInit): HeadersInit {
 }
 
 /**
- * Enterprise-grade fetch utility that bypasses the slow Vercel proxy 
- * when a direct backend URL is available.
+ * Enterprise-grade fetch utility that uses Next.js proxying by default.
+ * Direct backend bypass is disabled to avoid CORS issues when the 
+ * frontend is on a different domain than the backend.
  */
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const apiBase = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || '';
-  
-  // Normalize path
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  
-  // If we have a direct backend URL and the path starts with /api (but not internal next routes)
-  // we hit the Rust backend directly.
-  const isApiCall = cleanPath.startsWith('/api/') && !cleanPath.startsWith('/api/auth/callback');
-  const url = (apiBase && isApiCall) 
-    ? `${apiBase}${cleanPath}` 
-    : cleanPath;
+  // Always use local path to trigger Next.js proxy (API routes)
+  // This avoids CORS issues because the browser talks to Vercel, 
+  // and Vercel talks to Render (server-to-server).
+  const url = path.startsWith('/') ? path : `/${path}`;
 
   const mergedOptions: RequestInit = {
     ...options,
