@@ -231,6 +231,21 @@ fn build_cors_layer() -> CorsLayer {
     }
 }
 
+/// Returns true for routes that require a valid user session (JWT) but NOT
+/// an admin/operator role. These endpoints extract the account from the JWT
+/// session token. The middleware will return 401 if the session is missing.
+fn session_auth_required(path: &str) -> bool {
+    path == "/api/credits/me"
+        || path == "/api/credits/ledger"
+        || path == "/api/credits/redeem"
+        || path == "/api/billing/dashboard"
+        || path == "/api/billing/checkout"
+        || path == "/api/billing/orders"
+        || path == "/api/subscriptions/me"
+        || path == "/api/subscriptions/create"
+        || (path.starts_with("/api/subscriptions/") && path.ends_with("/cancel"))
+}
+
 fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<ApiRole> {
     if *method == Method::OPTIONS {
         // CORS preflight must pass through unauthenticated so browsers can negotiate.
@@ -248,19 +263,16 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
     {
         return None;
     }
-    if path == "/api/credits/me"
-        || path == "/api/credits/ledger"
-        || path == "/api/credits/redeem"
-        || path == "/api/billing/catalog"
-        || path == "/api/billing/dashboard"
-        || path == "/api/billing/checkout"
-        || path == "/api/billing/orders"
+    // Truly public routes (no auth at all)
+    if path == "/api/billing/catalog"
         || path == "/api/billing/easebuzz/callback"
-        || path == "/api/subscriptions/me"
-        || path == "/api/subscriptions/create"
-        || path.starts_with("/api/subscriptions/") && path.ends_with("/cancel")
         || path == "/api/public/contact-enterprise"
     {
+        return None;
+    }
+    // Session-authenticated routes bypass admin role checks but
+    // still require a valid session (enforced separately in middleware).
+    if session_auth_required(path) {
         return None;
     }
     if path == "/api/system/status" {
@@ -388,6 +400,18 @@ async fn auth_middleware(
     }
 
     let Some(required_role) = required_role_for_request(&method, &path) else {
+        // For session-authenticated routes, require the account context
+        // to be present (set from a valid JWT session above). Return 401
+        // instead of letting the handler crash with a 500.
+        if session_auth_required(&path) {
+            if req.extensions().get::<AuthenticatedAccountContext>().is_none() {
+                return ApiError {
+                    status: StatusCode::UNAUTHORIZED,
+                    message: "valid session required; please sign in".to_string(),
+                }
+                .into_response();
+            }
+        }
         return next.run(req).await;
     };
 
@@ -5791,12 +5815,21 @@ impl LessonAppService for LiveLessonAppService {
         code: &str,
     ) -> Result<RedeemPromoCodeResponse> {
         // Get the promo code
-        let promo = self
+        let promo = match self
             .storage
             .get_promo_code(code)
             .await
             .map_err(|err| anyhow!("Failed to load promo code: {}", err))?
-            .ok_or_else(|| anyhow!("Promo code not found"))?;
+        {
+            Some(p) => p,
+            None => {
+                return Ok(RedeemPromoCodeResponse {
+                    success: false,
+                    message: "Promo code not found.".to_string(),
+                    credits_granted: 0.0,
+                });
+            }
+        };
 
         // Check if code is valid for this account (checks expiry, max redemptions, and one-per-account)
         if !promo.is_valid_for_account(account_id) {

@@ -444,6 +444,11 @@ impl FileStorage {
     }
 
     fn run_postgres_migrations(client: &mut Client) -> AnyResult<()> {
+        static MIGRATIONS_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if MIGRATIONS_DONE.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok(());
+        }
+
         client.batch_execute(
             "
             CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -476,6 +481,7 @@ impl FileStorage {
             )?;
             tx.commit()?;
         }
+        MIGRATIONS_DONE.store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 
