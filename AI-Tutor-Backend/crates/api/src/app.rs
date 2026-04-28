@@ -250,11 +250,16 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
     }
     if path == "/api/credits/me"
         || path == "/api/credits/ledger"
+        || path == "/api/credits/redeem"
         || path == "/api/billing/catalog"
         || path == "/api/billing/dashboard"
         || path == "/api/billing/checkout"
         || path == "/api/billing/orders"
         || path == "/api/billing/easebuzz/callback"
+        || path == "/api/subscriptions/me"
+        || path == "/api/subscriptions/create"
+        || path.starts_with("/api/subscriptions/") && path.ends_with("/cancel")
+        || path == "/api/public/contact-enterprise"
     {
         return None;
     }
@@ -288,7 +293,6 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
         if path == "/api/lessons/generate"
             || path == "/api/lessons/generate-async"
             || path == "/api/lesson-shelf/mark-opened"
-            || path == "/api/credits/redeem"
             || path == "/api/runtime/actions/ack"
             || path == "/api/runtime/pbl/chat"
             || path == "/api/runtime/chat/stream"
