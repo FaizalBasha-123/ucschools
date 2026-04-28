@@ -1,3 +1,7 @@
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('AuthSession');
+
 const SESSION_TOKEN_KEY = 'aiTutorSessionToken';
 const ACCOUNT_EMAIL_KEY = 'aiTutorAccountEmail';
 const ACCOUNT_ID_KEY = 'aiTutorAccountId';
