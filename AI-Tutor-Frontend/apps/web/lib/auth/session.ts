@@ -116,9 +116,28 @@ export async function verifyAuthSession(): Promise<boolean> {
     const response = await apiFetch('/api/subscriptions/me', {
       method: 'GET',
       cache: 'no-store',
-    });
+      // Short timeout to avoid blocking the UI
+      signal: AbortController ? AbortSignal.timeout(5000) : undefined,
+    } as any);
+
+    if (response.status === 401) {
+      log.warn('Session expired (401)');
+      return false;
+    }
+    
+    // If the server is down (5xx) or we have a network error, 
+    // we assume the session is still valid locally to avoid frustrating the user.
+    // Enterprises call this "Offline-first" or "Stale-While-Revalidate" auth.
+    if (!response.ok && response.status >= 500) {
+      log.warn(`Backend error (${response.status}), preserving local session`);
+      return true;
+    }
+
     return response.ok;
-  } catch {
-    return false;
+  } catch (err) {
+    // If it's a network error (failed to fetch), don't sign the user out.
+    // Only return false if we are sure the token is invalid.
+    log.error('Network error during auth verification, preserving local session');
+    return true; 
   }
 }
