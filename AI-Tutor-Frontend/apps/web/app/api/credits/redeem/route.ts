@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('CreditRedeemAPI');
 
@@ -10,21 +11,6 @@ function backendUrlBase(): string {
     process.env.AI_TUTOR_API_BASE_URL ||
     'http://127.0.0.1:8099'
   );
-}
-
-function authHeadersFrom(request: NextRequest): HeadersInit {
-  const headers: Record<string, string> = {};
-  const authorization = request.headers.get('authorization');
-  const cookie = request.headers.get('cookie');
-  const xAuthToken = request.headers.get('x-auth-token');
-  const xSessionToken = request.headers.get('x-session-token');
-
-  if (authorization) headers.authorization = authorization;
-  if (cookie) headers.cookie = cookie;
-  if (xAuthToken) headers['x-auth-token'] = xAuthToken;
-  if (xSessionToken) headers['x-session-token'] = xSessionToken;
-  
-  return headers;
 }
 
 export async function POST(request: NextRequest) {

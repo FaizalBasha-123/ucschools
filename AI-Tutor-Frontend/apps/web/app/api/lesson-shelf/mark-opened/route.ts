@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('LessonShelfOpenedAPI');
 
@@ -12,23 +13,15 @@ function backendUrlBase(): string {
   );
 }
 
-function authHeadersFrom(request: NextRequest): HeadersInit {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  const authorization = request.headers.get('authorization');
-  const cookie = request.headers.get('cookie');
-  if (authorization) headers.authorization = authorization;
-  if (cookie) headers.cookie = cookie;
-  return headers;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
     const backendRes = await fetch(`${backendUrlBase()}/api/lesson-shelf/mark-opened`, {
       method: 'POST',
-      headers: authHeadersFrom(request),
+      headers: {
+        ...authHeadersFrom(request),
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(payload),
       cache: 'no-store',
     });

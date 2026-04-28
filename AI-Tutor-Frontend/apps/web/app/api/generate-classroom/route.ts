@@ -3,21 +3,11 @@ import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { type GenerateClassroomInput } from '@/lib/server/classroom-generation';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
 import { createLogger } from '@/lib/logger';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('GenerateClassroom API');
 
 export const maxDuration = 30;
-
-function authHeadersFrom(request: NextRequest): HeadersInit {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  const authorization = request.headers.get('authorization');
-  const cookie = request.headers.get('cookie');
-  if (authorization) headers.authorization = authorization;
-  if (cookie) headers.cookie = cookie;
-  return headers;
-}
 
 export async function POST(req: NextRequest) {
   let requirementSnippet: string | undefined;
@@ -46,7 +36,10 @@ export async function POST(req: NextRequest) {
 
     const backendRes = await fetch(`${backendUrl}/api/lessons/generate-async`, {
       method: 'POST',
-      headers: authHeadersFrom(req),
+      headers: {
+        ...authHeadersFrom(req),
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(payload),
     });
 

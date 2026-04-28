@@ -1,4 +1,5 @@
 import { type NextRequest } from 'next/server';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 function backendUrlBase(): string {
   return (
@@ -6,15 +7,6 @@ function backendUrlBase(): string {
     process.env.AI_TUTOR_API_BASE_URL ||
     'http://127.0.0.1:8099'
   );
-}
-
-function authHeadersFrom(request: NextRequest): HeadersInit {
-  const headers: Record<string, string> = {};
-  const authorization = request.headers.get('authorization');
-  const cookie = request.headers.get('cookie');
-  if (authorization) headers.authorization = authorization;
-  if (cookie) headers.cookie = cookie;
-  return headers;
 }
 
 export async function GET(
