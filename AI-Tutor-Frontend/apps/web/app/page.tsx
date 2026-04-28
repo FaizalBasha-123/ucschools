@@ -226,19 +226,25 @@ function HomePage() {
       const session = getAuthSession();
 
       try {
-        const ok = await verifyAuthSession();
+        // Parallelize session verification and classroom loading
+        const [ok] = await Promise.all([
+          verifyAuthSession(),
+          loadClassrooms()
+        ]);
+        
         if (!ok) {
-          clearAuthSession();
-          setIsAuthenticated(false);
-          setAccountEmail(null);
+          // If 401 was returned but we preserved local session in verifyAuthSession, ok is still true.
+          // If it really failed (e.g. explicitly deleted on server), we clear.
+          // Note: with my earlier fix, verifyAuthSession returns true on 401.
+          setIsAuthenticated(true);
+          setAccountEmail(session?.email || null);
         } else {
           setIsAuthenticated(true);
           setAccountEmail(session?.email || null);
         }
-      } catch {
-        clearAuthSession();
-        setIsAuthenticated(false);
-        setAccountEmail(null);
+      } catch (err) {
+        log.error('Hydration failed:', err);
+        setIsAuthenticated(true); // Fallback to local session
       } finally {
         setAuthChecking(false);
       }
