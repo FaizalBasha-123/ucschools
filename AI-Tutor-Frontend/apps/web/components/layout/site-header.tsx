@@ -30,7 +30,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [authChecking, setAuthChecking] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(hasAuthSessionHint());
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 

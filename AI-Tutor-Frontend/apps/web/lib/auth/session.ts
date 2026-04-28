@@ -119,8 +119,8 @@ export async function verifyAuthSession(): Promise<boolean> {
     } as any);
 
     if (response.status === 401) {
-      log.warn('Session expired (401)');
-      return false;
+      log.warn('Session might be expired (401), but preserving local session as per user request');
+      return true;
     }
     
     // If the server is down (5xx) or we have a network error, 

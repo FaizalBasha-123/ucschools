@@ -8,16 +8,8 @@
 import { NextRequest } from 'next/server';
 import { createLogger } from '@/lib/logger';
 import { apiError } from '@/lib/server/api-response';
+import { authHeadersFrom } from '@/lib/server/auth';
 const log = createLogger('PBL Chat');
-
-function authHeadersFrom(request: NextRequest): HeadersInit {
-  const headers: HeadersInit = {};
-  const authorization = request.headers.get('authorization');
-  const cookie = request.headers.get('cookie');
-  if (authorization) headers.authorization = authorization;
-  if (cookie) headers.cookie = cookie;
-  return headers;
-}
 
 export async function POST(req: NextRequest) {
   try {

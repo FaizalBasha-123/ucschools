@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('SubscriptionsCancelAPI');
 
@@ -12,17 +13,6 @@ function backendUrlBase(): string {
   );
 }
 
-function authHeadersFrom(request: NextRequest): HeadersInit {
-  const headers: Record<string, string> = {
-    'content-type': 'application/json',
-  };
-  const authorization = request.headers.get('authorization');
-  const cookie = request.headers.get('cookie');
-  if (authorization) headers.authorization = authorization;
-  if (cookie) headers.cookie = cookie;
-  return headers;
-}
-
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
@@ -32,7 +22,10 @@ export async function POST(
     const payload = await request.json().catch(() => ({}));
     const backendRes = await fetch(`${backendUrlBase()}/api/subscriptions/${encodeURIComponent(id)}/cancel`, {
       method: 'POST',
-      headers: authHeadersFrom(request),
+      headers: {
+        ...authHeadersFrom(request),
+        'content-type': 'application/json',
+      },
       body: JSON.stringify(payload),
       cache: 'no-store',
     });

@@ -2,19 +2,11 @@ import { type NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
 import { createLogger } from '@/lib/logger';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('ClassroomJob API');
 
 export const dynamic = 'force-dynamic';
-
-function authHeadersFrom(request: NextRequest): HeadersInit {
-  const headers: Record<string, string> = {};
-  const authorization = request.headers.get('authorization');
-  const cookie = request.headers.get('cookie');
-  if (authorization) headers.authorization = authorization;
-  if (cookie) headers.cookie = cookie;
-  return headers;
-}
 
 export async function GET(req: NextRequest, context: { params: Promise<{ jobId: string }> }) {
   let resolvedJobId: string | undefined;
