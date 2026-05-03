@@ -226,7 +226,7 @@ function PricingContent() {
 
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 selection:bg-orange-100 dark:selection:bg-orange-900/30">
-      <SiteHeader />
+      <SiteHeader variant="pricing" />
 
       <AnimatePresence>
         {showComingSoon && (
