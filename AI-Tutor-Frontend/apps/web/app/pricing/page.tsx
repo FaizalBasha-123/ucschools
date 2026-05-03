@@ -1,15 +1,15 @@
 'use client';
 
 import { Suspense, useEffect, useState, useMemo } from 'react';
-import { 
-  Check, 
-  Loader2, 
-  X, 
-  Zap, 
-  Mic2, 
-  FileText, 
-  BookOpen, 
-  HelpCircle, 
+import {
+  Check,
+  Loader2,
+  X,
+  Zap,
+  Mic2,
+  FileText,
+  BookOpen,
+  HelpCircle,
   ArrowRight,
   Sparkles,
   Play,
@@ -73,11 +73,12 @@ const MODES_DISPLAY = [
 function PricingContent() {
   const router = useRouter();
   const isAuthenticated = hasAuthSessionHint();
-  
+
   const [allProducts, setAllProducts] = useState<BillingProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
   const [showComingSoon, setShowComingSoon] = useState(false);
 
   // Promo code state
@@ -92,7 +93,7 @@ function PricingContent() {
         if (!res.ok) throw new Error('Failed to fetch pricing');
         const json = await res.json();
         const items = json.items || [];
-        
+
         // Enrich backend data with frontend-only display features
         const enriched: BillingProduct[] = items.map((p: any) => {
           let features: string[] = [];
@@ -100,17 +101,21 @@ function PricingContent() {
           let modes: string[] = [];
           const code = p.product_code.toLowerCase();
 
-          if (code.includes('basic')) {
-            features = ['20 Credits / month', 'Basic features and access', 'Great for quick explanations', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
+          if (code.includes('free')) {
+            features = ['20 Credits included', 'Revision mode (Limited)', 'Explain mode access', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
             pdf_limit = 0;
-            modes = ['Explain', 'Revision'];
-          } else if (code.includes('standard')) {
-            features = ['50 Credits / month', 'Standard AI capabilities', 'Limited exam preparation', 'PDF uploads: 5 files', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
+            modes = ['Revision'];
+          } else if (code.includes('starter')) {
+            features = ['180 Credits / month', 'Revision + Explain modes', 'Exam mode access', 'Placement mode (Limited)', 'PDF uploads: 5 files', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
             pdf_limit = 5;
-            modes = ['Explain', 'Revision', 'Exam', 'Placement (Ltd)'];
-          } else if (code.includes('premium')) {
-            features = ['100 Credits / month', 'Full premium AI capabilities', 'Limitless learning', 'PDF uploads: 25 files', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
+            modes = ['Revision', 'Explain'];
+          } else if (code.includes('pro')) {
+            features = ['650 Credits / month', 'All learning modes', 'PDF uploads: 25 files', 'Priority Support', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
             pdf_limit = 25;
+            modes = ['Revision', 'Explain', 'Exam', 'Placement (Ltd)'];
+          } else if (code.includes('power')) {
+            features = ['1800 Credits / month', 'Everything Unlocked', 'PDF uploads: 100 files', 'Early access to new features', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
+            pdf_limit = 100;
             modes = ['All Modes'];
           } else {
             // Fallback for other plans (like credit packs if they show up)
@@ -132,19 +137,29 @@ function PricingContent() {
   }, []);
 
   const displayedProducts = useMemo(() => {
-    // Get subscription products only (bundles are shown separately)
-    const subscriptions = allProducts.filter(p => p.kind === 'subscription');
+    // 1. Get all subscription products for the current cycle
+    const subscriptions = allProducts.filter(p =>
+      p.kind === 'subscription' &&
+      (billingCycle === 'yearly' ? p.product_code.endsWith('_yearly') : !p.product_code.endsWith('_yearly'))
+    );
 
-    // Order: Basic -> Standard -> Premium
-    const order = ['basic', 'standard', 'premium'];
+    // 2. Get the free tier (usually doesn't have a yearly variant)
+    const freeTier = allProducts.find(p => p.product_code.toLowerCase().includes('free'));
+
+    // 3. Combine in a sensible order: Free -> Starter -> Pro -> Power
+    const order = ['free', 'starter', 'pro', 'power'];
     const result: BillingProduct[] = [];
-    
+
     order.forEach(base => {
-      const found = subscriptions.find(s => s.product_code.toLowerCase().includes(base));
-      if (found) result.push(found);
+      if (base === 'free' && freeTier) {
+        result.push(freeTier);
+      } else {
+        const found = subscriptions.find(s => s.product_code.toLowerCase().includes(base));
+        if (found) result.push(found);
+      }
     });
 
-    // Add any other subscriptions not in the order list (fallback)
+    // 4. Add any other subscriptions not in the order list (fallback)
     subscriptions.forEach(s => {
       if (!result.find(r => r.product_code === s.product_code)) {
         result.push(s);
@@ -152,7 +167,7 @@ function PricingContent() {
     });
 
     return result;
-  }, [allProducts]);
+  }, [allProducts, billingCycle]);
 
   const handleCheckout = async (productCode: string) => {
     setShowComingSoon(true);
@@ -176,7 +191,7 @@ function PricingContent() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Invalid promo code');
-      
+
       setRedeemStatus({ success: true, message: data.message || 'Successfully redeemed!' });
       setPromoCode('');
     } catch (err: any) {
@@ -199,7 +214,7 @@ function PricingContent() {
       <div className="flex flex-col min-h-screen items-center justify-center bg-white dark:bg-neutral-950 p-4 text-center">
         <h2 className="text-2xl font-bold text-red-600 mb-4">Oops! Something went wrong</h2>
         <p className="text-neutral-600 dark:text-neutral-400 mb-8">{error}</p>
-        <button 
+        <button
           onClick={() => window.location.reload()}
           className="px-6 py-3 bg-orange-600 text-white rounded-xl font-bold"
         >
@@ -215,13 +230,13 @@ function PricingContent() {
 
       <AnimatePresence>
         {showComingSoon && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               className="bg-white dark:bg-neutral-900 p-10 rounded-[2.5rem] shadow-2xl max-w-lg w-full text-center relative overflow-hidden"
@@ -234,11 +249,11 @@ function PricingContent() {
               </div>
               <h2 className="text-3xl font-black mb-4 text-neutral-900 dark:text-white">Coming Soon!</h2>
               <p className="text-neutral-600 dark:text-neutral-400 mb-8 leading-relaxed">
-                We are currently finalizing our secure payment integration with Stripe & Easebuzz to provide you with a seamless experience. 
+                We are currently finalizing our secure payment integration with Stripe & Easebuzz to provide you with a seamless experience.
                 <br /><br />
                 Your interest has been noted! We'll notify you as soon as premium plans are live.
               </p>
-              <button 
+              <button
                 onClick={() => setShowComingSoon(false)}
                 className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold text-lg hover:bg-orange-700 transition-all"
               >
@@ -272,13 +287,36 @@ function PricingContent() {
               </p>
             </motion.div>
 
+            {/* ── Billing Toggle ── */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2 }}
+              className="mt-10 flex items-center justify-center gap-4"
+            >
+              <span className={cn("text-sm font-medium", billingCycle === 'monthly' ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>Monthly</span>
+              <button
+                onClick={() => setBillingCycle(prev => prev === 'monthly' ? 'yearly' : 'monthly')}
+                className="relative w-12 h-6 rounded-full bg-neutral-200 dark:bg-neutral-800 transition-colors"
+              >
+                <div className={cn(
+                  "absolute top-1 left-1 w-4 h-4 rounded-full bg-orange-600 transition-transform duration-200",
+                  billingCycle === 'yearly' && "translate-x-6"
+                )} />
+              </button>
+              <span className={cn("text-sm font-medium", billingCycle === 'yearly' ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
+                Yearly <span className="text-orange-600 text-xs ml-1 font-bold">(-20%)</span>
+              </span>
+            </motion.div>
           </div>
 
           {/* ── Pricing Grid ── */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-24">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-24">
             {displayedProducts.map((p, idx) => {
-              const monthlyPrice = Math.round(p.amount_minor / 100);
-              
+              const monthlyEquivalent = billingCycle === 'yearly' && p.amount_minor > 0
+                ? Math.round(p.amount_minor / 1200)
+                : Math.round(p.amount_minor / 100);
+
               return (
                 <motion.div
                   key={p.product_code}
@@ -287,8 +325,8 @@ function PricingContent() {
                   transition={{ delay: 0.1 * idx, duration: 0.5 }}
                   className={cn(
                     "relative flex flex-col p-8 rounded-3xl border transition-all duration-300",
-                    p.is_highlighted 
-                      ? "bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 border-neutral-900 dark:border-white shadow-2xl scale-105 z-10" 
+                    p.is_highlighted
+                      ? "bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 border-neutral-900 dark:border-white shadow-2xl scale-105 z-10"
                       : "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 hover:border-orange-500/50"
                   )}
                 >
@@ -301,9 +339,14 @@ function PricingContent() {
                   <div className="mb-8">
                     <h3 className="text-lg font-bold mb-2 uppercase tracking-wide opacity-80">{p.title}</h3>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-black">₹{monthlyPrice}</span>
+                      <span className="text-4xl font-black">₹{monthlyEquivalent}</span>
                       <span className="text-sm opacity-60">/mo</span>
                     </div>
+                    {billingCycle === 'yearly' && p.amount_minor > 0 && (
+                      <div className="text-[10px] font-bold text-orange-600 mt-1">
+                        Billed ₹{Math.round(p.amount_minor / 100)}/year
+                      </div>
+                    )}
                     <p className="mt-4 text-sm leading-relaxed opacity-70 min-h-[40px]">
                       {p.description}
                     </p>
@@ -321,7 +364,7 @@ function PricingContent() {
                         <span className="text-sm font-medium leading-tight">{feat}</span>
                       </div>
                     ))}
-                    
+
                     {p.product_code === 'free' && (
                       <div className="flex items-start gap-3 opacity-40">
                         <div className="mt-1 shrink-0 rounded-full p-0.5 bg-neutral-100">
@@ -359,7 +402,7 @@ function PricingContent() {
           {/* ── Promo & Enterprise Section ── */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-24 max-w-5xl mx-auto">
             {/* Promo Code */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, x: -20 }}
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }}
@@ -370,16 +413,16 @@ function PricingContent() {
               </div>
               <h3 className="text-xl font-bold mb-2">Have a promo code?</h3>
               <p className="text-sm text-neutral-500 mb-6">Enter your code below to redeem instant credits.</p>
-              
+
               <form onSubmit={handleRedeemPromo} className="flex gap-2">
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="PROMO2026"
                   value={promoCode}
                   onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
                   className="flex-1 px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all uppercase font-mono tracking-widest text-sm"
                 />
-                <button 
+                <button
                   type="submit"
                   disabled={redeemLoading || !promoCode.trim()}
                   className="px-6 py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-all disabled:opacity-50 flex items-center gap-2 text-sm shadow-lg shadow-orange-600/20"
@@ -389,7 +432,7 @@ function PricingContent() {
               </form>
 
               {redeemStatus && (
-                <motion.p 
+                <motion.p
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
                   className={cn(
@@ -403,7 +446,7 @@ function PricingContent() {
             </motion.div>
 
             {/* Enterprise / Sales */}
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, x: 20 }}
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }}
@@ -420,7 +463,7 @@ function PricingContent() {
                 <p className="text-sm text-white/60 mb-8 max-w-xs">
                   Schools, academies, and universities. Get bulk credits, central management, and white-glove support.
                 </p>
-                <button 
+                <button
                   onClick={() => router.push('/enterprise')}
                   className="px-8 py-3 bg-white text-[#0F172A] rounded-xl font-bold hover:bg-neutral-200 transition-all text-sm flex items-center gap-2 group/btn"
                 >
@@ -589,8 +632,8 @@ function PricingContent() {
                     <div className="pt-6 border-t border-white/10 flex justify-between items-center">
                       <p className="text-xl font-black uppercase tracking-tighter">Total Estimated Cost</p>
                       <div className="text-right">
-                         <p className="text-3xl font-black text-white">15.5</p>
-                         <p className="text-[10px] text-neutral-400 uppercase font-bold">Credits / session</p>
+                        <p className="text-3xl font-black text-white">15.5</p>
+                        <p className="text-[10px] text-neutral-400 uppercase font-bold">Credits / session</p>
                       </div>
                     </div>
                   </div>
@@ -617,10 +660,10 @@ function PricingContent() {
           {/* ── Final CTA ── */}
           <section className="relative p-12 md:p-20 rounded-[3rem] bg-neutral-900 dark:bg-white text-center overflow-hidden">
             <div className="absolute inset-0 opacity-20 pointer-events-none">
-               <div className="absolute top-[-50%] left-[-50%] w-[100%] h-[100%] bg-orange-600 blur-[150px] rounded-full" />
-               <div className="absolute bottom-[-50%] right-[-50%] w-[100%] h-[100%] bg-blue-600 blur-[150px] rounded-full" />
+              <div className="absolute top-[-50%] left-[-50%] w-[100%] h-[100%] bg-orange-600 blur-[150px] rounded-full" />
+              <div className="absolute bottom-[-50%] right-[-50%] w-[100%] h-[100%] bg-blue-600 blur-[150px] rounded-full" />
             </div>
-            
+
             <div className="relative z-10">
               <h2 className="text-4xl md:text-5xl font-black text-white dark:text-neutral-900 mb-6 tracking-tight">
                 Ready to transform your learning?
@@ -629,7 +672,7 @@ function PricingContent() {
                 Join thousands of students and teachers using AI Tutor to learn smarter, not harder.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <button 
+                <button
                   onClick={() => router.push('/')}
                   className="px-10 py-5 bg-orange-600 text-white rounded-2xl font-bold text-lg hover:bg-orange-700 transition-all shadow-xl hover:shadow-orange-600/20"
                 >
