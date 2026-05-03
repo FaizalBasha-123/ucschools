@@ -124,6 +124,7 @@ export default function CheckBillingPage() {
  * Modal for purchasing credits when user has plan but no credits
  */
 function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="relative w-full max-w-md rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 md:p-8 shadow-2xl animate-in fade-in scale-95 duration-300">
@@ -143,7 +144,7 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
               Top Up Your Credits
             </h2>
             <p className="text-neutral-600 dark:text-neutral-400">
-              Your plan is active, but you've used all your credits. Purchase more to continue learning.
+              Your plan is active, but you&apos;ve used all your credits. Purchase more to continue learning.
             </p>
           </div>
 
@@ -152,30 +153,20 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-neutral-900 dark:text-white">100 Credits</p>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400">Most popular</p>
+                  <p className="font-semibold text-neutral-900 dark:text-white">300 Credits</p>
+                  <p className="text-sm text-neutral-600 dark:text-neutral-400">Standard pack</p>
                 </div>
-                <p className="text-lg font-bold text-primary">₹999</p>
+                <p className="text-lg font-bold text-primary">₹159</p>
               </div>
             </div>
 
-            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 p-4 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-950/40 transition-colors ring-2 ring-emerald-300 dark:ring-emerald-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-semibold text-neutral-900 dark:text-white">250 Credits</p>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400">Best value</p>
+                  <p className="font-semibold text-neutral-900 dark:text-white">1000 Credits</p>
+                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-200 dark:bg-emerald-800 px-2 py-0.5 rounded">Best value</span>
                 </div>
-                <p className="text-lg font-bold text-primary">₹2,499</p>
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-neutral-900 dark:text-white">500 Credits</p>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400">Premium</p>
-                </div>
-                <p className="text-lg font-bold text-primary">₹4,999</p>
+                <p className="text-lg font-bold text-primary">₹399</p>
               </div>
             </div>
           </div>
@@ -191,11 +182,11 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={() => {
                 // TODO: Redirect to payment/checkout
-                toast.info('Redirecting to checkout...');
+                router.replace('/pricing');
               }}
               className="flex-1 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 font-medium transition-colors"
             >
-              Buy Credits
+              View Add-ons
             </button>
           </div>
         </div>
@@ -208,6 +199,7 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
  * Modal for purchasing a plan when user has credits but no plan
  */
 function PlanPurchaseModal({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="relative w-full max-w-md rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 md:p-8 shadow-2xl animate-in fade-in scale-95 duration-300">
@@ -235,29 +227,29 @@ function PlanPurchaseModal({ onClose }: { onClose: () => void }) {
           <div className="space-y-3">
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
               <div className="flex items-center justify-between mb-2">
-                <p className="font-semibold text-neutral-900 dark:text-white">Starter</p>
-                <p className="text-lg font-bold text-primary">₹499/mo</p>
+                <p className="font-semibold text-neutral-900 dark:text-white">Basic</p>
+                <p className="text-lg font-bold text-primary">₹799/mo</p>
               </div>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">100 credits/month</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">20 credits/month</p>
             </div>
 
             <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 p-4 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-950/40 transition-colors ring-2 ring-emerald-300 dark:ring-emerald-800">
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <p className="font-semibold text-neutral-900 dark:text-white">Pro</p>
+                  <p className="font-semibold text-neutral-900 dark:text-white">Standard</p>
                   <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-200 dark:bg-emerald-800 px-2 py-0.5 rounded">Popular</span>
                 </div>
-                <p className="text-lg font-bold text-primary">₹999/mo</p>
+                <p className="text-lg font-bold text-primary">₹1299/mo</p>
               </div>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">300 credits/month</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">50 credits/month</p>
             </div>
 
             <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
               <div className="flex items-center justify-between mb-2">
-                <p className="font-semibold text-neutral-900 dark:text-white">Enterprise</p>
-                <p className="text-lg font-bold text-primary">₹2,999/mo</p>
+                <p className="font-semibold text-neutral-900 dark:text-white">Premium</p>
+                <p className="text-lg font-bold text-primary">₹1999/mo</p>
               </div>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">1000 credits/month</p>
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">100 credits/month</p>
             </div>
           </div>
 

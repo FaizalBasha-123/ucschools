@@ -2,16 +2,11 @@ import { type NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('SubscriptionsCancelAPI');
 
-function backendUrlBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-    process.env.AI_TUTOR_API_BASE_URL ||
-    'http://127.0.0.1:8099'
-  );
-}
+
 
 export async function POST(
   request: NextRequest,
@@ -20,7 +15,7 @@ export async function POST(
   try {
     const { id } = await context.params;
     const payload = await request.json().catch(() => ({}));
-    const backendRes = await fetch(`${backendUrlBase()}/api/subscriptions/${encodeURIComponent(id)}/cancel`, {
+    const backendRes = await fetch(`${backendUrl()}/api/subscriptions/${encodeURIComponent(id)}/cancel`, {
       method: 'POST',
       headers: {
         ...authHeadersFrom(request),

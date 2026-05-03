@@ -23,7 +23,7 @@ pub fn parse_model_string(model_string: &str) -> Result<(String, String)> {
 
     let (provider_id, model_id) = trimmed
         .split_once(':')
-        .ok_or_else(|| anyhow!("model string must include a provider prefix (provider:model)"))?;
+        .ok_or_else(|| anyhow!("model string must include a provider prefix (provider:model). Got: '{}'", model_string))?;
 
     if provider_id.trim().is_empty() || model_id.trim().is_empty() {
         return Err(anyhow!("model string must include a non-empty provider and model id"));

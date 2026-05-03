@@ -19,6 +19,7 @@ import type { ThinkingConfig } from '@/lib/types/provider';
 import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
 import { resolveModel } from '@/lib/server/resolve-model';
+import { backendUrl } from '@/lib/server/backend-url';
 const log = createLogger('Chat API');
 
 // Allow streaming responses up to 60 seconds
@@ -67,10 +68,10 @@ export async function POST(req: NextRequest) {
       `Agents: ${body.config.agentIds.join(', ')}, Messages: ${body.messages.length}, Turn: ${body.directorState?.turnCount ?? 0}`,
     );
 
-    const backendUrl = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
+    const rustBackendUrl = backendUrl();
 
     // Route request directly to Rust backend
-    const backendRes = await fetch(`${backendUrl}/api/runtime/chat/stream`, {
+    const backendRes = await fetch(`${rustBackendUrl}/api/runtime/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

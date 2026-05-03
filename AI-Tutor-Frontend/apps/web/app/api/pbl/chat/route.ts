@@ -9,18 +9,12 @@ import { NextRequest } from 'next/server';
 import { createLogger } from '@/lib/logger';
 import { apiError } from '@/lib/server/api-response';
 import { authHeadersFrom } from '@/lib/server/auth';
+import { backendUrl } from '@/lib/server/backend-url';
 const log = createLogger('PBL Chat');
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-
-    const backendUrl =
-      process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-      process.env.AI_TUTOR_API_BASE_URL ||
-      'http://127.0.0.1:8099';
-
-    const backendRes = await fetch(`${backendUrl}/api/runtime/pbl/chat`, {
+    const body = await req.json();    const backendRes = await fetch(`${backendUrl()}/api/runtime/pbl/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -7,6 +7,7 @@ use std::{
 };
 
 use chrono::Utc;
+use uuid::Uuid;
 use anyhow::Result as AnyResult;
 use async_trait::async_trait;
 use native_tls::TlsConnector;
@@ -329,6 +330,122 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             );
         "#,
     },
+    PostgresMigration {
+        version: 9,
+        name: "lessons_jobs_and_runtime_persistence",
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS lessons (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                language TEXT NOT NULL,
+                description TEXT,
+                data_json TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS lesson_jobs (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                step TEXT NOT NULL,
+                progress INTEGER NOT NULL,
+                message TEXT NOT NULL,
+                error TEXT,
+                result_json TEXT,
+                input_summary_json TEXT,
+                lesson_id TEXT,
+                created_at TIMESTAMPTZ NOT NULL,
+                started_at TIMESTAMPTZ,
+                completed_at TIMESTAMPTZ,
+                updated_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS lesson_adaptive_states (
+                lesson_id TEXT PRIMARY KEY,
+                account_id TEXT,
+                state_json TEXT NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS runtime_sessions (
+                id TEXT PRIMARY KEY,
+                director_state_json TEXT NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS runtime_action_executions (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_lessons_created_at ON lessons (created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_lesson_jobs_status_created_at ON lesson_jobs (status, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_runtime_action_executions_session_id ON runtime_action_executions (session_id);
+        "#,
+    },
+    PostgresMigration {
+        version: 10,
+        name: "lesson_shelf_and_api_usage",
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS lesson_shelf_items (
+                id TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL REFERENCES tutor_accounts(id) ON DELETE CASCADE,
+                lesson_id TEXT NOT NULL,
+                source_job_id TEXT,
+                title TEXT NOT NULL,
+                subject TEXT,
+                language TEXT,
+                status TEXT NOT NULL,
+                progress_pct INTEGER NOT NULL,
+                thumbnail_url TEXT,
+                failure_reason TEXT,
+                last_opened_at TIMESTAMPTZ,
+                archived_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_lesson_shelf_account_status ON lesson_shelf_items (account_id, status);
+            CREATE INDEX IF NOT EXISTS idx_lesson_shelf_account_updated ON lesson_shelf_items (account_id, updated_at DESC);
+
+            CREATE TABLE IF NOT EXISTS api_usage_records (
+                id TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL,
+                request_id TEXT NOT NULL,
+                component TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                input_tokens BIGINT NOT NULL,
+                output_tokens BIGINT NOT NULL,
+                total_tokens BIGINT NOT NULL,
+                estimated_cost_usd DOUBLE PRECISION NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_api_usage_account_created ON api_usage_records (account_id, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage_records (created_at DESC);
+        "#,
+    },
+    PostgresMigration {
+        version: 11,
+        name: "lesson_tenant_isolation",
+        sql: r#"
+            ALTER TABLE lessons ADD COLUMN IF NOT EXISTS account_id TEXT;
+            ALTER TABLE lessons ADD COLUMN IF NOT EXISTS school_id TEXT;
+            ALTER TABLE lesson_jobs ADD COLUMN IF NOT EXISTS account_id TEXT;
+            ALTER TABLE lesson_jobs ADD COLUMN IF NOT EXISTS school_id TEXT;
+            ALTER TABLE runtime_sessions ADD COLUMN IF NOT EXISTS account_id TEXT;
+            ALTER TABLE runtime_sessions ADD COLUMN IF NOT EXISTS school_id TEXT;
+
+            CREATE INDEX IF NOT EXISTS idx_lessons_account_id ON lessons (account_id);
+            CREATE INDEX IF NOT EXISTS idx_lesson_jobs_account_id ON lesson_jobs (account_id);
+            CREATE INDEX IF NOT EXISTS idx_runtime_sessions_account_id ON runtime_sessions (account_id);
+            CREATE INDEX IF NOT EXISTS idx_lessons_school_id ON lessons (school_id);
+            CREATE INDEX IF NOT EXISTS idx_lesson_jobs_school_id ON lesson_jobs (school_id);
+        "#,
+    },
 ];
 
 impl FileStorage {
@@ -603,6 +720,28 @@ impl FileStorage {
 
     pub fn root_dir(&self) -> &Path {
         &self.root
+    }
+
+    pub async fn deduct_credits(&self, account_id: &str, amount: f64) -> Result<f64, String> {
+        if amount <= 0.0 {
+            return self
+                .get_credit_balance(account_id)
+                .await
+                .map(|balance| balance.balance);
+        }
+
+        let entry = CreditLedgerEntry {
+            id: format!("manual-debit-{}-{}", account_id, Uuid::new_v4()),
+            account_id: account_id.to_string(),
+            kind: CreditEntryKind::Debit,
+            amount,
+            reason: "manual_deduct".to_string(),
+            created_at: chrono::Utc::now(),
+        };
+
+        self.apply_credit_entry(&entry)
+            .await
+            .map(|balance| balance.balance)
     }
 
     pub fn runtime_session_backend(&self) -> &'static str {
@@ -1292,6 +1431,9 @@ impl FileStorage {
             last_payment_order_id: row.get("last_payment_order_id"),
             created_at,
             updated_at,
+            // New fields — default for existing rows without these columns
+            quality_mode: Default::default(),
+            allowed_learning_modes: vec![],
         })
     }
 
@@ -1993,6 +2135,38 @@ impl FileStorage {
 #[async_trait]
 impl LessonRepository for FileStorage {
     async fn save_lesson(&self, lesson: &Lesson) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let lesson = lesson.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let data_json = serde_json::to_string(&lesson).map_err(|err| err.to_string())?;
+                client.execute(
+                    "INSERT INTO lessons (id, account_id, school_id, title, language, description, data_json, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     ON CONFLICT (id) DO UPDATE SET
+                         account_id = EXCLUDED.account_id,
+                         school_id = EXCLUDED.school_id,
+                         title = EXCLUDED.title,
+                         language = EXCLUDED.language,
+                         description = EXCLUDED.description,
+                         data_json = EXCLUDED.data_json,
+                         updated_at = EXCLUDED.updated_at",
+                    &[
+                        &lesson.id,
+                        &lesson.account_id,
+                        &lesson.school_id,
+                        &lesson.title,
+                        &lesson.language,
+                        &lesson.description,
+                        &data_json,
+                        &lesson.created_at,
+                        &lesson.updated_at,
+                    ],
+                ).map_err(|err| err.to_string())?;
+                Ok(())
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.lesson_db_path.clone() {
             Self::save_lesson_sqlite(db_path, lesson.clone())
                 .await
@@ -2005,6 +2179,25 @@ impl LessonRepository for FileStorage {
     }
 
     async fn get_lesson(&self, lesson_id: &str) -> Result<Option<Lesson>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let lesson_id = lesson_id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Option<Lesson>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let row = client.query_opt(
+                    "SELECT data_json FROM lessons WHERE id = $1",
+                    &[&lesson_id],
+                ).map_err(|err| err.to_string())?;
+                
+                if let Some(row) = row {
+                    let data_json: String = row.get(0);
+                    let lesson = serde_json::from_str::<Lesson>(&data_json).map_err(|err| err.to_string())?;
+                    Ok(Some(lesson))
+                } else {
+                    Ok(None)
+                }
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.lesson_db_path.clone() {
             Self::get_lesson_sqlite(db_path, lesson_id.to_string())
                 .await
@@ -2020,6 +2213,29 @@ impl LessonRepository for FileStorage {
 #[async_trait]
 impl LessonAdaptiveRepository for FileStorage {
     async fn save_lesson_adaptive_state(&self, state: &LessonAdaptiveState) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let state = state.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let state_json = serde_json::to_string(&state).map_err(|err| err.to_string())?;
+                client.execute(
+                    "INSERT INTO lesson_adaptive_states (lesson_id, account_id, state_json, updated_at)
+                     VALUES ($1, $2, $3, $4)
+                     ON CONFLICT (lesson_id) DO UPDATE SET
+                         account_id = EXCLUDED.account_id,
+                         state_json = EXCLUDED.state_json,
+                         updated_at = EXCLUDED.updated_at",
+                    &[
+                        &state.lesson_id,
+                        &state.account_id,
+                        &state_json,
+                        &chrono::Utc::now(),
+                    ],
+                ).map_err(|err| err.to_string())?;
+                Ok(())
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.lesson_db_path.clone() {
             Self::save_lesson_adaptive_state_sqlite(db_path, state.clone())
                 .await
@@ -2219,6 +2435,41 @@ impl LessonShelfRepository for FileStorage {
 #[async_trait]
 impl LessonJobRepository for FileStorage {
     async fn create_job(&self, job: &LessonGenerationJob) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let job = job.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
+                let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
+                let result_json = job.result.as_ref().map(|r| serde_json::to_string(r)).transpose().map_err(|err| err.to_string())?;
+                let input_summary_json = serde_json::to_string(&job.input_summary).map_err(|err| err.to_string())?;
+                let lesson_id = job.result.as_ref().map(|r| r.lesson_id.clone());
+                
+                client.execute(
+                    "INSERT INTO lesson_jobs (id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, lesson_id, created_at, started_at, completed_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+                    &[
+                        &job.id,
+                        &job.account_id,
+                        &job.school_id,
+                        &status_str,
+                        &step_str,
+                        &job.progress,
+                        &job.message,
+                        &job.error,
+                        &result_json,
+                        &input_summary_json,
+                        &lesson_id,
+                        &job.created_at,
+                        &job.started_at,
+                        &job.completed_at,
+                        &job.updated_at,
+                    ],
+                ).map_err(|err| err.to_string())?;
+                Ok(())
+            }).await.map_err(|err| err.to_string())?;
+        }
         let _guard = self.job_lock.lock().await;
         if let Some(db_path) = self.job_db_path.clone() {
             Self::save_job_sqlite(db_path, job.clone())
@@ -2232,6 +2483,53 @@ impl LessonJobRepository for FileStorage {
     }
 
     async fn update_job(&self, job: &LessonGenerationJob) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let job = job.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
+                let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
+                let result_json = job.result.as_ref().map(|r| serde_json::to_string(r)).transpose().map_err(|err| err.to_string())?;
+                let input_summary_json = serde_json::to_string(&job.input_summary).map_err(|err| err.to_string())?;
+                let lesson_id = job.result.as_ref().map(|r| r.lesson_id.clone());
+                
+                client.execute(
+                    "UPDATE lesson_jobs SET
+                         account_id = $2,
+                         school_id = $3,
+                         status = $4,
+                         step = $5,
+                         progress = $6,
+                         message = $7,
+                         error = $8,
+                         result_json = $9,
+                         input_summary_json = $10,
+                         lesson_id = $11,
+                         started_at = $12,
+                         completed_at = $13,
+                         updated_at = $14
+                     WHERE id = $1",
+                    &[
+                        &job.id,
+                        &job.account_id,
+                        &job.school_id,
+                        &status_str,
+                        &step_str,
+                        &job.progress,
+                        &job.message,
+                        &job.error,
+                        &result_json,
+                        &input_summary_json,
+                        &lesson_id,
+                        &job.started_at,
+                        &job.completed_at,
+                        &job.updated_at,
+                    ],
+                ).map_err(|err| err.to_string())?;
+                Ok(())
+            }).await.map_err(|err| err.to_string())?;
+        }
         let _guard = self.job_lock.lock().await;
         if let Some(db_path) = self.job_db_path.clone() {
             Self::save_job_sqlite(db_path, job.clone())
@@ -2245,6 +2543,72 @@ impl LessonJobRepository for FileStorage {
     }
 
     async fn get_job(&self, job_id: &str) -> Result<Option<LessonGenerationJob>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let job_id = job_id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Option<LessonGenerationJob>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let row = client.query_opt(
+                    "SELECT id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, created_at, started_at, completed_at, updated_at, scenes_generated, total_scenes
+                     FROM lesson_jobs WHERE id = $1",
+                    &[&job_id],
+                ).map_err(|err| err.to_string())?;
+                
+                if let Some(row) = row {
+                    let status_str: String = row.get(3);
+                    let step_str: String = row.get(4);
+                    let result_json: Option<String> = row.get(8);
+                    let input_summary_json: String = row.get(9);
+                    
+                    let mut job = LessonGenerationJob {
+                        id: row.get(0),
+                        account_id: row.get(1),
+                        school_id: row.get(2),
+                        status: serde_json::from_str(&format!("\"{}\"", status_str)).map_err(|err| err.to_string())?,
+                        step: serde_json::from_str(&format!("\"{}\"", step_str)).map_err(|err| err.to_string())?,
+                        progress: row.get(5),
+                        message: row.get(6),
+                        error: row.get(7),
+                        result: result_json.map(|s| serde_json::from_str(&s)).transpose().map_err(|err| err.to_string())?,
+                        input_summary: serde_json::from_str(&input_summary_json).map_err(|err| err.to_string())?,
+                        created_at: row.get(10),
+                        started_at: row.get(11),
+                        completed_at: row.get(12),
+                        updated_at: row.get(13),
+                        scenes_generated: row.get(14),
+                        total_scenes: row.get(15),
+                    };
+                    
+                    let now = chrono::Utc::now();
+                    if job.status == LessonGenerationJobStatus::Running {
+                        let updated_age = now
+                            .signed_duration_since(job.updated_at)
+                            .to_std()
+                            .unwrap_or_default();
+                        if updated_age > STALE_JOB_TIMEOUT {
+                            job.status = LessonGenerationJobStatus::Failed;
+                            job.step = LessonGenerationStep::Failed;
+                            job.message = "Job appears stale (no progress update for 30 minutes)".to_string();
+                            job.error = Some("Stale job: process may have restarted during generation".to_string());
+                            job.updated_at = now;
+                            job.completed_at = Some(now);
+                            
+                            // Update in postgres
+                            let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
+                            let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
+                            client.execute(
+                                "UPDATE lesson_jobs SET status = $2, step = $3, message = $4, error = $5, updated_at = $6, completed_at = $7 WHERE id = $1",
+                                &[&job.id, &status_str, &step_str, &job.message, &job.error, &job.updated_at, &job.completed_at],
+                            ).map_err(|err| err.to_string())?;
+                        }
+                    }
+                    
+                    Ok(Some(job))
+                } else {
+                    Ok(None)
+                }
+            }).await.map_err(|err| err.to_string())?;
+        }
         let _guard = self.job_lock.lock().await;
         if let Some(db_path) = self.job_db_path.clone() {
             return Self::get_job_sqlite(db_path, job_id.to_string())
@@ -2282,6 +2646,45 @@ impl LessonJobRepository for FileStorage {
     }
 
     async fn list_all_jobs(&self, limit: usize) -> Result<Vec<LessonGenerationJob>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            return tokio::task::spawn_blocking(move || -> Result<Vec<LessonGenerationJob>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let rows = client.query(
+                    "SELECT id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, created_at, started_at, completed_at, updated_at, scenes_generated, total_scenes
+                     FROM lesson_jobs ORDER BY created_at DESC LIMIT $1",
+                    &[&(limit as i64)],
+                ).map_err(|err| err.to_string())?;
+                
+                let mut jobs = Vec::new();
+                for row in rows {
+                    let status_str: String = row.get(3);
+                    let step_str: String = row.get(4);
+                    let result_json: Option<String> = row.get(8);
+                    let input_summary_json: String = row.get(9);
+                    
+                    jobs.push(LessonGenerationJob {
+                        id: row.get(0),
+                        account_id: row.get(1),
+                        school_id: row.get(2),
+                        status: serde_json::from_str(&format!("\"{}\"", status_str)).map_err(|err| err.to_string())?,
+                        step: serde_json::from_str(&format!("\"{}\"", step_str)).map_err(|err| err.to_string())?,
+                        progress: row.get(5),
+                        message: row.get(6),
+                        error: row.get(7),
+                        result: result_json.map(|s| serde_json::from_str(&s)).transpose().map_err(|err| err.to_string())?,
+                        input_summary: serde_json::from_str(&input_summary_json).map_err(|err| err.to_string())?,
+                        created_at: row.get(10),
+                        started_at: row.get(11),
+                        completed_at: row.get(12),
+                        updated_at: row.get(13),
+                        scenes_generated: row.get(14),
+                        total_scenes: row.get(15),
+                    });
+                }
+                Ok(jobs)
+            }).await.map_err(|err| err.to_string())?;
+        }
         let _guard = self.job_lock.lock().await;
         if let Some(db_path) = self.job_db_path.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<LessonGenerationJob>, String> {
@@ -2326,6 +2729,28 @@ impl RuntimeSessionRepository for FileStorage {
         session_id: &str,
         director_state: &DirectorState,
     ) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let session_id = session_id.to_string();
+            let director_state = director_state.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let state_json = serde_json::to_string(&director_state).map_err(|err| err.to_string())?;
+                client.execute(
+                    "INSERT INTO runtime_sessions (id, director_state_json, updated_at)
+                     VALUES ($1, $2, $3)
+                     ON CONFLICT (id) DO UPDATE SET
+                         director_state_json = EXCLUDED.director_state_json,
+                         updated_at = EXCLUDED.updated_at",
+                    &[
+                        &session_id,
+                        &state_json,
+                        &chrono::Utc::now(),
+                    ],
+                ).map_err(|err| err.to_string())?;
+                Ok(())
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.runtime_db_path.clone() {
             Self::save_runtime_session_sqlite(
                 db_path,
@@ -2360,6 +2785,27 @@ impl RuntimeActionExecutionRepository for FileStorage {
         &self,
         record: &RuntimeActionExecutionRecord,
     ) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let record = record.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let record_json = serde_json::to_string(&record).map_err(|err| err.to_string())?;
+                client.execute(
+                    "INSERT INTO runtime_action_executions (id, session_id, record_json, created_at)
+                     VALUES ($1, $2, $3, $4)
+                     ON CONFLICT (id) DO UPDATE SET
+                         record_json = EXCLUDED.record_json",
+                    &[
+                        &record.execution_id,
+                        &record.session_id,
+                        &record_json,
+                        &Utc::now(),
+                    ],
+                ).map_err(|err| err.to_string())?;
+                Ok(())
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.runtime_db_path.clone() {
             Self::save_runtime_action_execution_sqlite(db_path, record.clone())
                 .await
@@ -2378,6 +2824,25 @@ impl RuntimeActionExecutionRepository for FileStorage {
         &self,
         execution_id: &str,
     ) -> Result<Option<RuntimeActionExecutionRecord>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let execution_id = execution_id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Option<RuntimeActionExecutionRecord>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let row = client.query_opt(
+                    "SELECT record_json FROM runtime_action_executions WHERE id = $1",
+                    &[&execution_id],
+                ).map_err(|err| err.to_string())?;
+                
+                if let Some(row) = row {
+                    let record_json: String = row.get(0);
+                    let record = serde_json::from_str::<RuntimeActionExecutionRecord>(&record_json).map_err(|err| err.to_string())?;
+                    Ok(Some(record))
+                } else {
+                    Ok(None)
+                }
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.runtime_db_path.clone() {
             Self::get_runtime_action_execution_sqlite(db_path, execution_id.to_string())
                 .await
@@ -2393,6 +2858,25 @@ impl RuntimeActionExecutionRepository for FileStorage {
         &self,
         session_id: &str,
     ) -> Result<Vec<RuntimeActionExecutionRecord>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let session_id = session_id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Vec<RuntimeActionExecutionRecord>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
+                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let rows = client.query(
+                    "SELECT record_json FROM runtime_action_executions WHERE session_id = $1 ORDER BY created_at ASC",
+                    &[&session_id],
+                ).map_err(|err| err.to_string())?;
+                
+                let mut records = Vec::new();
+                for row in rows {
+                    let record_json: String = row.get(0);
+                    let record = serde_json::from_str::<RuntimeActionExecutionRecord>(&record_json).map_err(|err| err.to_string())?;
+                    records.push(record);
+                }
+                Ok(records)
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.runtime_db_path.clone() {
             Self::list_runtime_action_executions_for_session_sqlite(db_path, session_id.to_string())
                 .await
@@ -5007,6 +5491,128 @@ impl SchoolRepository for FileStorage {
 }
 
 
+#[async_trait]
+impl crate::repositories::ApiUsageRepository for FileStorage {
+    async fn insert_api_usage_record(
+        &self,
+        record: &ai_tutor_domain::billing::ApiUsageRecord,
+    ) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let record = record.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                // CREATE TABLE IF NOT EXISTS — avoids requiring a migration on existing deployments.
+                client.execute(
+                    "CREATE TABLE IF NOT EXISTS api_usage_records (
+                        id TEXT PRIMARY KEY,
+                        account_id TEXT NOT NULL,
+                        component TEXT NOT NULL,
+                        provider TEXT NOT NULL,
+                        model_id TEXT NOT NULL,
+                        input_tokens BIGINT NOT NULL DEFAULT 0,
+                        output_tokens BIGINT NOT NULL DEFAULT 0,
+                        cost_usd_millicents BIGINT NOT NULL DEFAULT 0,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )",
+                    &[],
+                ).map_err(|e| e.to_string())?;
+                client.execute(
+                    "INSERT INTO api_usage_records
+                        (id, account_id, component, provider, model_id, input_tokens, output_tokens, cost_usd_millicents, created_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     ON CONFLICT (id) DO NOTHING",
+                    &[
+                        &record.id,
+                        &record.account_id,
+                        &record.component,
+                        &record.provider,
+                        &record.model_id,
+                        &record.input_tokens,
+                        &record.output_tokens,
+                        &record.cost_usd_millicents,
+                        &record.created_at,
+                    ],
+                ).map_err(|e| e.to_string())?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+
+        // Filesystem fallback
+        let dir = self.root_dir().join("api_usage_records");
+        tokio::fs::create_dir_all(&dir).await.map_err(|e| e.to_string())?;
+        let path = dir.join(format!("{}.json", record.id));
+        let bytes = serde_json::to_vec_pretty(record).map_err(|e| e.to_string())?;
+        tokio::fs::write(&path, bytes).await.map_err(|e| e.to_string())
+    }
+
+    async fn list_api_usage_records_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String> {
+                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                // Return empty if table doesn't exist yet
+                let table_exists: bool = client.query_one(
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'api_usage_records')",
+                    &[],
+                ).map(|row| row.get::<_, bool>(0)).unwrap_or(false);
+
+                if !table_exists {
+                    return Ok(vec![]);
+                }
+
+                let rows = client.query(
+                    "SELECT id, account_id, component, provider, model_id,
+                            input_tokens, output_tokens, cost_usd_millicents, created_at
+                     FROM api_usage_records
+                     WHERE created_at >= $1
+                     ORDER BY created_at DESC
+                     LIMIT 50000",
+                    &[&since],
+                ).map_err(|e| e.to_string())?;
+
+                rows.into_iter().map(|row| {
+                    Ok(ai_tutor_domain::billing::ApiUsageRecord {
+                        id:                  row.get(0),
+                        account_id:          row.get(1),
+                        component:           row.get(2),
+                        provider:            row.get(3),
+                        model_id:            row.get(4),
+                        input_tokens:        row.get(5),
+                        output_tokens:       row.get(6),
+                        cost_usd_millicents: row.get(7),
+                        created_at:          row.get(8),
+                    })
+                }).collect()
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+
+        // Filesystem fallback — scan api_usage_records directory
+        let dir = self.root_dir().join("api_usage_records");
+        let Ok(mut reader) = tokio::fs::read_dir(&dir).await else {
+            return Ok(vec![]); // Directory not yet created — no records yet
+        };
+        let mut records = Vec::new();
+        while let Some(entry) = reader.next_entry().await.map_err(|e| e.to_string())? {
+            if let Some(rec) = Self::read_json::<ai_tutor_domain::billing::ApiUsageRecord>(&entry.path())
+                .await.unwrap_or(None)
+            {
+                if rec.created_at >= since {
+                    records.push(rec);
+                }
+            }
+        }
+        records.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(records)
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -5053,6 +5659,8 @@ mod tests {
             let now = Utc::now();
             let lesson = Lesson {
                 id: "lesson-1".to_string(),
+                account_id: None,
+                school_id: None,
                 title: "Gravity".to_string(),
                 language: "en-US".to_string(),
                 description: Some("Physics lesson".to_string()),
@@ -5092,6 +5700,8 @@ mod tests {
             let now = Utc::now();
             let lesson = Lesson {
                 id: "lesson-sqlite-1".to_string(),
+                account_id: None,
+                school_id: None,
                 title: "Fractions".to_string(),
                 language: "en-US".to_string(),
                 description: Some("Understand fractions".to_string()),
@@ -5135,10 +5745,16 @@ mod tests {
                 enable_tts: false,
                 agent_mode: AgentMode::Default,
                 account_id: None,
+                school_id: None,
+                quality_mode: None,
+                learning_mode: None,
+                precharged_credits: None,
             };
             let stale_time = Utc::now() - ChronoDuration::minutes(31);
             let job = LessonGenerationJob {
                 id: "job-1".to_string(),
+                account_id: None,
+                school_id: None,
                 status: LessonGenerationJobStatus::Running,
                 step: LessonGenerationStep::GeneratingScenes,
                 progress: 70,
@@ -5311,10 +5927,16 @@ mod tests {
                 enable_tts: false,
                 agent_mode: AgentMode::Default,
                 account_id: None,
+                school_id: None,
+                quality_mode: None,
+                learning_mode: None,
+                precharged_credits: None,
             };
             let now = Utc::now();
             let job = LessonGenerationJob {
                 id: "job-sqlite-1".to_string(),
+                account_id: None,
+                school_id: None,
                 status: LessonGenerationJobStatus::Queued,
                 step: LessonGenerationStep::Queued,
                 progress: 0,
@@ -5353,6 +5975,7 @@ mod tests {
                 phone_number: None,
                 phone_verified: false,
                 status: TutorAccountStatus::PartialAuth,
+                school_id: None,
                 created_at: now,
                 updated_at: now,
             };
@@ -5372,6 +5995,7 @@ mod tests {
                 phone_number: Some("+15551234567".to_string()),
                 phone_verified: true,
                 status: TutorAccountStatus::Active,
+                school_id: None,
                 created_at: now,
                 updated_at: now,
             };
@@ -5386,6 +6010,7 @@ mod tests {
                 phone_number: Some("+15551234567".to_string()),
                 phone_verified: true,
                 status: TutorAccountStatus::Active,
+                school_id: None,
                 created_at: now,
                 updated_at: now,
             };
@@ -5402,6 +6027,7 @@ mod tests {
                     phone_number: Some("+15551234567".to_string()),
                     phone_verified: true,
                     status: TutorAccountStatus::Active,
+                    school_id: None,
                     created_at: now,
                     updated_at: now,
                 })
@@ -5470,6 +6096,10 @@ mod tests {
                     enable_tts: false,
                     agent_mode: AgentMode::Default,
                     account_id: None,
+                    school_id: None,
+                    quality_mode: None,
+                    learning_mode: None,
+                    precharged_credits: None,
                 },
                 model_string: Some("openai:gpt-4o-mini".to_string()),
                 max_attempts: 3,
@@ -5517,6 +6147,8 @@ mod tests {
                 grace_period_until: Some(renewal_due + ChronoDuration::days(3)),
                 cancelled_at: None,
                 last_payment_order_id: Some("order-1".to_string()),
+                quality_mode: ai_tutor_domain::billing::QualityMode::Standard,
+                allowed_learning_modes: vec![],
                 created_at: now,
                 updated_at: now,
             };
@@ -5537,6 +6169,8 @@ mod tests {
                 grace_period_until: Some(renewal_later + ChronoDuration::days(5)),
                 cancelled_at: None,
                 last_payment_order_id: Some("order-2".to_string()),
+                quality_mode: ai_tutor_domain::billing::QualityMode::Standard,
+                allowed_learning_modes: vec![],
                 created_at: now,
                 updated_at: now + ChronoDuration::hours(1),
             };
@@ -5558,9 +6192,10 @@ mod tests {
             assert_eq!(account_subs.len(), 2);
             assert_eq!(account_subs[0].id, "sub-2");
 
+            let renewal_cutoff = (now + ChronoDuration::days(2)).to_rfc3339();
             let due = storage
                 .list_subscriptions_due_for_renewal(
-                    &(now + ChronoDuration::days(2)),
+                    &renewal_cutoff,
                     10,
                 )
                 .await

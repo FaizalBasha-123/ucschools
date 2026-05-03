@@ -1965,6 +1965,7 @@ mod tests {
     fn base_payload() -> StatelessChatRequest {
         StatelessChatRequest {
             session_id: None,
+            quality_mode: None,
             runtime_session: Some(RuntimeSessionSelector {
                 mode: RuntimeSessionMode::StatelessClientState,
                 session_id: None,
@@ -2806,6 +2807,8 @@ mod tests {
 
         let lesson = Lesson {
             id: "lesson-sync".to_string(),
+            account_id: None,
+            school_id: None,
             title: "Sync Test".to_string(),
             language: "en-US".to_string(),
             description: None,

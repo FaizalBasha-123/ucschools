@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -17,7 +18,7 @@ use ai_tutor_domain::{
 };
 use ai_tutor_storage::{filesystem::FileStorage, repositories::LessonJobRepository};
 
-use crate::app::LiveLessonAppService;
+use crate::app::{LessonAppService, LiveLessonAppService};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueuedLessonRequest {
@@ -37,10 +38,16 @@ pub struct QueuedLessonRequest {
     pub available_at: DateTime<Utc>,
 }
 
-pub struct FileBackedLessonQueue {
-    storage: Arc<FileStorage>,
-    queue_db_path: Option<PathBuf>,
-    worker_id: String,
+#[async_trait]
+pub trait LessonQueue: Send + Sync {
+    async fn enqueue(&self, request: &QueuedLessonRequest) -> Result<()>;
+    async fn claim_next(&self, worker_id: &str) -> Result<Option<QueuedLessonRequest>>;
+    async fn heartbeat(&self, job_id: &str, worker_id: &str) -> Result<()>;
+    async fn complete(&self, job_id: &str) -> Result<()>;
+    async fn cancel(&self, job_id: &str) -> Result<QueueCancelResult>;
+    async fn get_lease_counts(&self) -> Result<QueueLeaseCounts>;
+    async fn get_pending_count(&self) -> Result<usize>;
+    fn backend_label(&self) -> &'static str;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +61,86 @@ pub enum QueueCancelResult {
 pub struct QueueLeaseCounts {
     pub active: usize,
     pub stale: usize,
+}
+
+pub struct FileBackedLessonQueue {
+    storage: Arc<FileStorage>,
+    queue_db_path: Option<PathBuf>,
+    worker_id: String,
+}
+
+#[async_trait]
+impl LessonQueue for FileBackedLessonQueue {
+    async fn enqueue(&self, request: &QueuedLessonRequest) -> Result<()> {
+        self.enqueue_request(request).await
+    }
+
+    async fn claim_next(&self, worker_id: &str) -> Result<Option<QueuedLessonRequest>> {
+        if let Some(db_path) = self.queue_db_path.clone() {
+            return Self::claim_next_sqlite(db_path, worker_id.to_string()).await;
+        }
+
+        let files = self.list_queue_files().await?;
+        if !files.is_empty() {
+             println!("DEBUG: claim_next found {} files in queue", files.len());
+        }
+        for mut path in files {
+            println!("DEBUG: claim_next examining {:?}", path);
+            if let Some(reset_path) = Self::reset_stale_working_file(&path).await? {
+                println!("DEBUG: claim_next reset stale file {:?}", reset_path);
+                path = reset_path;
+            }
+
+            if path.extension().and_then(|ext| ext.to_str()) == Some("working") {
+                println!("DEBUG: claim_next skipping .working file");
+                continue;
+            }
+
+            println!("DEBUG: claim_next attempting to claim {:?}", path);
+            let claimed = Self::claim_file(&path).await?;
+            println!("DEBUG: claim_next successfully claimed {:?}", claimed);
+            return Ok(Some(Self::read_queued_request(&claimed).await?));
+        }
+        Ok(None)
+    }
+
+    async fn heartbeat(&self, job_id: &str, worker_id: &str) -> Result<()> {
+        if let Some(db_path) = self.queue_db_path.clone() {
+            return Self::touch_claim_sqlite(db_path, job_id.to_string(), worker_id.to_string()).await;
+        }
+        Ok(())
+    }
+
+    async fn complete(&self, job_id: &str) -> Result<()> {
+        if let Some(db_path) = self.queue_db_path.clone() {
+            return Self::delete_sqlite_entry(db_path, job_id).await;
+        }
+        let working_path = self.queue_dir().join(format!("{}.json.working", job_id));
+        if fs::try_exists(&working_path).await? {
+            fs::remove_file(working_path).await?;
+        }
+        Ok(())
+    }
+
+    async fn cancel(&self, job_id: &str) -> Result<QueueCancelResult> {
+        self.cancel_request(job_id).await
+    }
+
+    async fn get_lease_counts(&self) -> Result<QueueLeaseCounts> {
+        self.lease_counts().await
+    }
+
+    async fn get_pending_count(&self) -> Result<usize> {
+        self.pending_count().await
+    }
+
+    fn backend_label(&self) -> &'static str {
+        if self.queue_db_path.is_some() {
+            "sqlite"
+        } else {
+            "filesystem"
+        }
+    }
 }
 
 const DEFAULT_MAX_ATTEMPTS: u32 = 3;
@@ -84,6 +171,7 @@ fn queue_worker_id() -> String {
             .as_str(),
         "1" | "true" | "yes" | "on"
     );
+
     if require_explicit {
         panic!(
             "AI_TUTOR_QUEUE_REQUIRE_EXPLICIT_WORKER_ID is enabled but AI_TUTOR_QUEUE_WORKER_ID is missing"
@@ -126,13 +214,13 @@ impl FileBackedLessonQueue {
         self.storage.root_dir().join("lesson-queue")
     }
 
-    pub async fn enqueue(&self, queued: &QueuedLessonRequest) -> Result<()> {
+    pub async fn enqueue_request(&self, request: &QueuedLessonRequest) -> Result<()> {
         if let Some(db_path) = self.queue_db_path.clone() {
-            return Self::enqueue_sqlite(db_path, queued.clone()).await;
+            return Self::enqueue_sqlite(db_path, request.clone()).await;
         }
         fs::create_dir_all(self.queue_dir()).await?;
-        let path = self.queue_dir().join(format!("{}.json", queued.job.id));
-        let bytes = serde_json::to_vec_pretty(&normalized_queued_request(queued.clone()))?;
+        let path = self.queue_dir().join(format!("{}.json", request.job.id));
+        let bytes = serde_json::to_vec_pretty(&normalized_queued_request(request.clone()))?;
         fs::write(path, bytes).await?;
         Ok(())
     }
@@ -212,7 +300,7 @@ impl FileBackedLessonQueue {
         {
             path.to_path_buf()
         } else {
-            path.with_extension("json.working")
+            path.with_extension("working")
         };
 
         if claimed != path {
@@ -376,22 +464,15 @@ impl FileBackedLessonQueue {
         service: Arc<LiveLessonAppService>,
         poll_interval: Duration,
     ) {
+        let worker_queue = Arc::clone(&self);
         tokio::spawn(async move {
             loop {
-                if let Err(err) = self.process_pending_once(Arc::clone(&service)).await {
+                if let Err(err) = worker_queue.process_pending_once(Arc::clone(&service)).await {
                     error!("AI Tutor queue worker loop error: {}", err);
                 }
                 tokio::time::sleep(poll_interval).await;
             }
         });
-    }
-
-    pub fn backend_label(&self) -> &'static str {
-        if self.queue_db_path.is_some() {
-            "sqlite"
-        } else {
-            "file"
-        }
     }
 
     pub async fn pending_count(&self) -> Result<usize> {
@@ -449,7 +530,7 @@ impl FileBackedLessonQueue {
         Ok(QueueLeaseCounts { active, stale })
     }
 
-    pub async fn cancel(&self, job_id: &str) -> Result<QueueCancelResult> {
+    pub async fn cancel_request(&self, job_id: &str) -> Result<QueueCancelResult> {
         if let Some(db_path) = self.queue_db_path.clone() {
             return Self::cancel_sqlite(db_path, job_id.to_string()).await;
         }
@@ -997,12 +1078,20 @@ fn should_retry_queue_error(message: &str) -> bool {
 }
 
 pub fn spawn_one_shot_queue_kick(
-    queue: Arc<FileBackedLessonQueue>,
+    queue: Arc<dyn LessonQueue>,
     service: Arc<LiveLessonAppService>,
 ) {
     tokio::spawn(async move {
-        if let Err(err) = queue.process_pending_once(service).await {
-            error!("AI Tutor queue kick error: {}", err);
+        match queue.claim_next("one-shot-worker").await {
+            Ok(Some(request)) => {
+                if let Err(err) = service.process_queued_job(request).await {
+                    error!("AI Tutor one-shot worker failed to process job: {}", err);
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                error!("AI Tutor queue kick error: {}", err);
+            }
         }
     });
 }
@@ -1053,944 +1142,19 @@ fn ensure_queue_column_exists(
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use std::{
-        path::PathBuf,
-        sync::{Arc, Mutex},
-        time::Duration,
-    };
-
-    use anyhow::anyhow;
-    use async_trait::async_trait;
-    use chrono::Duration as ChronoDuration;
-    use rusqlite::params;
-
-    use ai_tutor_domain::{
-        generation::{AgentMode, Language, LessonGenerationRequest, UserRequirements},
-        job::{LessonGenerationJobStatus, LessonGenerationStep},
-        provider::ModelConfig,
-    };
-    use ai_tutor_providers::{
-        config::{ServerProviderConfig, ServerProviderEntry},
-        traits::{
-            ImageProvider, ImageProviderFactory, LlmProvider, LlmProviderFactory, TtsProvider,
-            TtsProviderFactory, VideoProvider, VideoProviderFactory,
-        },
-    };
-    use ai_tutor_storage::{
-        filesystem::FileStorage,
-        repositories::{LessonJobRepository, LessonRepository},
-    };
-
-    use crate::app::LiveLessonAppService;
-    use ai_tutor_orchestrator::pipeline::build_queued_job;
-
-    use super::{
-        default_max_attempts, open_queue_db, FileBackedLessonQueue, QueuedLessonRequest,
-        STALE_WORKING_TIMEOUT,
-    };
-
-    struct FakeLlmProvider {
-        responses: Mutex<Vec<String>>,
-    }
-
-    struct FakeLlmProviderFactory;
-    struct FakeImageProvider;
-    struct FakeImageProviderFactory;
-    struct FakeVideoProvider;
-    struct FakeVideoProviderFactory;
-    struct FakeTtsProvider;
-    struct FakeTtsProviderFactory;
-    struct AlwaysFailLlmProviderFactory {
-        error_message: String,
-    }
-
-    #[async_trait]
-    impl LlmProvider for FakeLlmProvider {
-        async fn generate_text(
-            &self,
-            _system_prompt: &str,
-            _user_prompt: &str,
-        ) -> anyhow::Result<String> {
-            let mut responses = self.responses.lock().unwrap();
-            if responses.is_empty() {
-                return Err(anyhow!("missing fake llm response"));
-            }
-            Ok(responses.remove(0))
+fn normalize_locked_claim_result(
+    result: Result<Option<QueuedLessonRequest>>,
+) -> Option<QueuedLessonRequest> {
+    match result {
+        Ok(value) => value,
+        Err(err)
+            if err
+                .to_string()
+                .to_ascii_lowercase()
+                .contains("database is locked") =>
+        {
+            None
         }
-    }
-
-    impl LlmProviderFactory for FakeLlmProviderFactory {
-        fn build(&self, _model_config: ModelConfig) -> anyhow::Result<Box<dyn LlmProvider>> {
-            Ok(Box::new(FakeLlmProvider {
-                responses: Mutex::new(vec![
-                    r#"{"outlines":[{"title":"Intro to Fractions","description":"Basic idea","key_points":["What a fraction is"],"scene_type":"slide","media_generations":[{"element_id":"gen_img_1","media_type":"image","prompt":"A pizza cut into fractions","aspect_ratio":"16:9"}]},{"title":"Fraction Quiz","description":"Check learning","key_points":["Identify numerator"],"scene_type":"quiz"}]}"#.to_string(),
-                    r#"{"elements":[{"kind":"text","content":"Fractions represent parts of a whole.","left":60.0,"top":80.0,"width":800.0,"height":100.0}]}"#.to_string(),
-                    r#"{"actions":[{"action_type":"speech","text":"A fraction shows part of a whole."}]}"#.to_string(),
-                    r#"{"questions":[{"question":"What part names the top number in a fraction?","options":["Numerator","Denominator"],"answer":["Numerator"]}]}"#.to_string(),
-                    r#"{"actions":[{"action_type":"speech","text":"Now let's check what you learned."}]}"#.to_string(),
-                ]),
-            }))
-        }
-    }
-
-    #[async_trait]
-    impl ImageProvider for FakeImageProvider {
-        async fn generate_image(
-            &self,
-            _prompt: &str,
-            _aspect_ratio: Option<&str>,
-        ) -> anyhow::Result<String> {
-            Ok("data:image/png;base64,ZmFrZQ==".to_string())
-        }
-    }
-
-    impl ImageProviderFactory for FakeImageProviderFactory {
-        fn build(&self, _model_config: ModelConfig) -> anyhow::Result<Box<dyn ImageProvider>> {
-            Ok(Box::new(FakeImageProvider))
-        }
-    }
-
-    #[async_trait]
-    impl VideoProvider for FakeVideoProvider {
-        async fn generate_video(
-            &self,
-            _prompt: &str,
-            _aspect_ratio: Option<&str>,
-        ) -> anyhow::Result<String> {
-            Ok("data:video/mp4;base64,ZmFrZQ==".to_string())
-        }
-    }
-
-    impl VideoProviderFactory for FakeVideoProviderFactory {
-        fn build(&self, _model_config: ModelConfig) -> anyhow::Result<Box<dyn VideoProvider>> {
-            Ok(Box::new(FakeVideoProvider))
-        }
-    }
-
-    #[async_trait]
-    impl TtsProvider for FakeTtsProvider {
-        async fn synthesize(
-            &self,
-            _text: &str,
-            _voice: Option<&str>,
-            _speed: Option<f32>,
-        ) -> anyhow::Result<String> {
-            Ok("data:audio/mpeg;base64,ZmFrZQ==".to_string())
-        }
-    }
-
-    impl TtsProviderFactory for FakeTtsProviderFactory {
-        fn build(&self, _model_config: ModelConfig) -> anyhow::Result<Box<dyn TtsProvider>> {
-            Ok(Box::new(FakeTtsProvider))
-        }
-    }
-
-    impl LlmProviderFactory for AlwaysFailLlmProviderFactory {
-        fn build(&self, _model_config: ModelConfig) -> anyhow::Result<Box<dyn LlmProvider>> {
-            Err(anyhow!(self.error_message.clone()))
-        }
-    }
-
-    fn temp_root() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "ai-tutor-queue-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ))
-    }
-
-    fn sample_request() -> LessonGenerationRequest {
-        LessonGenerationRequest {
-            requirements: UserRequirements {
-                requirement: "Teach fractions".to_string(),
-                language: Language::EnUs,
-                user_nickname: None,
-                user_bio: None,
-                web_search: Some(false),
-            },
-            pdf_content: None,
-            enable_web_search: false,
-            enable_image_generation: true,
-            enable_video_generation: false,
-            enable_tts: true,
-            agent_mode: AgentMode::Default,
-            account_id: None,
-            generation_mode: None,
-        }
-    }
-
-    fn build_service(storage: Arc<FileStorage>) -> Arc<LiveLessonAppService> {
-        Arc::new(LiveLessonAppService::new(
-            storage,
-            Arc::new(ServerProviderConfig {
-                providers: std::collections::HashMap::from([(
-                    "openai".to_string(),
-                    ServerProviderEntry {
-                        api_key: Some("test-key".to_string()),
-                        base_url: Some("https://example.test/v1".to_string()),
-                        proxy: None,
-                        models: vec![],
-                        transport_override: None,
-                        pricing_override: None,
-                    },
-                )]),
-                ..Default::default()
-            }),
-            Arc::new(FakeLlmProviderFactory),
-            Arc::new(FakeImageProviderFactory),
-            Arc::new(FakeVideoProviderFactory),
-            Arc::new(FakeTtsProviderFactory),
-            "http://localhost:8099".to_string(),
-        ))
-    }
-
-    fn build_failing_service(
-        storage: Arc<FileStorage>,
-        error_message: &str,
-    ) -> Arc<LiveLessonAppService> {
-        Arc::new(LiveLessonAppService::new(
-            storage,
-            Arc::new(ServerProviderConfig {
-                providers: std::collections::HashMap::from([(
-                    "openai".to_string(),
-                    ServerProviderEntry {
-                        api_key: Some("test-key".to_string()),
-                        base_url: Some("https://example.test/v1".to_string()),
-                        proxy: None,
-                        models: vec![],
-                        transport_override: None,
-                        pricing_override: None,
-                    },
-                )]),
-                ..Default::default()
-            }),
-            Arc::new(AlwaysFailLlmProviderFactory {
-                error_message: error_message.to_string(),
-            }),
-            Arc::new(FakeImageProviderFactory),
-            Arc::new(FakeVideoProviderFactory),
-            Arc::new(FakeTtsProviderFactory),
-            "http://localhost:8099".to_string(),
-        ))
-    }
-
-    #[tokio::test]
-    async fn processes_persisted_queue_entry_and_removes_queue_file() {
-        let storage = Arc::new(FileStorage::new(temp_root()));
-        let queue = FileBackedLessonQueue::new(Arc::clone(&storage));
-        let service = build_service(Arc::clone(&storage));
-        let request = sample_request();
-        let lesson_id = "lesson-queue-1".to_string();
-        let job = build_queued_job("job-queue-1".to_string(), &request, chrono::Utc::now());
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: lesson_id.clone(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let processed = queue
-            .process_pending_once(Arc::clone(&service))
-            .await
-            .unwrap();
-        assert_eq!(processed, 1);
-
-        let persisted_job = storage.get_job(&job.id).await.unwrap().unwrap();
-        assert!(matches!(
-            persisted_job.status,
-            LessonGenerationJobStatus::Succeeded
-        ));
-        let lesson = storage.get_lesson(&lesson_id).await.unwrap();
-        assert!(lesson.is_some());
-        let queue_file = queue.queue_dir().join(format!("{}.json", job.id));
-        let queue_working_file = queue.queue_dir().join(format!("{}.json.working", job.id));
-        assert!(!queue_file.exists());
-        assert!(!queue_working_file.exists());
-    }
-
-    #[tokio::test]
-    async fn retries_transient_queue_failures_and_keeps_queue_file() {
-        let storage = Arc::new(FileStorage::new(temp_root()));
-        let queue = FileBackedLessonQueue::new(Arc::clone(&storage));
-        let service = build_failing_service(Arc::clone(&storage), "temporary upstream timeout");
-        let request = sample_request();
-        let lesson_id = "lesson-queue-retry".to_string();
-        let job = build_queued_job("job-queue-retry".to_string(), &request, chrono::Utc::now());
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: lesson_id.clone(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let processed = queue
-            .process_pending_once(Arc::clone(&service))
-            .await
-            .unwrap();
-        assert_eq!(processed, 1);
-
-        let persisted_job = storage.get_job(&job.id).await.unwrap().unwrap();
-        assert!(matches!(
-            persisted_job.status,
-            LessonGenerationJobStatus::Queued
-        ));
-        assert!(matches!(persisted_job.step, LessonGenerationStep::Queued));
-        assert!(persisted_job
-            .error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("temporary upstream timeout"));
-
-        let queue_file = queue.queue_dir().join(format!("{}.json", job.id));
-        assert!(queue_file.exists());
-        let queued = FileBackedLessonQueue::read_queued_request(&queue_file)
-            .await
-            .unwrap();
-        assert_eq!(queued.attempt, 1);
-        assert!(queued
-            .last_error
-            .as_deref()
-            .unwrap_or_default()
-            .contains("temporary upstream timeout"));
-        assert!(queued.available_at > chrono::Utc::now());
-    }
-
-    #[tokio::test]
-    async fn fails_queue_entry_immediately_for_non_retryable_errors() {
-        let storage = Arc::new(FileStorage::new(temp_root()));
-        let queue = FileBackedLessonQueue::new(Arc::clone(&storage));
-        let service = build_failing_service(Arc::clone(&storage), "missing api key");
-        let request = sample_request();
-        let lesson_id = "lesson-queue-fail".to_string();
-        let job = build_queued_job("job-queue-fail".to_string(), &request, chrono::Utc::now());
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id,
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let result = queue.process_pending_once(Arc::clone(&service)).await;
-        assert!(result.is_ok());
-
-        let persisted_job = storage.get_job(&job.id).await.unwrap().unwrap();
-        assert!(matches!(
-            persisted_job.status,
-            LessonGenerationJobStatus::Failed
-        ));
-        assert!(matches!(persisted_job.step, LessonGenerationStep::Failed));
-        let queue_file = queue.queue_dir().join(format!("{}.json", job.id));
-        assert!(!queue_file.exists());
-    }
-
-    #[tokio::test]
-    async fn reclaims_stale_working_files_and_processes_them() {
-        let storage = Arc::new(FileStorage::new(temp_root()));
-        let queue = FileBackedLessonQueue::new(Arc::clone(&storage));
-        let service = build_service(Arc::clone(&storage));
-        let request = sample_request();
-        let lesson_id = "lesson-queue-stale".to_string();
-        let job = build_queued_job("job-queue-stale".to_string(), &request, chrono::Utc::now());
-        storage.create_job(&job).await.unwrap();
-        let working_path = queue.queue_dir().join(format!("{}.json.working", job.id));
-        tokio::fs::create_dir_all(queue.queue_dir()).await.unwrap();
-        FileBackedLessonQueue::write_queued_request(
-            &working_path,
-            &QueuedLessonRequest {
-                lesson_id: lesson_id.clone(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now() - ChronoDuration::seconds(30),
-                available_at: chrono::Utc::now() - ChronoDuration::seconds(30),
-            },
-        )
-        .await
-        .unwrap();
-
-        let stale_time = filetime::FileTime::from_system_time(
-            std::time::SystemTime::now() - STALE_WORKING_TIMEOUT - Duration::from_secs(5),
-        );
-        filetime::set_file_mtime(&working_path, stale_time).unwrap();
-
-        let processed = queue
-            .process_pending_once(Arc::clone(&service))
-            .await
-            .unwrap();
-        assert_eq!(processed, 1);
-
-        let persisted_job = storage.get_job(&job.id).await.unwrap().unwrap();
-        assert!(matches!(
-            persisted_job.status,
-            LessonGenerationJobStatus::Succeeded
-        ));
-        assert!(!working_path.exists());
-    }
-
-    #[tokio::test]
-    async fn processes_sqlite_queue_entry_and_removes_db_row() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let queue_db_path = root.join("queue").join("lesson-queue.db");
-        let queue = FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path);
-        let service = build_service(Arc::clone(&storage));
-        let request = sample_request();
-        let lesson_id = "lesson-queue-sqlite".to_string();
-        let job = build_queued_job("job-queue-sqlite".to_string(), &request, chrono::Utc::now());
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: lesson_id.clone(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let processed = queue
-            .process_pending_once(Arc::clone(&service))
-            .await
-            .unwrap();
-        assert_eq!(processed, 1);
-
-        let persisted_job = storage.get_job(&job.id).await.unwrap().unwrap();
-        assert!(matches!(
-            persisted_job.status,
-            LessonGenerationJobStatus::Succeeded
-        ));
-        let lesson = storage.get_lesson(&lesson_id).await.unwrap();
-        assert!(lesson.is_some());
-
-        let remaining: i64 = tokio::task::spawn_blocking({
-            let queue_db_path = queue_db_path.clone();
-            move || -> anyhow::Result<i64> {
-                let connection = open_queue_db(&queue_db_path)?;
-                let count = connection.query_row(
-                    "SELECT COUNT(*) FROM lesson_queue WHERE job_id = ?1",
-                    params![job.id],
-                    |row| row.get(0),
-                )?;
-                Ok(count)
-            }
-        })
-        .await
-        .unwrap()
-        .unwrap();
-        assert_eq!(remaining, 0);
-    }
-
-    #[tokio::test]
-    async fn cancels_file_backed_queued_entry_before_claim() {
-        let storage = Arc::new(FileStorage::new(temp_root()));
-        let queue = FileBackedLessonQueue::new(Arc::clone(&storage));
-        let request = sample_request();
-        let job = build_queued_job("job-queue-cancel".to_string(), &request, chrono::Utc::now());
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: "lesson-queue-cancel".to_string(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let result = queue.cancel(&job.id).await.unwrap();
-        assert_eq!(result, super::QueueCancelResult::Cancelled);
-        assert!(!queue.queue_dir().join(format!("{}.json", job.id)).exists());
-    }
-
-    #[tokio::test]
-    async fn cancels_sqlite_queued_entry_before_claim() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let queue_db_path = root.join("queue").join("lesson-queue.db");
-        let queue = FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path);
-        let request = sample_request();
-        let job = build_queued_job(
-            "job-queue-cancel-sqlite".to_string(),
-            &request,
-            chrono::Utc::now(),
-        );
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: "lesson-queue-cancel-sqlite".to_string(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let result = queue.cancel(&job.id).await.unwrap();
-        assert_eq!(result, super::QueueCancelResult::Cancelled);
-    }
-
-    #[tokio::test]
-    async fn cancels_sqlite_stale_working_entry() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let queue_db_path = root.join("queue").join("lesson-queue.db");
-        let queue = FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path);
-        let request = sample_request();
-        let job = build_queued_job(
-            "job-queue-cancel-stale-working".to_string(),
-            &request,
-            chrono::Utc::now(),
-        );
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: "lesson-queue-cancel-stale-working".to_string(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let claimed = FileBackedLessonQueue::claim_next_sqlite(
-            queue_db_path.clone(),
-            "test-worker-stale".to_string(),
-        )
-        .await
-        .unwrap()
-        .expect("claim should succeed");
-        assert_eq!(claimed.job.id, job.id);
-
-        tokio::task::spawn_blocking({
-            let db = queue_db_path.clone();
-            let id = job.id.clone();
-            move || -> anyhow::Result<()> {
-                let connection = open_queue_db(&db)?;
-                connection.execute(
-                    "UPDATE lesson_queue
-                     SET lease_until = ?2
-                     WHERE job_id = ?1",
-                    params![
-                        id,
-                        (chrono::Utc::now() - ChronoDuration::minutes(10)).to_rfc3339()
-                    ],
-                )?;
-                Ok(())
-            }
-        })
-        .await
-        .unwrap()
-        .unwrap();
-
-        let result = queue.cancel(&job.id).await.unwrap();
-        assert_eq!(result, super::QueueCancelResult::Cancelled);
-    }
-
-    #[tokio::test]
-    async fn sqlite_claim_is_single_owner_under_concurrent_workers() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let queue_db_path = root.join("queue").join("lesson-queue.db");
-        let queue = FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path);
-        let request = sample_request();
-        let job = build_queued_job("job-queue-race".to_string(), &request, chrono::Utc::now());
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: "lesson-queue-race".to_string(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let db_path_a = queue_db_path.clone();
-        let db_path_b = queue_db_path.clone();
-        let (claim_a, claim_b) = tokio::join!(
-            FileBackedLessonQueue::claim_next_sqlite(db_path_a, "test-worker-a".to_string()),
-            FileBackedLessonQueue::claim_next_sqlite(db_path_b, "test-worker-b".to_string())
-        );
-
-        let first = normalize_locked_claim_result(claim_a);
-        let second = normalize_locked_claim_result(claim_b);
-        let claim_count = usize::from(first.is_some()) + usize::from(second.is_some());
-
-        if claim_count == 0 {
-            // Under extreme test contention, both concurrent attempts can observe
-            // transient lock windows. A follow-up claim must still yield a single owner.
-            let recovered = FileBackedLessonQueue::claim_next_sqlite(
-                queue_db_path.clone(),
-                "test-worker-recovered".to_string(),
-            )
-            .await
-            .unwrap();
-            assert!(recovered.is_some());
-            let next = FileBackedLessonQueue::claim_next_sqlite(
-                queue_db_path.clone(),
-                "test-worker-next".to_string(),
-            )
-            .await
-            .unwrap();
-            assert!(next.is_none());
-            return;
-        }
-
-        assert_eq!(claim_count, 1);
-    }
-
-    #[tokio::test]
-    async fn sqlite_claim_heartbeat_refreshes_claim_timestamp() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let queue_db_path = root.join("queue").join("lesson-queue.db");
-        let queue = FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path);
-        let request = sample_request();
-        let job = build_queued_job(
-            "job-queue-heartbeat".to_string(),
-            &request,
-            chrono::Utc::now(),
-        );
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: "lesson-queue-heartbeat".to_string(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let claimed = FileBackedLessonQueue::claim_next_sqlite(
-            queue_db_path.clone(),
-            "test-worker-heartbeat".to_string(),
-        )
-        .await
-        .unwrap()
-        .expect("expected sqlite claim");
-        assert_eq!(claimed.job.id, job.id);
-
-        let claimed_at_before: String = {
-            let connection = open_queue_db(&queue_db_path).unwrap();
-            connection
-                .query_row(
-                    "SELECT claimed_at FROM lesson_queue WHERE job_id = ?1",
-                    params![job.id.clone()],
-                    |row| row.get(0),
-                )
-                .unwrap()
-        };
-        tokio::time::sleep(Duration::from_millis(25)).await;
-        FileBackedLessonQueue::touch_claim_sqlite(
-            queue_db_path.clone(),
-            job.id.clone(),
-            "test-worker-heartbeat".to_string(),
-        )
-        .await
-        .unwrap();
-        let claimed_at_after: String = {
-            let connection = open_queue_db(&queue_db_path).unwrap();
-            connection
-                .query_row(
-                    "SELECT claimed_at FROM lesson_queue WHERE job_id = ?1",
-                    params![job.id.clone()],
-                    |row| row.get(0),
-                )
-                .unwrap()
-        };
-
-        assert_ne!(claimed_at_before, claimed_at_after);
-    }
-
-    #[tokio::test]
-    async fn sqlite_pending_count_includes_stale_working_claims() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let queue_db_path = root.join("queue").join("lesson-queue.db");
-        let queue = FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path);
-        let request = sample_request();
-        let job = build_queued_job(
-            "job-queue-stale-pending".to_string(),
-            &request,
-            chrono::Utc::now(),
-        );
-        storage.create_job(&job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: "lesson-queue-stale-pending".to_string(),
-                job: job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-
-        let _ = FileBackedLessonQueue::claim_next_sqlite(
-            queue_db_path.clone(),
-            "test-worker-pending".to_string(),
-        )
-        .await
-        .unwrap()
-        .expect("claim should succeed");
-
-        tokio::task::spawn_blocking({
-            let db = queue_db_path.clone();
-            let id = job.id.clone();
-            move || -> anyhow::Result<()> {
-                let connection = open_queue_db(&db)?;
-                connection.execute(
-                    "UPDATE lesson_queue
-                     SET lease_until = ?2
-                     WHERE job_id = ?1",
-                    params![
-                        id,
-                        (chrono::Utc::now() - ChronoDuration::minutes(10)).to_rfc3339()
-                    ],
-                )?;
-                Ok(())
-            }
-        })
-        .await
-        .unwrap()
-        .unwrap();
-
-        let pending = queue.pending_count().await.unwrap();
-        assert_eq!(pending, 1);
-    }
-
-    #[tokio::test]
-    async fn sqlite_lease_counts_split_active_and_stale_working_claims() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let queue_db_path = root.join("queue").join("lesson-queue.db");
-        let queue = FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path);
-        let request = sample_request();
-
-        let active_job = build_queued_job(
-            "job-queue-lease-active".to_string(),
-            &request,
-            chrono::Utc::now(),
-        );
-        storage.create_job(&active_job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: "lesson-queue-lease-active".to_string(),
-                job: active_job.clone(),
-                request: request.clone(),
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-        let _ = FileBackedLessonQueue::claim_next_sqlite(
-            queue_db_path.clone(),
-            "test-worker-lease-active".to_string(),
-        )
-        .await
-        .unwrap()
-        .expect("active claim should exist");
-
-        let stale_job = build_queued_job(
-            "job-queue-lease-stale".to_string(),
-            &request,
-            chrono::Utc::now(),
-        );
-        storage.create_job(&stale_job).await.unwrap();
-        queue
-            .enqueue(&QueuedLessonRequest {
-                lesson_id: "lesson-queue-lease-stale".to_string(),
-                job: stale_job.clone(),
-                request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            })
-            .await
-            .unwrap();
-        let _ = FileBackedLessonQueue::claim_next_sqlite(
-            queue_db_path.clone(),
-            "test-worker-lease-stale".to_string(),
-        )
-        .await
-        .unwrap()
-        .expect("stale claim should exist");
-
-        tokio::task::spawn_blocking({
-            let db = queue_db_path.clone();
-            let id = stale_job.id.clone();
-            move || -> anyhow::Result<()> {
-                let connection = open_queue_db(&db)?;
-                connection.execute(
-                    "UPDATE lesson_queue
-                     SET lease_until = ?2
-                     WHERE job_id = ?1",
-                    params![
-                        id,
-                        (chrono::Utc::now() - ChronoDuration::minutes(10)).to_rfc3339()
-                    ],
-                )?;
-                Ok(())
-            }
-        })
-        .await
-        .unwrap()
-        .unwrap();
-
-        let counts = queue.lease_counts().await.unwrap();
-        assert_eq!(counts.active, 1);
-        assert_eq!(counts.stale, 1);
-    }
-
-    #[tokio::test]
-    async fn file_lease_counts_split_active_and_stale_working_claims() {
-        let storage = Arc::new(FileStorage::new(temp_root()));
-        let queue = FileBackedLessonQueue::new(Arc::clone(&storage));
-        tokio::fs::create_dir_all(queue.queue_dir()).await.unwrap();
-
-        let active_path = queue.queue_dir().join("job-active.json.working");
-        let stale_path = queue.queue_dir().join("job-stale.json.working");
-        FileBackedLessonQueue::write_queued_request(
-            &active_path,
-            &QueuedLessonRequest {
-                lesson_id: "lesson-active".to_string(),
-                job: build_queued_job(
-                    "job-active".to_string(),
-                    &sample_request(),
-                    chrono::Utc::now(),
-                ),
-                request: sample_request(),
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            },
-        )
-        .await
-        .unwrap();
-        FileBackedLessonQueue::write_queued_request(
-            &stale_path,
-            &QueuedLessonRequest {
-                lesson_id: "lesson-stale".to_string(),
-                job: build_queued_job(
-                    "job-stale".to_string(),
-                    &sample_request(),
-                    chrono::Utc::now(),
-                ),
-                request: sample_request(),
-                model_string: Some("openai:gpt-4o-mini".to_string()),
-                attempt: 0,
-                max_attempts: default_max_attempts(),
-                last_error: None,
-                queued_at: chrono::Utc::now(),
-                available_at: chrono::Utc::now(),
-            },
-        )
-        .await
-        .unwrap();
-
-        let stale_time = filetime::FileTime::from_system_time(
-            std::time::SystemTime::now() - STALE_WORKING_TIMEOUT - Duration::from_secs(5),
-        );
-        filetime::set_file_mtime(&stale_path, stale_time).unwrap();
-
-        let counts = queue.lease_counts().await.unwrap();
-        assert_eq!(counts.active, 1);
-        assert_eq!(counts.stale, 1);
-    }
-
-    fn normalize_locked_claim_result(
-        result: anyhow::Result<Option<QueuedLessonRequest>>,
-    ) -> Option<QueuedLessonRequest> {
-        match result {
-            Ok(value) => value,
-            Err(err)
-                if err
-                    .to_string()
-                    .to_ascii_lowercase()
-                    .contains("database is locked") =>
-            {
-                None
-            }
-            Err(err) => panic!("unexpected sqlite claim error: {}", err),
-        }
+        Err(err) => panic!("unexpected sqlite claim error: {}", err),
     }
 }

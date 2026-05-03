@@ -818,6 +818,104 @@ impl VideoProvider for OpenAiCompatibleVideoProvider {
     }
 }
 
+#[derive(Clone)]
+pub struct OpenAiCompatibleAsrProvider {
+    model_config: ModelConfig,
+    client: reqwest::Client,
+}
+
+impl OpenAiCompatibleAsrProvider {
+    pub fn new(model_config: ModelConfig) -> Result<Self> {
+        if model_config.api_key.is_empty() {
+            return Err(anyhow!("missing API key for ASR"));
+        }
+        let client = build_provider_http_client(&model_config)?;
+        Ok(Self {
+            model_config,
+            client,
+        })
+    }
+
+    fn endpoint(&self) -> String {
+        let base = self
+            .model_config
+            .base_url
+            .clone()
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+        format!("{}/audio/transcriptions", base.trim_end_matches('/'))
+    }
+}
+
+#[async_trait]
+impl crate::traits::AsrProvider for OpenAiCompatibleAsrProvider {
+    async fn transcribe(&self, audio_url: &str) -> Result<String> {
+        let url = self.endpoint();
+
+        let audio_bytes = if audio_url.starts_with("data:") {
+            let Some((_mime, bytes)) = decode_data_url(audio_url)? else {
+                return Err(anyhow!("invalid data URL"));
+            };
+            bytes
+        } else {
+            let res = reqwest::get(audio_url).await?;
+            res.bytes().await?.to_vec()
+        };
+
+        let file_part = reqwest::multipart::Part::bytes(audio_bytes)
+            .file_name("audio.mp3")
+            .mime_str("audio/mpeg")?;
+
+        let form = reqwest::multipart::Form::new()
+            .part("file", file_part)
+            .text("model", self.model_config.model_id.clone());
+
+        let response = self
+            .client
+            .post(&url)
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.model_config.api_key),
+            )
+            .multipart(form)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "OpenAI-compatible ASR failed with status {}: {}",
+                status,
+                body
+            ));
+        }
+
+        let result: Value = response.json().await?;
+        let text = result
+            .get("text")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("missing text in ASR response"))?;
+
+        Ok(text.to_string())
+    }
+}
+
+fn decode_data_url(value: &str) -> Result<Option<(&str, Vec<u8>)>> {
+    if !value.starts_with("data:") {
+        return Ok(None);
+    }
+
+    let Some((meta, payload)) = value.split_once(',') else {
+        return Ok(None);
+    };
+    let mime_type = meta
+        .strip_prefix("data:")
+        .and_then(|rest| rest.split(';').next())
+        .unwrap_or("audio/mpeg");
+    let bytes = STANDARD.decode(payload)?;
+    Ok(Some((mime_type, bytes)))
+}
+
 const VIDEO_POLL_MAX_ATTEMPTS: usize = 60;
 const VIDEO_POLL_INTERVAL_MS: u64 = 2_000;
 

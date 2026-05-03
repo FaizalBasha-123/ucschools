@@ -15,6 +15,7 @@ import {
   ListTodo,
   FileText,
   Building2,
+  Ticket,
 } from 'lucide-react';
 import { clearAuthSession } from '@/lib/auth/session';
 
@@ -36,6 +37,7 @@ export function EnterpriseSidebar({ onSignOut, variant = 'user' }: EnterpriseSid
     { href: '/admin', label: 'Overview', icon: Activity },
     { href: '/admin/jobs', label: 'Job Queue', icon: ListTodo },
     { href: '/admin/users', label: 'User Management', icon: Users },
+    { href: '/admin/promo', label: 'Promo Codes', icon: Ticket },
     { href: '/admin/schools', label: 'Schools', icon: Building2 },
     { href: '/admin/health', label: 'System Health', icon: Database },
     { href: '/admin/settings', label: 'Settings', icon: Settings },
@@ -44,13 +46,13 @@ export function EnterpriseSidebar({ onSignOut, variant = 'user' }: EnterpriseSid
   const links = variant === 'admin' ? adminLinks : userLinks;
 
   return (
-    <aside className="w-64 flex-shrink-0 border-r border-border/40 bg-white/50 dark:bg-neutral-950/50 backdrop-blur-xl h-[100dvh] flex flex-col justify-between">
+    <aside className="w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground h-[100dvh] flex flex-col justify-between shadow-xl">
       <div className="p-4">
         <div className="flex items-center gap-3 px-3 py-4 mb-6">
-          <div className="size-8 rounded-xl bg-primary flex items-center justify-center text-primary-foreground">
+          <div className="size-8 rounded-xl bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground shadow-lg shadow-orange-500/20">
             <BookOpen className="size-4" />
           </div>
-          <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-emerald-600">
+          <span className="text-xl font-bold tracking-tight">
             AI-Tutor
           </span>
         </div>
@@ -64,13 +66,13 @@ export function EnterpriseSidebar({ onSignOut, variant = 'user' }: EnterpriseSid
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
                   isActive
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground shadow-sm'
+                    : 'text-sidebar-foreground/60 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground'
                 )}
               >
-                <Icon className="size-4.5" />
+                <Icon className={cn("size-4.5", isActive ? "text-sidebar-primary" : "opacity-70")} />
                 {link.label}
               </Link>
             );
@@ -78,16 +80,16 @@ export function EnterpriseSidebar({ onSignOut, variant = 'user' }: EnterpriseSid
         </nav>
       </div>
 
-      <div className="p-4 border-t border-border/40">
+      <div className="p-4 border-t border-sidebar-border/50">
         <button
           type="button"
           onClick={() => {
             clearAuthSession();
             onSignOut();
           }}
-          className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          className="flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all"
         >
-          <LogOut className="size-4.5 text-muted-foreground/70" />
+          <LogOut className="size-4.5 opacity-70" />
           Sign out
         </button>
       </div>

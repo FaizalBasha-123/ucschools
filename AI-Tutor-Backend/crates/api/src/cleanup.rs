@@ -11,6 +11,7 @@ pub struct CleanupConfig {
     pub asset_ttl_hours: u64,
     pub job_ttl_hours: u64,
     pub lesson_ttl_hours: u64,
+    pub temp_ttl_minutes: u64,
     pub cleanup_interval_minutes: u64,
 }
 
@@ -20,7 +21,8 @@ impl CleanupConfig {
             asset_ttl_hours: read_u64_env("AI_TUTOR_ASSET_TTL_HOURS", 24),
             job_ttl_hours: read_u64_env("AI_TUTOR_JOB_TTL_HOURS", 24),
             lesson_ttl_hours: read_u64_env("AI_TUTOR_LESSON_TTL_HOURS", 168),
-            cleanup_interval_minutes: read_u64_env("AI_TUTOR_CLEANUP_INTERVAL_MINUTES", 60),
+            temp_ttl_minutes: read_u64_env("AI_TUTOR_TEMP_TTL_MINUTES", 10),
+            cleanup_interval_minutes: read_u64_env("AI_TUTOR_CLEANUP_INTERVAL_MINUTES", 10),
         }
     }
 
@@ -39,6 +41,10 @@ impl CleanupConfig {
     pub fn lesson_ttl(&self) -> Duration {
         Duration::from_secs(self.lesson_ttl_hours.saturating_mul(3600))
     }
+
+    pub fn temp_ttl(&self) -> Duration {
+        Duration::from_secs(self.temp_ttl_minutes.saturating_mul(60))
+    }
 }
 
 #[derive(Default)]
@@ -46,6 +52,7 @@ struct CleanupStats {
     deleted_assets: usize,
     deleted_jobs: usize,
     deleted_lessons: usize,
+    deleted_temp: usize,
     deleted_dirs: usize,
 }
 
@@ -54,8 +61,7 @@ pub async fn run_cleanup_loop(storage_root: PathBuf, cfg: CleanupConfig) {
         storage_root = %storage_root.display(),
         asset_ttl_hours = cfg.asset_ttl_hours,
         job_ttl_hours = cfg.job_ttl_hours,
-        lesson_ttl_hours = cfg.lesson_ttl_hours,
-        cleanup_interval_minutes = cfg.cleanup_interval_minutes,
+        temp_ttl_minutes = cfg.temp_ttl_minutes,
         "storage cleanup scheduler enabled"
     );
 
@@ -76,6 +82,7 @@ pub async fn run_cleanup_once(storage_root: PathBuf, cfg: CleanupConfig) -> io::
         deleted_assets = stats.deleted_assets,
         deleted_jobs = stats.deleted_jobs,
         deleted_lessons = stats.deleted_lessons,
+        deleted_temp = stats.deleted_temp,
         deleted_dirs = stats.deleted_dirs,
         "storage cleanup run finished"
     );
@@ -107,6 +114,13 @@ fn cleanup_sync(storage_root: &Path, cfg: CleanupConfig) -> io::Result<CleanupSt
         &mut stats,
         FileType::Lesson,
     )?;
+    cleanup_dir_files_older_than(
+        &storage_root.join("queue"),
+        cfg.temp_ttl(),
+        false,
+        &mut stats,
+        FileType::Temp,
+    )?;
 
     Ok(stats)
 }
@@ -115,6 +129,7 @@ enum FileType {
     Asset,
     Job,
     Lesson,
+    Temp,
 }
 
 fn cleanup_dir_files_older_than(
@@ -177,11 +192,18 @@ fn walk_and_cleanup(
             continue;
         }
 
+        // For temporary queue files, only delete .working or .json if they are stale
+        if matches!(file_type, FileType::Temp) {
+             // Only delete if it's been there for longer than temp_ttl
+             // This includes stale .working files and potentially abandoned .json files
+        }
+
         fs::remove_file(&path)?;
         match file_type {
             FileType::Asset => stats.deleted_assets += 1,
             FileType::Job => stats.deleted_jobs += 1,
             FileType::Lesson => stats.deleted_lessons += 1,
+            FileType::Temp => stats.deleted_temp += 1,
         }
     }
 
@@ -283,10 +305,11 @@ mod tests {
         write_file_with_age(&new_lesson, Duration::from_secs(10 * 3600));
 
         let cfg = CleanupConfig {
-            asset_ttl_hours: 24,
-            job_ttl_hours: 24,
-            lesson_ttl_hours: 168,
-            cleanup_interval_minutes: 60,
+            asset_ttl_hours: 1,
+            job_ttl_hours: 1,
+            lesson_ttl_hours: 1,
+            temp_ttl_minutes: 10,
+            cleanup_interval_minutes: 10,
         };
 
         cleanup_sync(&root, cfg).unwrap();

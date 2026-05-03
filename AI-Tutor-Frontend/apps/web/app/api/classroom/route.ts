@@ -8,6 +8,7 @@ import {
   readClassroom,
 } from '@/lib/server/classroom-storage';
 import { createLogger } from '@/lib/logger';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('Classroom API');
 
@@ -71,9 +72,7 @@ export async function GET(request: NextRequest) {
       return apiSuccess({ classroom: localClassroom });
     }
 
-    // 2. Fallback to Rust backend for generated lessons/legacy paths
-    const backendUrl = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
-    const backendRes = await fetch(`${backendUrl}/api/lessons/${id}`, {
+    // 2. Fallback to Rust backend for generated lessons/legacy paths    const backendRes = await fetch(`${backendUrl()}/api/lessons/${id}`, {
       method: 'GET',
     });
 

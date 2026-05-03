@@ -6,6 +6,8 @@ use crate::scene::{Scene, Stage};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lesson {
     pub id: String,
+    pub account_id: Option<String>,
+    pub school_id: Option<String>,
     pub title: String,
     pub language: String,
     pub description: Option<String>,

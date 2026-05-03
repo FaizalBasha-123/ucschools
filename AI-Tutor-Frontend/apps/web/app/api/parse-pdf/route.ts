@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLogger } from '@/lib/logger';
 import { apiError } from '@/lib/server/api-response';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('Parse PDF');
 
@@ -24,18 +25,11 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'No PDF file provided');
     }
 
-    pdfFileName = pdfFile.name;
-
-    const backendUrl =
-      process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-      process.env.AI_TUTOR_API_BASE_URL ||
-      'http://127.0.0.1:8099';
-
-    const backendFormData = new FormData();
+    pdfFileName = pdfFile.name;    const backendFormData = new FormData();
     backendFormData.append('pdf', pdfFile);
 
     // Proxy the request to the Rust backend
-    const backendRes = await fetch(`${backendUrl}/api/tools/parse-pdf`, {
+    const backendRes = await fetch(`${backendUrl()}/api/tools/parse-pdf`, {
       method: 'POST',
       body: backendFormData,
     });

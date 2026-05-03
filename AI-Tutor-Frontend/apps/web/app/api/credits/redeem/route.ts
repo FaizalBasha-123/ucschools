@@ -2,16 +2,11 @@ import { type NextRequest } from 'next/server';
 import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('CreditRedeemAPI');
 
-function backendUrlBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-    process.env.AI_TUTOR_API_BASE_URL ||
-    'http://127.0.0.1:8099'
-  );
-}
+
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,7 +17,7 @@ export async function POST(request: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Promo code is required');
     }
 
-    const backendRes = await fetch(`${backendUrlBase()}/api/credits/redeem`, {
+    const backendRes = await fetch(`${backendUrl()}/api/credits/redeem`, {
       method: 'POST',
       headers: {
         ...authHeadersFrom(request),

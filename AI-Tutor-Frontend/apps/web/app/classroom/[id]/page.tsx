@@ -8,7 +8,7 @@ import { useStageStore } from '@/lib/store';
 import { loadImageMapping } from '@/lib/utils/image-storage';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Download } from 'lucide-react';
+import { Download, Loader2, AlertCircle } from 'lucide-react';
 import { useSceneGenerator } from '@/lib/hooks/use-scene-generator';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
 import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
@@ -229,7 +229,7 @@ export default function ClassroomDetailPage() {
 
   return (
     <ThemeProvider>
-      <div className="flex h-screen overflow-hidden bg-white dark:bg-neutral-950">
+      <div className="flex h-screen overflow-hidden bg-[#F8FAFC] dark:bg-neutral-900/50">
         <ClassroomSidebar currentStageId={classroomId} />
         
         <div className="flex-1 flex flex-col min-w-0 relative">
@@ -237,36 +237,39 @@ export default function ClassroomDetailPage() {
           <MediaStageProvider value={classroomId}>
             <div className="flex-1 flex flex-col overflow-hidden pt-16">
               {!loading && !error && (
-                <div className="fixed right-3 bottom-3 z-40 flex flex-col gap-2 md:right-4 md:bottom-4">
+                <div className="fixed right-6 bottom-6 z-40 flex flex-col gap-2">
                   <button
                     onClick={handleExportVideo}
                     disabled={exporting}
-                    className="rounded-lg border border-border/70 bg-white/95 px-3 py-2 text-xs font-medium shadow-sm backdrop-blur hover:bg-muted disabled:opacity-60"
+                    className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/95 px-5 py-3 text-sm font-black shadow-xl backdrop-blur hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-all disabled:opacity-60 text-[#0F172A] dark:text-white uppercase tracking-tight flex items-center gap-2"
                   >
-                    <span className="inline-flex items-center gap-1.5">
-                      <Download className="size-3.5" />
-                      {exporting ? t('classroom.exportingVideo') : t('classroom.exportVideo')}
-                    </span>
+                    {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4 text-[#F97316]" />}
+                    {exporting ? t('classroom.exportingVideo') : t('classroom.exportVideo')}
                   </button>
                 </div>
               )}
               {loading ? (
-                <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-                  <div className="text-center text-muted-foreground">
-                    <p>{t('classroom.loading')}</p>
+                <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] dark:bg-neutral-900/50">
+                  <div className="text-center">
+                    <Loader2 className="size-10 animate-spin text-[#F97316] mx-auto mb-4 opacity-40" />
+                    <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest">{t('classroom.loading')}</p>
                   </div>
                 </div>
               ) : error ? (
-                <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-                  <div className="text-center">
-                    <p className="text-destructive mb-4">{t('classroom.errorPrefix')}: {error}</p>
+                <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] dark:bg-neutral-900/50">
+                  <div className="text-center max-w-sm px-6">
+                    <div className="size-16 rounded-3xl bg-rose-50 text-rose-500 flex items-center justify-center mx-auto mb-6 border border-rose-100 shadow-sm">
+                      <AlertCircle className="size-8" />
+                    </div>
+                    <h2 className="text-xl font-black text-[#0F172A] dark:text-white uppercase mb-2">Access Denied</h2>
+                    <p className="text-sm text-neutral-500 mb-8">{error}</p>
                     <button
                       onClick={() => {
                         setError(null);
                         setLoading(true);
                         loadClassroom();
                       }}
-                      className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+                      className="w-full py-4 bg-[#0F172A] text-white rounded-2xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-blue-900/20"
                     >
                       {t('classroom.retry')}
                     </button>

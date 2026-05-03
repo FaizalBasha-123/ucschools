@@ -1,10 +1,114 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+// ── Quality Mode (AI model tier) ──────────────────────────────────────────────
+/// Which AI model stack to use. Controls cost, quality, and model selection.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityMode {
+    /// Cheapest stack — Gemini Flash / DeepSeek V3 / Llama 8B / Kokoro TTS
+    Basic,
+    /// Balanced stack — DeepSeek V3 full / Flux Dev / mid-tier TTS
+    #[default]
+    Standard,
+    /// Premium stack — Claude Haiku orchestrator / DeepSeek+Claude refine / ElevenLabs TTS
+    Premium,
+}
+
+impl QualityMode {
+    /// Voice credits consumed per minute at this quality tier.
+    pub fn credits_per_minute(self) -> f64 {
+        match self {
+            QualityMode::Basic    => 0.4,
+            QualityMode::Standard => 0.8,
+            QualityMode::Premium  => 1.5,
+        }
+    }
+
+    /// Env-var prefix used to resolve model IDs for this mode.
+    pub fn env_prefix(self) -> &'static str {
+        match self {
+            QualityMode::Basic    => "BASIC_MODE_",
+            QualityMode::Standard => "STANDARD_MODE_",
+            QualityMode::Premium  => "PREMIUM_MODE_",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            QualityMode::Basic    => "basic",
+            QualityMode::Standard => "standard",
+            QualityMode::Premium  => "premium",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "basic"    => Some(QualityMode::Basic),
+            "standard" => Some(QualityMode::Standard),
+            "premium"  => Some(QualityMode::Premium),
+            // legacy aliases from old UI
+            "balanced" => Some(QualityMode::Standard),
+            "best"     => Some(QualityMode::Premium),
+            _          => None,
+        }
+    }
+}
+
+// ── Learning Mode (Pedagogy) ──────────────────────────────────────────────────
+/// The pedagogical style of the generated lesson.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LearningMode {
+    /// Deep, structured teaching with detailed explanations.
+    #[default]
+    Explain,
+    /// Quick revision summary, bullet-points, memory triggers.
+    Revision,
+    /// MCQ/short-answer questions with a timer-friendly format.
+    Exam,
+    /// Interview / aptitude / placement preparation format.
+    PlacementPrep,
+}
+
+impl LearningMode {
+    /// Credit multiplier applied on top of the quality-mode base rate.
+    pub fn credit_multiplier(self) -> f64 {
+        match self {
+            LearningMode::Explain      => 1.6,
+            LearningMode::Revision     => 0.6,
+            LearningMode::Exam         => 1.3,
+            LearningMode::PlacementPrep => 2.0,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LearningMode::Explain       => "explain",
+            LearningMode::Revision      => "revision",
+            LearningMode::Exam          => "exam",
+            LearningMode::PlacementPrep => "placement_prep",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "explain"        => Some(LearningMode::Explain),
+            "revision"       => Some(LearningMode::Revision),
+            "exam"           => Some(LearningMode::Exam),
+            "placement_prep" | "placement" => Some(LearningMode::PlacementPrep),
+            _                => None,
+        }
+    }
+}
+
+// ── Billing Product ───────────────────────────────────────────────────────────
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum BillingProductKind {
+    /// Monthly subscription granting a credit pool each cycle.
     Subscription,
+    /// One-time credit purchase bundle.
     Bundle,
 }
 
@@ -223,8 +327,49 @@ pub struct Subscription {
     pub grace_period_until: Option<DateTime<Utc>>,
     pub cancelled_at: Option<DateTime<Utc>>,
     pub last_payment_order_id: Option<String>,
+    /// Quality mode allowed by this plan (basic/standard/premium).
+    pub quality_mode: QualityMode,
+    /// Learning modes unlocked by this plan.
+    pub allowed_learning_modes: Vec<LearningMode>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+// ── API Usage Record ──────────────────────────────────────────────────────────
+/// Tracks per-request AI provider usage for operator cost monitoring.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiUsageRecord {
+    pub id: String,
+    pub account_id: String,
+    /// Model identifier as used in OpenRouter/Groq (e.g. "deepseek/deepseek-chat-v3-0324")
+    pub model_id: String,
+    /// Provider: "openrouter" | "groq" | "elevenlabs"
+    pub provider: String,
+    /// Functional component: "orchestrator" | "content" | "scene_actions" | "image" | "tts" | "pdf"
+    pub component: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    /// Cost in USD millicents (1/1000 of a cent) to avoid floats in storage.
+    pub cost_usd_millicents: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+impl ApiUsageRecord {
+    /// Compute cost using OpenRouter's published per-million-token rates.
+    pub fn compute_cost_millicents(
+        input_tokens: i64,
+        output_tokens: i64,
+        input_cost_per_1m_usd: f64,
+        output_cost_per_1m_usd: f64,
+    ) -> i64 {
+        let input_cost  = (input_tokens  as f64 / 1_000_000.0) * input_cost_per_1m_usd  * 100_000.0;
+        let output_cost = (output_tokens as f64 / 1_000_000.0) * output_cost_per_1m_usd * 100_000.0;
+        (input_cost + output_cost).round() as i64
+    }
+
+    pub fn cost_usd(&self) -> f64 {
+        self.cost_usd_millicents as f64 / 100_000.0
+    }
 }
 
 /// BillingContext represents the enriched billing state for an authenticated user.
@@ -268,5 +413,37 @@ impl BillingContext {
     /// Check if user can generate with minimum required credits
     pub fn can_generate_with_min_credits(&self, min_credits: f64) -> bool {
         self.credit_balance >= min_credits
+    }
+}
+
+// ── Credit Calculators ────────────────────────────────────────────────────────
+
+/// Calculate credits for a lesson generation.
+/// Formula: (duration_secs / 60) * quality_rate * learning_multiplier
+pub fn lesson_credits(quality: QualityMode, learning: LearningMode, duration_secs: f64) -> f64 {
+    let base = (duration_secs / 60.0) * quality.credits_per_minute();
+    base * learning.credit_multiplier()
+}
+
+/// Calculate credits for PDF analysis.
+/// Formula: 1.0 + (page_count * 0.20)
+pub fn pdf_credits(page_count: u32) -> f64 {
+    1.0 + (page_count as f64 * 0.20)
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageAnalysisAction {
+    View,
+    BasicCaption,
+    DeepExplanation,
+}
+
+/// Image analysis credit costs.
+pub fn image_credits(action: ImageAnalysisAction) -> f64 {
+    match action {
+        ImageAnalysisAction::View => 0.0,
+        ImageAnalysisAction::BasicCaption => 0.5,
+        ImageAnalysisAction::DeepExplanation => 3.0,
     }
 }

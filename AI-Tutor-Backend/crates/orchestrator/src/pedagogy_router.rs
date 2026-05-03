@@ -69,9 +69,10 @@ pub fn resolve_chat_pedagogy_route(
 }
 
 fn get_mode_prefix_for_generation(request: Option<&LessonGenerationRequest>) -> &'static str {
-    match request.and_then(|r| r.generation_mode.as_deref()) {
-        Some("best") => "BEST_MODE_",
-        _ => "BALANCED_MODE_",
+    match request.and_then(|r| r.quality_mode.as_deref()) {
+        Some("premium") => "PREMIUM_MODE_",
+        Some("basic")   => "BASIC_MODE_",
+        _               => "STANDARD_MODE_",
     }
 }
 
@@ -92,10 +93,16 @@ pub fn resolve_generation_model_policy(
         scene_content_override,
         &required_env_model(&format!("{}AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", prefix))?,
     )?;
-    let scene_actions_model = select_model(
-        scene_actions_override,
-        &required_env_model(&format!("{}AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", prefix))?,
-    )?;
+    let default_scene_actions = required_env_model(&format!(
+        "{}AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL",
+        prefix
+    ))?;
+    let scene_actions_model = if prefix == "BASIC_MODE_" {
+        let groq_model = optional_env_model("GROQ_LLAMA_MODEL");
+        select_model(scene_actions_override, groq_model.as_deref().unwrap_or(&default_scene_actions))?
+    } else {
+        select_model(scene_actions_override, &default_scene_actions)?
+    };
 
     let _ = scene_actions_fallback_override;
 
@@ -267,9 +274,10 @@ fn current_scene(request: &StatelessChatRequest) -> Option<&Scene> {
 
 
 fn get_mode_prefix_for_chat(request: &StatelessChatRequest) -> &'static str {
-    match request.generation_mode.as_deref() {
-        Some("best") => "BEST_MODE_",
-        _ => "BALANCED_MODE_",
+    match request.quality_mode.as_deref() {
+        Some("premium") => "PREMIUM_MODE_",
+        Some("basic")   => "BASIC_MODE_",
+        _               => "STANDARD_MODE_",
     }
 }
 
@@ -290,6 +298,13 @@ fn required_env_model(key: &str) -> Result<String> {
         return Err(anyhow!("{key} is required"));
     }
     Ok(trimmed.to_string())
+}
+
+fn optional_env_model(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 pub fn thinking_message_for_chat(decision: &PedagogyRoutingDecision) -> String {
@@ -354,7 +369,7 @@ mod tests {
             model: None,
             provider_type: None,
             requires_api_key: None,
-            generation_mode: None,
+            quality_mode: None,
         }
     }
 

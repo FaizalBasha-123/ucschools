@@ -6,6 +6,8 @@ use crate::generation::LessonGenerationRequest;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LessonGenerationJob {
     pub id: String,
+    pub account_id: Option<String>,
+    pub school_id: Option<String>,
     pub status: LessonGenerationJobStatus,
     pub step: LessonGenerationStep,
     pub progress: i32,
@@ -36,6 +38,7 @@ pub enum LessonGenerationJobStatus {
 pub enum LessonGenerationStep {
     Queued,
     Initializing,
+    AnalyzingInput,
     Researching,
     GeneratingOutlines,
     GeneratingScenes,
@@ -86,13 +89,9 @@ impl From<&LessonGenerationRequest> for LessonGenerationJobInputSummary {
             pdf_text_length: value
                 .pdf_content
                 .as_ref()
-                .map(|p| p.text.len())
+                .map(|p| p.len())
                 .unwrap_or(0),
-            pdf_image_count: value
-                .pdf_content
-                .as_ref()
-                .map(|p| p.images.len())
-                .unwrap_or(0),
+            pdf_image_count: 0,
         }
     }
 }

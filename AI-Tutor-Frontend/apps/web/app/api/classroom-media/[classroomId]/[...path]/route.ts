@@ -3,6 +3,7 @@ import path from 'path';
 import { NextRequest, NextResponse } from 'next/server';
 import { CLASSROOMS_DIR, isValidClassroomId } from '@/lib/server/classroom-storage';
 import { createLogger } from '@/lib/logger';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('ClassroomMedia');
 
@@ -35,11 +36,8 @@ export async function GET(
     return NextResponse.json({ error: 'Invalid path' }, { status: 404 });
   }
 
-  const fileName = pathSegments.slice(1).join('/');
-  const backendUrl = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
-
-  try {
-    const backendRes = await fetch(`${backendUrl}/api/assets/${subDir}/${classroomId}/${fileName}`, {
+  const fileName = pathSegments.slice(1).join('/');  try {
+    const backendRes = await fetch(`${backendUrl()}/api/assets/${subDir}/${classroomId}/${fileName}`, {
       method: 'GET',
     });
 

@@ -532,7 +532,7 @@ function HomePage() {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full bg-gradient-to-b from-emerald-50 via-green-50 to-lime-50 dark:from-emerald-950 dark:via-green-950 dark:to-emerald-900 flex flex-col items-center p-4 pt-16 md:p-8 md:pt-16 overflow-x-hidden">
+    <div className="min-h-[100dvh] w-full bg-[#F8FAFC] dark:bg-neutral-900/50 flex flex-col items-center p-4 pt-16 md:p-8 md:pt-16 overflow-x-hidden">
       {/* ═══ Top Navigation Header ═══ */}
       <SiteHeader variant="landing" />
 
@@ -612,14 +612,13 @@ function HomePage() {
             {/* Textarea */}
             <textarea
               ref={textareaRef}
-              placeholder={t('upload.requirementPlaceholder')}
-              className="w-full resize-none border-0 bg-transparent px-4 pt-1 pb-2 text-[13px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[70px] max-h-[150px]"
+              placeholder="What do you want to learn today?"
+              className="w-full resize-none border-0 bg-transparent px-4 pt-3 pb-2 text-[14px] md:text-[15px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[48px] max-h-[200px]"
               value={form.requirement}
               onChange={(e) => updateForm('requirement', e.target.value)}
               onKeyDown={handleKeyDown}
-              rows={4}
+              rows={1}
             />
-
 
             {/* Toolbar row */}
             <div className="px-3 pb-3 flex items-end gap-2">

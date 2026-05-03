@@ -3,6 +3,7 @@ import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
 import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('ClassroomJob API');
 
@@ -16,10 +17,7 @@ export async function GET(req: NextRequest, context: { params: Promise<{ jobId: 
 
     if (!jobId) {
       return apiError('INVALID_REQUEST', 400, 'Invalid classroom generation job id');
-    }
-
-    const backendUrl = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
-    const backendRes = await fetch(`${backendUrl}/api/lessons/jobs/${jobId}`, {
+    }    const backendRes = await fetch(`${backendUrl()}/api/lessons/jobs/${jobId}`, {
       method: 'GET',
       headers: authHeadersFrom(req),
     });

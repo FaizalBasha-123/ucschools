@@ -4,15 +4,19 @@ use anyhow::{anyhow, Result};
 use reqwest::Url;
 use tracing::{error, info};
 
-use ai_tutor_api::app::{build_router, LiveLessonAppService};
+use ai_tutor_api::app::{build_router, LessonAppService, LiveLessonAppService};
+use ai_tutor_api::queue::FileBackedLessonQueue;
+use ai_tutor_api::telemetry::TelemetryService;
+use ai_tutor_media::storage::LocalFileAssetStore;
 use ai_tutor_providers::{
     config::ServerProviderConfig,
     factory::{
-        DefaultImageProviderFactory, DefaultLlmProviderFactory, DefaultTtsProviderFactory,
-        DefaultVideoProviderFactory,
+        DefaultAsrProviderFactory, DefaultImageProviderFactory, DefaultLlmProviderFactory,
+        DefaultTtsProviderFactory, DefaultVideoProviderFactory,
     },
 };
 use ai_tutor_storage::filesystem::FileStorage;
+use ai_tutor_storage::repositories::ApiUsageRepository;
 
 mod cleanup;
 use cleanup::{run_cleanup_loop, CleanupConfig};
@@ -291,14 +295,26 @@ async fn main() {
         .expect("startup readiness checks");
 
     tokio::spawn(run_cleanup_loop(cleanup_root, cleanup_cfg));
+    let asset_store = Arc::new(LocalFileAssetStore::new(
+        storage.root_dir(),
+        &base_url,
+    ));
+    let queue = Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
+    let telemetry = Arc::new(TelemetryService::new(
+        Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
+    ));
 
     let service = Arc::new(LiveLessonAppService::new(
         Arc::clone(&storage),
+        asset_store,
         Arc::clone(&provider_config),
         Arc::new(DefaultLlmProviderFactory::new((*provider_config).clone())),
         Arc::new(DefaultImageProviderFactory::new((*provider_config).clone())),
         Arc::new(DefaultVideoProviderFactory::new((*provider_config).clone())),
         Arc::new(DefaultTtsProviderFactory::new((*provider_config).clone())),
+        Arc::new(DefaultAsrProviderFactory::new((*provider_config).clone())),
+        queue,
+        telemetry,
         base_url,
     ));
     let billing_service = Arc::clone(&service);
@@ -311,7 +327,15 @@ async fn main() {
         }
     });
 
-    let app = build_router(service);
+    let app = build_router(service.clone());
+
+    let worker_service = Arc::clone(&service);
+    tokio::spawn(async move {
+        info!("Starting AI Tutor lesson generation worker loop");
+        if let Err(err) = worker_service.run_worker_loop().await {
+            error!(error = %err, "AI Tutor worker loop crashed");
+        }
+    });
 
     let addr: SocketAddr = format!("{}:{}", host, port)
         .parse()

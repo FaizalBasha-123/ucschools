@@ -38,14 +38,21 @@ pub struct PdfContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LessonGenerationRequest {
     pub requirements: UserRequirements,
-    pub pdf_content: Option<PdfContent>,
+    pub pdf_content: Option<String>,
     pub enable_web_search: bool,
     pub enable_image_generation: bool,
     pub enable_video_generation: bool,
     pub enable_tts: bool,
     pub agent_mode: AgentMode,
     pub account_id: Option<String>,
-    pub generation_mode: Option<String>,
+    pub school_id: Option<String>,
+    /// Which AI model stack to use: "basic" | "standard" | "premium".
+    pub quality_mode: Option<String>,
+    /// Pedagogy style: "explain" | "revision" | "exam" | "placement_prep".
+    pub learning_mode: Option<String>,
+    /// Credits precharged before generation starts (used to reconcile final usage).
+    #[serde(default)]
+    pub precharged_credits: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

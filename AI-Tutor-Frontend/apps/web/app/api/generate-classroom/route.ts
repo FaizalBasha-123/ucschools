@@ -4,6 +4,7 @@ import { type GenerateClassroomInput } from '@/lib/server/classroom-generation';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
 import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('GenerateClassroom API');
 
@@ -28,13 +29,11 @@ export async function POST(req: NextRequest) {
       enable_video_generation: rawBody.enableVideoGeneration,
       enable_tts: rawBody.enableTTS,
       agent_mode: rawBody.agentMode,
-      generation_mode: rawBody.generationMode,
-    };
+      quality_mode: rawBody.qualityMode,
+      learning_mode: rawBody.learningMode,
+    };    const baseUrl = buildRequestOrigin(req);
 
-    const backendUrl = process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || process.env.AI_TUTOR_API_BASE_URL || 'http://127.0.0.1:8099';
-    const baseUrl = buildRequestOrigin(req);
-
-    const backendRes = await fetch(`${backendUrl}/api/lessons/generate-async`, {
+    const backendRes = await fetch(`${backendUrl()}/api/lessons/generate-async`, {
       method: 'POST',
       headers: {
         ...authHeadersFrom(req),

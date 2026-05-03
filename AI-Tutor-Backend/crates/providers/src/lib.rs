@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod config;
+pub mod elevenlabs;
 pub mod factory;
 pub mod google;
 pub mod openai;

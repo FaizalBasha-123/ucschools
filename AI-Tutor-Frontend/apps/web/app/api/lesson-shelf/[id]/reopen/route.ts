@@ -2,16 +2,11 @@ import { type NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('LessonShelfReopenAPI');
 
-function backendUrlBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-    process.env.AI_TUTOR_API_BASE_URL ||
-    'http://127.0.0.1:8099'
-  );
-}
+
 
 export async function POST(
   request: NextRequest,
@@ -19,7 +14,7 @@ export async function POST(
 ) {
   try {
     const { id } = await context.params;
-    const backendRes = await fetch(`${backendUrlBase()}/api/lesson-shelf/${encodeURIComponent(id)}/reopen`, {
+    const backendRes = await fetch(`${backendUrl()}/api/lesson-shelf/${encodeURIComponent(id)}/reopen`, {
       method: 'POST',
       headers: authHeadersFrom(request),
       cache: 'no-store',

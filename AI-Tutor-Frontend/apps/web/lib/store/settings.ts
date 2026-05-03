@@ -26,9 +26,15 @@ const log = createLogger('Settings');
 export const PLAYBACK_SPEEDS = [1, 1.25, 1.5, 2] as const;
 export type PlaybackSpeed = (typeof PLAYBACK_SPEEDS)[number];
 
+export type QualityMode = 'basic' | 'standard' | 'premium';
+export type LearningMode = 'explain' | 'revision' | 'exam' | 'placement_prep';
+
 export interface SettingsState {
-  // Generation Mode
-  generationMode: 'best' | 'balanced';
+  // AI quality tier (maps to backend model stack: basic/standard/premium)
+  qualityMode: QualityMode;
+  // Pedagogical mode (controls credit multipliers + prompt strategy)
+  learningMode: LearningMode;
+
 
   // Model selection
   providerId: ProviderId;
@@ -161,7 +167,8 @@ export interface SettingsState {
   chatAreaWidth: number;
 
   // Actions
-  setGenerationMode: (mode: 'best' | 'balanced') => void;
+  setQualityMode: (mode: QualityMode) => void;
+  setLearningMode: (mode: LearningMode) => void;
   setModel: (providerId: ProviderId, modelId: string) => void;
   setProviderConfig: (providerId: ProviderId, config: Partial<ProvidersConfig[ProviderId]>) => void;
   setProvidersConfig: (config: ProvidersConfig) => void;
@@ -570,7 +577,8 @@ export const useSettingsStore = create<SettingsState>()(
 
       return {
         // Initial state (use migrated data if available)
-        generationMode: 'balanced' as const,
+        qualityMode: 'standard' as QualityMode,
+        learningMode: 'explain' as LearningMode,
         providerId: migratedData?.providerId || 'openai',
         modelId: migratedData?.modelId || '',
         providersConfig: migratedData?.providersConfig || getDefaultProvidersConfig(),
@@ -617,7 +625,8 @@ export const useSettingsStore = create<SettingsState>()(
         ...defaultWebSearchConfig,
 
         // Actions
-        setGenerationMode: (mode) => set({ generationMode: mode }),
+        setQualityMode: (mode) => set({ qualityMode: mode }),
+        setLearningMode: (mode) => set({ learningMode: mode }),
         setModel: (providerId, modelId) => set({ providerId, modelId }),
 
         setProviderConfig: (providerId, config) =>

@@ -362,6 +362,10 @@ pub trait TtsProviderFactory: Send + Sync {
     fn build(&self, model_config: ModelConfig) -> Result<Box<dyn TtsProvider>>;
 }
 
+pub trait AsrProviderFactory: Send + Sync {
+    fn build(&self, model_config: ModelConfig) -> Result<Box<dyn AsrProvider>>;
+}
+
 pub trait ImageProviderFactory: Send + Sync {
     fn build(&self, model_config: ModelConfig) -> Result<Box<dyn ImageProvider>>;
 }

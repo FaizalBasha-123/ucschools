@@ -1,5 +1,6 @@
 pub mod storage;
 pub mod tasks;
+pub mod pdf_processor;
 
 use std::collections::HashMap;
 

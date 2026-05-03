@@ -1,17 +1,12 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { backendUrl } from '@/lib/server/backend-url';
 
-function backendUrlBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-    process.env.AI_TUTOR_API_BASE_URL ||
-    'http://127.0.0.1:8099'
-  );
-}
+
 
 export async function POST(request: NextRequest) {
   try {
-    const backendRes = await fetch(`${backendUrlBase()}/api/operator/auth/logout`, {
+    const backendRes = await fetch(`${backendUrl()}/api/operator/auth/logout`, {
       method: 'POST',
       headers: {
         cookie: request.headers.get('cookie') || '',

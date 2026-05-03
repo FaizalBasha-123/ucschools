@@ -32,9 +32,15 @@ use rand::Rng;
 
 use sha2::Digest;
 
+use crate::billing_catalog::{billing_catalog, BillingProductDefinition};
 use crate::queue::{
     claim_heartbeat_interval_ms, spawn_one_shot_queue_kick, stale_working_timeout_ms,
-    FileBackedLessonQueue, QueueCancelResult, QueueLeaseCounts, QueuedLessonRequest,
+    QueueCancelResult, QueuedLessonRequest, LessonQueue,
+};
+use crate::telemetry::TelemetryService;
+use crate::telemetry_provider::{
+    account_id_from_scoped_session_id, TelemetryImageProvider, TelemetryLlmProvider,
+    TelemetryTtsProvider, TelemetryVideoProvider,
 };
 use ai_tutor_domain::{
     auth::{TutorAccount, TutorAccountStatus},
@@ -45,7 +51,7 @@ use ai_tutor_domain::{
         DunningCase, DunningStatus, FinancialAuditLog, WebhookEvent,
     },
     credits::{CreditEntryKind, CreditLedgerEntry, RedeemPromoCodeRequest, RedeemPromoCodeResponse},
-    generation::{AgentMode, Language, LessonGenerationRequest, PdfContent, UserRequirements},
+    generation::{AgentMode, Language, LessonGenerationRequest, UserRequirements},
     job::{
         LessonGenerationJob, LessonGenerationJobStatus, LessonGenerationStep,
         QueuedLessonJobSnapshot,
@@ -53,6 +59,7 @@ use ai_tutor_domain::{
     lesson_adaptive::{LessonAdaptiveState, LessonAdaptiveStatus},
     lesson_shelf::{LessonShelfItem, LessonShelfStatus},
     lesson::Lesson,
+    provider::ModelConfig,
     runtime::{
         DirectorState, RuntimeActionExecutionRecord, RuntimeActionExecutionStatus,
         RuntimeSessionMode, StatelessChatRequest,
@@ -60,6 +67,7 @@ use ai_tutor_domain::{
     scene::{ProjectAgentRole, ProjectConfig},
 };
 use ai_tutor_media::storage::{DynAssetStore, LocalFileAssetStore, R2AssetStore};
+use ai_tutor_storage::repositories::ApiUsageRepository;
 use ai_tutor_orchestrator::{
     chat_graph::{self, ChatGraphEventKind},
     generation::LlmGenerationPipeline,
@@ -71,8 +79,9 @@ use ai_tutor_providers::{
     registry::built_in_providers,
     resolve::resolve_model,
     traits::{
-        ImageProviderFactory, LlmProviderFactory, ProviderRuntimeStatus, TtsProviderFactory,
-        VideoProviderFactory,
+        AsrProviderFactory, ImageProvider, ImageProviderFactory, LlmProvider,
+        LlmProviderFactory, ProviderRuntimeStatus, TtsProvider, TtsProviderFactory,
+        VideoProvider, VideoProviderFactory,
     },
 };
 use ai_tutor_runtime::session::{
@@ -284,6 +293,9 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
     if path == "/api/admin/overview" {
         return Some(ApiRole::Admin);
     }
+    if path == "/api/admin/promo-codes" {
+        return Some(ApiRole::Admin);
+    }
     if path == "/api/billing/report" {
         return Some(ApiRole::Admin);
     }
@@ -295,6 +307,7 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
         || path == "/api/admin/settings"
         || path == "/api/admin/jobs"
         || path == "/api/admin/audit-logs"
+        || path == "/api/admin/api-costs"
         || path == "/api/admin/system/toggle-maintenance"
         || path == "/api/admin/schools"
         || path.starts_with("/api/admin/schools/")
@@ -513,7 +526,10 @@ pub struct GenerateLessonPayload {
     pub user_nickname: Option<String>,
     pub user_bio: Option<String>,
     pub account_id: Option<String>,
-    pub generation_mode: Option<String>,
+    /// AI model tier: "basic" | "standard" | "premium"
+    pub quality_mode: Option<String>,
+    /// Pedagogy style: "explain" | "revision" | "exam" | "placement_prep"
+    pub learning_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -590,6 +606,7 @@ pub struct AdminUser {
     pub plan: Option<String>,
     pub credits: f64,
     pub school_id: Option<String>,
+    pub promo_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -793,9 +810,15 @@ pub struct BillingCatalogItemResponse {
     pub product_code: String,
     pub kind: String,
     pub title: String,
+    pub description: String,
     pub credits: f64,
     pub currency: String,
     pub amount_minor: i64,
+    pub amount_minor_usd: i64,
+    pub gst_amount_minor: i64,
+    pub allowed_quality_modes: Vec<String>,
+    pub allowed_learning_modes: Vec<String>,
+    pub is_highlighted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -807,6 +830,7 @@ pub struct BillingCatalogResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateCheckoutRequest {
     pub product_code: String,
+    pub gateway: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -992,6 +1016,52 @@ pub struct AdminOverviewResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePromoCodeRequest {
+    pub code: String,
+    pub grant_credits: f64,
+    pub max_redemptions: Option<usize>,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminPromoCodeListResponse {
+    pub promo_codes: Vec<ai_tutor_domain::credits::PromoCode>,
+}
+
+/// API cost tracking response for the operator console.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiCostByComponent {
+    pub component: String,
+    pub provider: String,
+    pub model_id: String,
+    pub request_count: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiCostPerUser {
+    pub account_id: String,
+    pub email: Option<String>,
+    pub plan: Option<String>,
+    pub revenue_inr: f64,
+    pub api_cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminApiCostsResponse {
+    pub total_cost_usd_30d: f64,
+    pub openrouter_cost_usd: f64,
+    pub groq_cost_usd: f64,
+    pub tts_cost_usd: f64,
+    /// Estimated gross margin: (revenue_inr/84 - api_cost_usd) / (revenue_inr/84)
+    pub estimated_margin_30d: f64,
+    pub by_component: Vec<ApiCostByComponent>,
+    pub per_user: Vec<ApiCostPerUser>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeActionAckRequest {
     pub session_id: String,
     pub runtime_session_id: Option<String>,
@@ -1054,6 +1124,17 @@ pub struct PblRuntimeChatResponse {
     pub messages: Vec<PblRuntimeChatMessage>,
     pub workspace: Option<PblRuntimeWorkspaceState>,
     pub resolved_agent: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsrRequest {
+    pub audio_url: String,
+    pub model_string: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsrResponse {
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1157,10 +1238,12 @@ pub struct CreditPolicyResponse {
     pub image_attachment_credits: f64,
     pub tts_per_slide_credits: f64,
     pub starter_grant_credits: f64,
-    pub plus_monthly_price_usd: f64,
-    pub plus_monthly_credits: f64,
-    pub pro_monthly_price_usd: f64,
-    pub pro_monthly_credits: f64,
+    pub basic_monthly_price_usd: f64,
+    pub basic_monthly_credits: f64,
+    pub standard_monthly_price_usd: f64,
+    pub standard_monthly_credits: f64,
+    pub premium_monthly_price_usd: f64,
+    pub premium_monthly_credits: f64,
     pub bundle_small_price_usd: f64,
     pub bundle_small_credits: f64,
     pub bundle_large_price_usd: f64,
@@ -1307,16 +1390,6 @@ struct Jwk {
 }
 
 #[derive(Debug, Clone)]
-struct BillingProductDefinition {
-    product_code: String,
-    kind: BillingProductKind,
-    title: String,
-    credits: f64,
-    currency: String,
-    amount_minor: i64,
-}
-
-#[derive(Debug, Clone)]
 struct EasebuzzConfig {
     key: String,
     salt: String,
@@ -1361,6 +1434,8 @@ pub trait LessonAppService: Send + Sync {
         &self,
         form_fields: HashMap<String, String>,
     ) -> Result<EasebuzzCallbackResponse>;
+    async fn handle_stripe_callback(&self, session_id: &str) -> Result<EasebuzzCallbackResponse>;
+    async fn handle_free_callback(&self, order_id: &str) -> Result<EasebuzzCallbackResponse>;
     async fn list_payment_orders(
         &self,
         account_id: &str,
@@ -1405,6 +1480,11 @@ pub trait LessonAppService: Send + Sync {
     async fn get_admin_settings(&self) -> Result<AdminSettingsResponse>;
     async fn get_admin_jobs(&self) -> Result<AdminJobsListResponse>;
     async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse>;
+    async fn create_promo_code(&self, payload: CreatePromoCodeRequest) -> Result<()>;
+    async fn list_all_promo_codes(&self, limit: usize) -> Result<AdminPromoCodeListResponse>;
+    /// Returns aggregated API cost data for the operator console.
+    /// Returns zeroes gracefully when api_usage_records table is empty.
+    async fn get_api_usage_costs(&self) -> Result<AdminApiCostsResponse>;
     async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse>;
     async fn list_schools(&self) -> Result<SchoolsListResponse>;
     async fn create_school(&self, payload: CreateSchoolRequest) -> Result<SchoolResponse>;
@@ -1472,47 +1552,70 @@ pub trait LessonAppService: Send + Sync {
         &self,
         payload: PblRuntimeChatRequest,
     ) -> Result<PblRuntimeChatResponse>;
+    async fn transcribe(
+        &self,
+        payload: AsrRequest,
+    ) -> Result<AsrResponse>;
     async fn get_system_status(&self) -> Result<SystemStatusResponse>;
+    /// Polls the lesson queue and processes jobs in a loop.
+    async fn run_worker_loop(&self) -> Result<()>;
+    /// Processes a single queued lesson job.
+    async fn process_queued_job(&self, request: QueuedLessonRequest) -> Result<()>;
 }
 
 #[derive(Clone)]
 pub struct LiveLessonAppService {
     storage: Arc<FileStorage>,
+    asset_store: DynAssetStore,
     provider_config: Arc<ServerProviderConfig>,
     provider_factory: Arc<dyn LlmProviderFactory>,
     image_provider_factory: Arc<dyn ImageProviderFactory>,
     video_provider_factory: Arc<dyn VideoProviderFactory>,
     tts_provider_factory: Arc<dyn TtsProviderFactory>,
+    asr_provider_factory: Arc<dyn AsrProviderFactory>,
     notification_service: Arc<dyn NotificationService>,
     base_url: String,
-    queue_db_path: Option<String>,
+    queue: Arc<dyn LessonQueue>,
+    telemetry: Arc<TelemetryService>,
 }
 
 impl LiveLessonAppService {
     pub fn new(
         storage: Arc<FileStorage>,
+        asset_store: DynAssetStore,
         provider_config: Arc<ServerProviderConfig>,
         provider_factory: Arc<dyn LlmProviderFactory>,
         image_provider_factory: Arc<dyn ImageProviderFactory>,
         video_provider_factory: Arc<dyn VideoProviderFactory>,
         tts_provider_factory: Arc<dyn TtsProviderFactory>,
+        asr_provider_factory: Arc<dyn AsrProviderFactory>,
+        queue: Arc<dyn LessonQueue>,
+        telemetry: Arc<TelemetryService>,
         base_url: String,
     ) -> Self {
         Self {
             storage,
+            asset_store,
             provider_config,
             provider_factory,
             image_provider_factory,
             video_provider_factory,
             tts_provider_factory,
+            asr_provider_factory,
             notification_service: notification_service_from_env(base_url.clone()),
             base_url,
-            queue_db_path: std::env::var("AI_TUTOR_QUEUE_DB_PATH").ok(),
+            queue,
+            telemetry,
         }
     }
 
-    pub fn with_queue_db_path(mut self, queue_db_path: Option<String>) -> Self {
-        self.queue_db_path = queue_db_path;
+    pub fn with_queue(mut self, queue: Arc<dyn LessonQueue>) -> Self {
+        self.queue = queue;
+        self
+    }
+
+    pub fn with_telemetry(mut self, telemetry: Arc<TelemetryService>) -> Self {
+        self.telemetry = telemetry;
         self
     }
 
@@ -2038,6 +2141,7 @@ impl LiveLessonAppService {
         product: &BillingProductDefinition,
     ) -> Result<CheckoutSessionResponse> {
         let config = easebuzz_config()?;
+        let amount_minor = product.total_with_gst_minor();
         let order_id = Uuid::new_v4().to_string();
         let gateway_txn_id = format!("aitutor-{}", Uuid::new_v4().simple());
         let success_url = format!("{}/api/billing/easebuzz/callback", self.base_url.trim_end_matches('/'));
@@ -2049,10 +2153,7 @@ impl LiveLessonAppService {
         let mut params = HashMap::new();
         params.insert("key".to_string(), config.key.clone());
         params.insert("txnid".to_string(), gateway_txn_id.clone());
-        params.insert(
-            "amount".to_string(),
-            easebuzz_amount_string(product.amount_minor),
-        );
+        params.insert("amount".to_string(), easebuzz_amount_string(amount_minor));
         params.insert("firstname".to_string(), first_name_from_email(&account.email));
         params.insert("email".to_string(), account.email.clone());
         params.insert(
@@ -2117,7 +2218,7 @@ impl LiveLessonAppService {
             gateway: "easebuzz".to_string(),
             gateway_txn_id: gateway_txn_id.clone(),
             gateway_payment_id: None,
-            amount_minor: product.amount_minor,
+            amount_minor,
             currency: product.currency.clone(),
             credits_to_grant: product.credits,
             status: PaymentOrderStatus::Pending,
@@ -2150,6 +2251,92 @@ impl LiveLessonAppService {
             account_id: account.id.clone(),
             gateway: "easebuzz".to_string(),
             gateway_txn_id,
+            checkout_url,
+        })
+    }
+
+    async fn initiate_stripe_checkout(
+        &self,
+        account: &TutorAccount,
+        product: &BillingProductDefinition,
+    ) -> Result<CheckoutSessionResponse> {
+        let secret = required_env("AI_TUTOR_STRIPE_SECRET_KEY")?;
+        let usd_amount_minor = billing_product_usd_amount_minor(&product.product_code);
+        
+        let order_id = Uuid::new_v4().to_string();
+        let success_url = format!("{}/api/billing/stripe/callback?session_id={{CHECKOUT_SESSION_ID}}", self.base_url.trim_end_matches('/'));
+        let failure_url = format!("{}/pricing", self.base_url.trim_end_matches('/'));
+
+        let mut params = vec![
+            ("success_url".to_string(), success_url),
+            ("cancel_url".to_string(), failure_url),
+            ("mode".to_string(), if product.kind == BillingProductKind::Subscription { "subscription".to_string() } else { "payment".to_string() }),
+            ("client_reference_id".to_string(), order_id.clone()),
+            ("customer_email".to_string(), account.email.clone()),
+            ("line_items[0][price_data][currency]".to_string(), "usd".to_string()),
+            ("line_items[0][price_data][product_data][name]".to_string(), product.title.clone()),
+            ("line_items[0][price_data][unit_amount]".to_string(), usd_amount_minor.to_string()),
+            ("line_items[0][quantity]".to_string(), "1".to_string()),
+            ("metadata[order_id]".to_string(), order_id.clone()),
+            ("metadata[account_id]".to_string(), account.id.clone()),
+            ("metadata[product_code]".to_string(), product.product_code.clone()),
+        ];
+        
+        if product.kind == BillingProductKind::Subscription {
+            params.push(("line_items[0][price_data][recurring][interval]".to_string(), "month".to_string()));
+        }
+
+        let response = reqwest::Client::new()
+            .post("https://api.stripe.com/v1/checkout/sessions")
+            .basic_auth(secret, Some(""))
+            .form(&params)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let body = response.text().await?;
+        
+        if !status.is_success() {
+            return Err(anyhow!("stripe initiate failed with status {}: {}", status, body));
+        }
+        
+        let parsed: serde_json::Value = serde_json::from_str(&body)?;
+        let checkout_url = parsed["url"].as_str()
+            .ok_or_else(|| anyhow!("stripe did not return url"))?
+            .to_string();
+        let session_id = parsed["id"].as_str().unwrap_or_default().to_string();
+
+        let now = chrono::Utc::now();
+        let order = PaymentOrder {
+            id: order_id.clone(),
+            account_id: account.id.clone(),
+            product_code: product.product_code.clone(),
+            product_kind: product.kind.clone(),
+            gateway: "stripe".to_string(),
+            gateway_txn_id: session_id.clone(),
+            gateway_payment_id: None,
+            amount_minor: usd_amount_minor,
+            currency: "USD".to_string(),
+            credits_to_grant: product.credits,
+            status: PaymentOrderStatus::Pending,
+            checkout_url: Some(checkout_url.clone()),
+            udf1: Some(order_id.clone()),
+            udf2: Some(account.id.clone()),
+            udf3: Some(product.product_code.clone()),
+            udf4: None,
+            udf5: None,
+            raw_response: Some(body),
+            created_at: now,
+            updated_at: now,
+            completed_at: None,
+        };
+        self.storage.save_payment_order(&order).await.map_err(|err| anyhow!(err))?;
+
+        Ok(CheckoutSessionResponse {
+            order_id,
+            account_id: account.id.clone(),
+            gateway: "stripe".to_string(),
+            gateway_txn_id: session_id,
             checkout_url,
         })
     }
@@ -2405,6 +2592,138 @@ impl LiveLessonAppService {
         })
     }
 
+    async fn finalize_stripe_checkout_session(
+        &self,
+        session_id: &str,
+    ) -> Result<EasebuzzCallbackResponse> {
+        let secret = required_env("AI_TUTOR_STRIPE_SECRET_KEY")?;
+
+        let response = reqwest::Client::new()
+            .get(format!("https://api.stripe.com/v1/checkout/sessions/{}", session_id))
+            .basic_auth(secret, Some(""))
+            .send()
+            .await?;
+
+        let status_code = response.status();
+        let body = response.text().await?;
+        if !status_code.is_success() {
+            return Err(anyhow!("stripe checkout fetch failed with status {}: {}", status_code, body));
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&body)?;
+        let payment_status = parsed["payment_status"].as_str().unwrap_or_default();
+        let client_reference_id = parsed["client_reference_id"].as_str().unwrap_or_default();
+        let metadata = parsed["metadata"].as_object();
+        
+        let mut order = if let Some(existing) = self
+            .storage
+            .get_payment_order_by_gateway_txn_id(session_id)
+            .await
+            .map_err(|err| anyhow!(err))?
+        {
+            existing
+        } else {
+            let account_id = metadata.and_then(|m| m.get("account_id")).and_then(|v| v.as_str())
+                .unwrap_or_default().to_string();
+            let product_code = metadata.and_then(|m| m.get("product_code")).and_then(|v| v.as_str())
+                .unwrap_or_default().to_string();
+            let product = billing_catalog()
+                .into_iter()
+                .find(|entry| entry.product_code == product_code)
+                .ok_or_else(|| anyhow!("unknown billing product {} in stripe callback", product_code))?;
+            
+            let usd_amount_minor = billing_product_usd_amount_minor(&product.product_code);
+            let now = chrono::Utc::now();
+            PaymentOrder {
+                id: client_reference_id.to_string(),
+                account_id,
+                product_code: product.product_code,
+                product_kind: product.kind,
+                gateway: "stripe".to_string(),
+                gateway_txn_id: session_id.to_string(),
+                gateway_payment_id: parsed["payment_intent"].as_str().map(|s| s.to_string()),
+                amount_minor: usd_amount_minor,
+                currency: "USD".to_string(),
+                credits_to_grant: product.credits,
+                status: PaymentOrderStatus::Pending,
+                checkout_url: None,
+                udf1: Some(client_reference_id.to_string()),
+                udf2: metadata.and_then(|m| m.get("account_id")).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                udf3: metadata.and_then(|m| m.get("product_code")).and_then(|v| v.as_str()).map(|s| s.to_string()),
+                udf4: None,
+                udf5: None,
+                raw_response: Some(body.clone()),
+                created_at: now,
+                updated_at: now,
+                completed_at: None,
+            }
+        };
+
+        let _previous_status = order.status.clone();
+        let succeeded = payment_status == "paid";
+        let previously_succeeded = matches!(order.status, PaymentOrderStatus::Succeeded);
+        
+        order.gateway_payment_id = parsed["payment_intent"].as_str().map(|s| s.to_string());
+        order.status = if succeeded {
+            PaymentOrderStatus::Succeeded
+        } else {
+            PaymentOrderStatus::Failed
+        };
+        order.raw_response = Some(body.clone());
+        order.updated_at = chrono::Utc::now();
+        order.completed_at = Some(order.updated_at);
+        
+        self.storage
+            .save_payment_order(&order)
+            .await
+            .map_err(|err| anyhow!(err))?;
+
+        let mut credited = false;
+        if succeeded && !previously_succeeded {
+            let credit_entry = CreditLedgerEntry {
+                id: format!("payment-order-{}", order.id),
+                account_id: order.account_id.clone(),
+                kind: CreditEntryKind::Grant,
+                amount: order.credits_to_grant,
+                reason: format!("payment_order:{}:{}", order.product_code, order.gateway_txn_id),
+                created_at: chrono::Utc::now(),
+            };
+            self.storage
+                .apply_credit_entry(&credit_entry)
+                .await
+                .map_err(|err| anyhow!(err))?;
+            credited = true;
+
+            if let Err(err) = self
+                .create_payment_order_invoice(&order, chrono::Utc::now())
+                .await
+            {
+                warn!(
+                    order_id = %order.id,
+                    account_id = %order.account_id,
+                    error = %err,
+                    "Failed to persist stripe payment order invoice"
+                );
+            }
+        }
+
+        let gateway_subscription_id = parsed["subscription"].as_str().map(|s| s.to_string());
+        self.upsert_subscription_from_payment(&order, gateway_subscription_id, succeeded)
+            .await?;
+
+        if succeeded {
+            self.notify_payment_success(&order).await;
+        } else {
+            self.notify_payment_failed(&order, payment_status, None).await;
+        }
+
+        Ok(EasebuzzCallbackResponse {
+            order_id: order.id,
+            status: payment_status.to_string(),
+            credited,
+        })
+    }
+
     async fn upsert_subscription_from_payment(
         &self,
         order: &PaymentOrder,
@@ -2414,6 +2733,11 @@ impl LiveLessonAppService {
         if !matches!(order.product_kind, BillingProductKind::Subscription) {
             return Ok(());
         }
+
+        let product = billing_catalog()
+            .into_iter()
+            .find(|entry| entry.product_code == order.product_code)
+            .ok_or_else(|| anyhow!("unknown subscription product {}", order.product_code))?;
 
         let now = chrono::Utc::now();
         let grace_days = env_i64("AI_TUTOR_SUBSCRIPTION_GRACE_DAYS", 3).max(0);
@@ -2483,6 +2807,8 @@ impl LiveLessonAppService {
                     .map(|subscription| subscription.created_at)
                     .unwrap_or(now),
                 updated_at: now,
+                quality_mode: highest_allowed_quality_mode(&product),
+                allowed_learning_modes: product.allowed_learning_modes.clone(),
             };
 
             self.storage
@@ -3364,9 +3690,14 @@ impl LiveLessonAppService {
             return Ok(());
         };
 
-        let policy = credit_policy();
-        let usage = calculate_credit_usage(lesson, &policy);
+        let usage = calculate_credit_usage(lesson, request);
         if usage.total <= 0.0 {
+            return Ok(());
+        }
+
+        let precharged = request.precharged_credits.unwrap_or(0.0).max(0.0);
+        let delta = usage.total - precharged;
+        if delta.abs() < 0.01 {
             return Ok(());
         }
 
@@ -3375,29 +3706,48 @@ impl LiveLessonAppService {
             .get_credit_balance(account_id)
             .await
             .map_err(|err| anyhow!(err))?;
-        if credits_required() && balance.balance < usage.total {
+        if credits_required() && delta > 0.0 && balance.balance < delta {
             return Err(anyhow!(
                 "insufficient credits: required {:.2}, balance {:.2}",
-                usage.total,
+                delta,
                 balance.balance
             ));
         }
 
-        let entry = CreditLedgerEntry {
-            id: format!("debit-{}-{}", account_id, lesson.id),
-            account_id: account_id.to_string(),
-            kind: CreditEntryKind::Debit,
-            amount: usage.total,
-            reason: format!(
-                "lesson:{} base={:.2} image={:.2} tts={:.2}",
-                lesson.id, usage.base, usage.images, usage.tts
-            ),
-            created_at: chrono::Utc::now(),
-        };
-        self.storage
-            .apply_credit_entry(&entry)
-            .await
-            .map_err(|err| anyhow!(err))?;
+        if delta > 0.0 {
+            let entry = CreditLedgerEntry {
+                id: format!("debit-final-{}-{}", account_id, lesson.id),
+                account_id: account_id.to_string(),
+                kind: CreditEntryKind::Debit,
+                amount: delta,
+                reason: format!(
+                    "lesson:{} final_debit voice={:.2} mul={:.2} precharged={:.2}",
+                    lesson.id, usage.voice, usage.multiplier, precharged
+                ),
+                created_at: chrono::Utc::now(),
+            };
+            self.storage
+                .apply_credit_entry(&entry)
+                .await
+                .map_err(|err| anyhow!(err))?;
+        } else {
+            let refund = -delta;
+            let entry = CreditLedgerEntry {
+                id: format!("refund-{}-{}", account_id, lesson.id),
+                account_id: account_id.to_string(),
+                kind: CreditEntryKind::Refund,
+                amount: refund,
+                reason: format!(
+                    "lesson:{} precharge_adjustment precharged={:.2} actual={:.2}",
+                    lesson.id, precharged, usage.total
+                ),
+                created_at: chrono::Utc::now(),
+            };
+            self.storage
+                .apply_credit_entry(&entry)
+                .await
+                .map_err(|err| anyhow!(err))?;
+        }
         Ok(())
     }
 
@@ -3455,8 +3805,104 @@ impl LiveLessonAppService {
                 Some(failure_reason),
             )
             .await?;
+
+            if let Some(precharged) = request.precharged_credits.filter(|value| *value > 0.0) {
+                let entry = CreditLedgerEntry {
+                    id: format!("refund-{}-{}", account_id, lesson_id),
+                    account_id: account_id.to_string(),
+                    kind: CreditEntryKind::Refund,
+                    amount: precharged,
+                    reason: format!("lesson:{} precharge_refund", lesson_id),
+                    created_at: chrono::Utc::now(),
+                };
+                let _ = self.storage.apply_credit_entry(&entry).await;
+            }
         }
         Ok(())
+    }
+
+    fn wrap_llm_provider(
+        &self,
+        llm: Box<dyn LlmProvider>,
+        model_config: &ModelConfig,
+        account_id: Option<&str>,
+        component: &str,
+    ) -> Box<dyn LlmProvider> {
+        let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) else {
+            return llm;
+        };
+
+        Box::new(TelemetryLlmProvider::new(
+            llm,
+            Arc::clone(&self.telemetry),
+            Some(account_id.to_string()),
+            component.to_string(),
+            model_config.provider_id.clone(),
+            model_config.model_id.clone(),
+        ))
+    }
+
+    fn wrap_image_provider(
+        &self,
+        provider: Box<dyn ImageProvider>,
+        model_config: &ModelConfig,
+        account_id: Option<&str>,
+        component: &str,
+    ) -> Box<dyn ImageProvider> {
+        let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) else {
+            return provider;
+        };
+
+        Box::new(TelemetryImageProvider::new(
+            provider,
+            Arc::clone(&self.telemetry),
+            Some(account_id.to_string()),
+            component.to_string(),
+            model_config.provider_id.clone(),
+            model_config.model_id.clone(),
+        ))
+    }
+
+    fn wrap_tts_provider(
+        &self,
+        provider: Box<dyn TtsProvider>,
+        model_config: &ModelConfig,
+        account_id: Option<&str>,
+        component: &str,
+    ) -> Box<dyn TtsProvider> {
+        let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) else {
+            return provider;
+        };
+
+        Box::new(TelemetryTtsProvider::new(
+            provider,
+            Arc::clone(&self.telemetry),
+            Some(account_id.to_string()),
+            component.to_string(),
+            model_config.provider_id.clone(),
+            model_config.model_id.clone(),
+        ))
+    }
+
+    fn wrap_video_provider(
+        &self,
+        provider: Box<dyn VideoProvider>,
+        model_config: &ModelConfig,
+        account_id: Option<&str>,
+        component: &str,
+    ) -> Box<dyn VideoProvider> {
+        let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) else {
+            return provider;
+        };
+
+        Box::new(TelemetryVideoProvider::new(
+            provider,
+            Arc::clone(&self.telemetry),
+            Some(account_id.to_string()),
+            component.to_string(),
+            model_config.provider_id.clone(),
+            model_config.model_id.clone(),
+        ))
     }
 
     pub(crate) async fn build_orchestrator(
@@ -3478,52 +3924,74 @@ impl LiveLessonAppService {
             None,
         )?;
 
-        let outlines_llm = self.provider_factory.build(
-            resolve_model(
-                &self.provider_config,
-                Some(&generation_policy.outlines_model),
-                None,
-                None,
-                None,
-                None,
-            )?
-            .model_config,
-        )?;
-        let scene_content_llm = self.provider_factory.build(
-            resolve_model(
-                &self.provider_config,
-                Some(&generation_policy.scene_content_model),
-                None,
-                None,
-                None,
-                None,
-            )?
-            .model_config,
-        )?;
-        let scene_actions_llm = self.provider_factory.build(
-            resolve_model(
-                &self.provider_config,
-                Some(&generation_policy.scene_actions_model),
-                None,
-                None,
-                None,
-                None,
-            )?
-            .model_config,
-        )?;
+        let account_id = request.account_id.as_deref();
 
+        let resolved_outlines = resolve_model(
+            &self.provider_config,
+            Some(&generation_policy.outlines_model),
+            None,
+            None,
+            None,
+            None,
+        )?;
+        let outlines_config = resolved_outlines.model_config.clone();
+        let outlines_llm = self.wrap_llm_provider(
+            self.provider_factory.build(resolved_outlines.model_config)?,
+            &outlines_config,
+            account_id,
+            "orchestrator",
+        );
+
+        let resolved_scene_content = resolve_model(
+            &self.provider_config,
+            Some(&generation_policy.scene_content_model),
+            None,
+            None,
+            None,
+            None,
+        )?;
+        let scene_content_config = resolved_scene_content.model_config.clone();
+        let scene_content_llm = self.wrap_llm_provider(
+            self.provider_factory
+                .build(resolved_scene_content.model_config)?,
+            &scene_content_config,
+            account_id,
+            "content",
+        );
+
+        let resolved_scene_actions = resolve_model(
+            &self.provider_config,
+            Some(&generation_policy.scene_actions_model),
+            None,
+            None,
+            None,
+            None,
+        )?;
+        let scene_actions_config = resolved_scene_actions.model_config.clone();
+        let scene_actions_llm = self.wrap_llm_provider(
+            self.provider_factory
+                .build(resolved_scene_actions.model_config)?,
+            &scene_actions_config,
+            account_id,
+            "scene_actions",
+        );
+
+        let resolved_pipeline = resolve_model(
+            &self.provider_config,
+            Some(&generation_policy.scene_content_model),
+            None,
+            None,
+            None,
+            None,
+        )?;
+        let pipeline_config = resolved_pipeline.model_config.clone();
         let mut pipeline = LlmGenerationPipeline::new(
-            self.provider_factory.build(
-                resolve_model(
-                    &self.provider_config,
-                    Some(&generation_policy.scene_content_model),
-                    None,
-                    None,
-                    None,
-                    None,
-                )?
-                .model_config,
-            )?,
+            self.wrap_llm_provider(
+                self.provider_factory.build(resolved_pipeline.model_config)?,
+                &pipeline_config,
+                account_id,
+                "content",
+            ),
         )
         .with_phase_llms(outlines_llm, scene_content_llm, scene_actions_llm);
         if request.enable_web_search {
@@ -3560,9 +4028,14 @@ impl LiveLessonAppService {
                 None,
                 None,
             )?;
-            let image = self
-                .image_provider_factory
-                .build(resolved_image.model_config)?;
+            let image_config = resolved_image.model_config.clone();
+            let image = self.wrap_image_provider(
+                self.image_provider_factory
+                    .build(resolved_image.model_config)?,
+                &image_config,
+                account_id,
+                "image",
+            );
             orchestrator = orchestrator.with_image_provider(Arc::from(image));
         }
 
@@ -3579,9 +4052,14 @@ impl LiveLessonAppService {
                 None,
                 None,
             )?;
-            let video = self
-                .video_provider_factory
-                .build(resolved_video.model_config)?;
+            let video_config = resolved_video.model_config.clone();
+            let video = self.wrap_video_provider(
+                self.video_provider_factory
+                    .build(resolved_video.model_config)?,
+                &video_config,
+                account_id,
+                "video",
+            );
             orchestrator = orchestrator.with_video_provider(Arc::from(video));
         }
 
@@ -3598,7 +4076,13 @@ impl LiveLessonAppService {
                 None,
                 None,
             )?;
-            let tts = self.tts_provider_factory.build(resolved_tts.model_config)?;
+            let tts_config = resolved_tts.model_config.clone();
+            let tts = self.wrap_tts_provider(
+                self.tts_provider_factory.build(resolved_tts.model_config)?,
+                &tts_config,
+                account_id,
+                "tts",
+            );
             orchestrator = orchestrator.with_tts(Arc::from(tts));
         }
 
@@ -3746,37 +4230,12 @@ impl LiveLessonAppService {
         let selected_model_profile = current_model
             .as_deref()
             .and_then(|model| selected_model_profile(&self.provider_config, Some(model)).ok());
-        let queue = match self.queue_db_path.clone() {
-            Some(db_path) => {
-                FileBackedLessonQueue::with_queue_db(Arc::clone(&self.storage), db_path)
-            }
-            None => FileBackedLessonQueue::new(Arc::clone(&self.storage)),
-        };
-        let pending_result = queue.pending_count().await;
-        let leases_result = queue.lease_counts().await;
+        
+        let leases_result = self.queue.get_lease_counts().await;
         let (queue_pending_jobs, queue_active_leases, queue_stale_leases, queue_status_error) =
-            match (&pending_result, &leases_result) {
-                (Ok(pending), Ok(leases)) => (*pending, leases.active, leases.stale, None),
-                _ => {
-                    let pending = pending_result.as_ref().copied().unwrap_or(0);
-                    let leases = leases_result.as_ref().copied().unwrap_or(QueueLeaseCounts {
-                        active: 0,
-                        stale: 0,
-                    });
-                    let mut errors = Vec::new();
-                    if let Err(err) = &pending_result {
-                        errors.push(format!("pending_count: {}", err));
-                    }
-                    if let Err(err) = &leases_result {
-                        errors.push(format!("lease_counts: {}", err));
-                    }
-                    (
-                        pending,
-                        leases.active,
-                        leases.stale,
-                        Some(errors.join("; ")),
-                    )
-                }
+            match &leases_result {
+                Ok(counts) => (counts.active, counts.stale, 0, None),
+                Err(err) => (0, 0, 0, Some(format!("get_lease_counts: {}", err))),
             };
 
         let (provider_runtime, provider_status_error) =
@@ -3843,9 +4302,8 @@ impl LiveLessonAppService {
             runtime_alert_level,
             runtime_alerts,
             asset_backend: asset_backend_label(),
-            queue_backend: queue.backend_label().to_string(),
-            lesson_backend: self.storage.lesson_backend().to_string(),
-            job_backend: self.storage.job_backend().to_string(),
+            queue_backend: self.queue.backend_label().to_string(),
+            lesson_backend: self.storage.lesson_backend().to_string(),            job_backend: self.storage.job_backend().to_string(),
             runtime_session_backend: self.storage.runtime_session_backend().to_string(),
             queue_pending_jobs,
             queue_active_leases,
@@ -4019,16 +4477,30 @@ impl LessonAppService for LiveLessonAppService {
 
     async fn get_billing_catalog(&self) -> Result<BillingCatalogResponse> {
         Ok(BillingCatalogResponse {
-            gateway: "easebuzz".to_string(),
+            gateway: "multi".to_string(),
             items: billing_catalog()
                 .into_iter()
                 .map(|item| BillingCatalogItemResponse {
-                    product_code: item.product_code,
+                    product_code: item.product_code.clone(),
                     kind: billing_product_kind_label(&item.kind).to_string(),
                     title: item.title,
+                    description: item.description,
                     credits: item.credits,
                     currency: item.currency,
                     amount_minor: item.amount_minor,
+                    amount_minor_usd: billing_product_usd_amount_minor(&item.product_code),
+                    gst_amount_minor: item.gst_amount_minor,
+                    allowed_quality_modes: item
+                        .allowed_quality_modes
+                        .iter()
+                        .map(|mode| mode.label().to_string())
+                        .collect(),
+                    allowed_learning_modes: item
+                        .allowed_learning_modes
+                        .iter()
+                        .map(|mode| mode.label().to_string())
+                        .collect(),
+                    is_highlighted: item.is_highlighted,
                 })
                 .collect(),
         })
@@ -4061,7 +4533,68 @@ impl LessonAppService for LiveLessonAppService {
             .into_iter()
             .find(|item| item.product_code == payload.product_code)
             .ok_or_else(|| anyhow!("unknown billing product {}", payload.product_code))?;
-        self.initiate_easebuzz_checkout(&account, &product).await
+
+        // ── Handle ₹0 products (Free Tier) ───────────────────────────────────
+        if product.amount_minor == 0 {
+            let order_id = format!("free-{}", Uuid::new_v4());
+            self.storage
+                .save_payment_order(&PaymentOrder {
+                    id: order_id.clone(),
+                    account_id: account.id.clone(),
+                    product_code: product.product_code.clone(),
+                    product_kind: product.kind.clone(),
+                    gateway: "free_bypass".to_string(),
+                    gateway_txn_id: order_id.clone(),
+                    gateway_payment_id: None,
+                    amount_minor: 0,
+                    currency: product.currency.clone(),
+                    credits_to_grant: product.credits,
+                    status: PaymentOrderStatus::Pending,
+                    checkout_url: None,
+                    udf1: None,
+                    udf2: None,
+                    udf3: None,
+                    udf4: None,
+                    udf5: None,
+                    raw_response: None,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                    completed_at: None,
+                })
+                .await
+                .map_err(|err| anyhow!(err))?;
+
+            return Ok(CheckoutSessionResponse {
+                order_id: order_id.clone(),
+                account_id: account.id.clone(),
+                gateway: "free_bypass".to_string(),
+                gateway_txn_id: order_id.clone(),
+                checkout_url: format!(
+                    "{}/api/billing/free/callback?order_id={}",
+                    self.base_url.trim_end_matches('/'),
+                    order_id
+                ),
+            });
+        }
+            
+        let gateway = payload.gateway.unwrap_or_else(|| "easebuzz".to_string()).to_lowercase();
+        if gateway == "stripe" {
+            if !stripe_enabled() {
+                if env_flag("AI_TUTOR_TEST_BILLING_BYPASS") {
+                    return Ok(CheckoutSessionResponse {
+                        order_id: Uuid::new_v4().to_string(),
+                        account_id: account.id.clone(),
+                        gateway: "stripe_bypass".to_string(),
+                        gateway_txn_id: Uuid::new_v4().to_string(),
+                        checkout_url: format!("{}/api/billing/stripe/callback?session_id=bypass_test", self.base_url.trim_end_matches('/')),
+                    });
+                }
+                return Err(anyhow!("Stripe checkout requires AI_TUTOR_STRIPE_SECRET_KEY in production"));
+            }
+            self.initiate_stripe_checkout(&account, &product).await
+        } else {
+            self.initiate_easebuzz_checkout(&account, &product).await
+        }
     }
 
     async fn handle_easebuzz_callback(
@@ -4069,6 +4602,81 @@ impl LessonAppService for LiveLessonAppService {
         form_fields: HashMap<String, String>,
     ) -> Result<EasebuzzCallbackResponse> {
         self.finalize_easebuzz_payment(&form_fields).await
+    }
+
+    async fn handle_stripe_callback(
+        &self,
+        session_id: &str,
+    ) -> Result<EasebuzzCallbackResponse> {
+        self.finalize_stripe_checkout_session(session_id).await
+    }
+
+    async fn handle_free_callback(&self, order_id: &str) -> Result<EasebuzzCallbackResponse> {
+        let mut order = self
+            .storage
+            .get_payment_order_by_id(order_id)
+            .await
+            .map_err(|err| anyhow!(err))?
+            .ok_or_else(|| anyhow!("free payment order {} not found", order_id))?;
+
+        if !order.gateway.eq_ignore_ascii_case("free_bypass") {
+            return Err(anyhow!("order {} is not a free bypass order", order_id));
+        }
+
+        if matches!(order.status, PaymentOrderStatus::Succeeded) {
+            return Ok(EasebuzzCallbackResponse {
+                order_id: order.id.clone(),
+                status: "success".to_string(),
+                credited: false,
+            });
+        }
+
+        let previous_status = order.status.clone();
+        order.status = PaymentOrderStatus::Succeeded;
+        order.updated_at = chrono::Utc::now();
+        order.completed_at = Some(order.updated_at);
+        self.storage
+            .save_payment_order(&order)
+            .await
+            .map_err(|err| anyhow!(err))?;
+
+        // Grant credits
+        let credit_entry = ai_tutor_domain::credits::CreditLedgerEntry {
+            id: format!("payment-order-{}", order.id),
+            account_id: order.account_id.clone(),
+            kind: ai_tutor_domain::credits::CreditEntryKind::Grant,
+            amount: order.credits_to_grant,
+            reason: format!("free_payment_order:{}", order.product_code),
+            created_at: chrono::Utc::now(),
+        };
+        self.storage
+            .apply_credit_entry(&credit_entry)
+            .await
+            .map_err(|err| anyhow!(err))?;
+
+        if let Err(err) = self
+            .storage
+            .log_event(&ai_tutor_domain::billing::FinancialAuditLog {
+                id: Uuid::new_v4().to_string(),
+                account_id: order.account_id.clone(),
+                event_type: "free_payment_order_success".to_string(),
+                entity_type: "payment_order".to_string(),
+                entity_id: order.id.clone(),
+                actor: Some("system:free_bypass".to_string()),
+                before_state: serde_json::json!({ "status": previous_status }),
+                after_state: serde_json::json!({ "status": order.status }),
+                created_at: chrono::Utc::now(),
+            })
+            .await
+        {
+            warn!(order_id = %order.id, error = %err, "Failed to log free payment audit");
+        }
+
+        Ok(EasebuzzCallbackResponse {
+            order_id: order.id,
+            status: "success".to_string(),
+            credited: true,
+        })
     }
 
     async fn list_payment_orders(
@@ -4366,6 +4974,8 @@ impl LessonAppService for LiveLessonAppService {
                 last_payment_order_id: None,
                 created_at: now,
                 updated_at: now,
+                quality_mode: highest_allowed_quality_mode(plan),
+                allowed_learning_modes: plan.allowed_learning_modes.clone(),
             };
 
             self.storage
@@ -4494,6 +5104,7 @@ impl LessonAppService for LiveLessonAppService {
     async fn get_admin_users(&self) -> Result<AdminUsersListResponse> {
         let accounts = self.storage.list_all_tutor_accounts(100_000).await.map_err(|e| anyhow!(e))?;
         let subscriptions = self.storage.list_all_subscriptions(100_000).await.map_err(|e| anyhow!(e))?;
+        let promo_codes = self.storage.list_all_promo_codes(10_000).await.map_err(|e| anyhow!(e))?;
 
         // Build a fast lookup: account_id -> active plan_code
         let mut plan_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -4503,9 +5114,18 @@ impl LessonAppService for LiveLessonAppService {
             }
         }
 
+        // Build a fast lookup: account_id -> redeemed promo_code
+        let mut promo_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for promo in &promo_codes {
+            for account_id in &promo.redeemed_by_accounts {
+                promo_map.insert(account_id.clone(), promo.code.clone());
+            }
+        }
+
         let mut users = Vec::with_capacity(accounts.len());
         for a in accounts {
             let plan = plan_map.get(&a.id).cloned();
+            let promo_code = promo_map.get(&a.id).cloned();
             // Fetch individual credit balance (best effort — default to 0 if missing)
             let credits = self.storage
                 .get_credit_balance(&a.id)
@@ -4520,10 +5140,31 @@ impl LessonAppService for LiveLessonAppService {
                 plan,
                 credits,
                 school_id: a.school_id,
+                promo_code,
             });
         }
 
         Ok(AdminUsersListResponse { users })
+    }
+
+    async fn create_promo_code(&self, payload: CreatePromoCodeRequest) -> Result<()> {
+        let now = chrono::Utc::now();
+        let promo = ai_tutor_domain::credits::PromoCode {
+            code: payload.code,
+            grant_credits: payload.grant_credits,
+            max_redemptions: payload.max_redemptions,
+            expires_at: payload.expires_at,
+            redeemed_by_accounts: Vec::new(),
+            created_at: now,
+            updated_at: now,
+        };
+        self.storage.save_promo_code(&promo).await.map_err(|e| anyhow!(e))?;
+        Ok(())
+    }
+
+    async fn list_all_promo_codes(&self, limit: usize) -> Result<AdminPromoCodeListResponse> {
+        let codes = self.storage.list_all_promo_codes(limit).await.map_err(|e| anyhow!(e))?;
+        Ok(AdminPromoCodeListResponse { promo_codes: codes })
     }
 
     async fn get_admin_settings(&self) -> Result<AdminSettingsResponse> {
@@ -4546,6 +5187,165 @@ impl LessonAppService for LiveLessonAppService {
     async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse> {
         let logs = self.storage.list_all_audit_logs(500).await.map_err(|e| anyhow!(e))?;
         Ok(AdminAuditLogsResponse { logs })
+    }
+
+    async fn run_worker_loop(&self) -> Result<()> {
+        let worker_id = format!("worker-{}", Uuid::new_v4());
+        
+        loop {
+            match self.queue.claim_next(&worker_id).await {
+                Ok(Some(request)) => {
+                    println!("DEBUG: Worker {} claimed job {}", worker_id, request.job.id);
+                    if let Err(err) = self.process_queued_job(request).await {
+                        println!("DEBUG: Worker {} failed to process job: {}", worker_id, err);
+                        error!("Failed to process job: {}", err);
+                    }
+                }
+                Ok(None) => {
+                    // println!("DEBUG: Worker {} polling...", worker_id);
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(err) => {
+                    println!("DEBUG: Worker {} queue claim error: {}", worker_id, err);
+                    error!("Queue claim error: {}", err);
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            }
+        }
+    }
+
+    async fn process_queued_job(&self, request: QueuedLessonRequest) -> Result<()> {
+        println!("DEBUG: process_queued_job started for {}", request.job.id);
+        let orchestrator = self
+            .build_orchestrator(&request.request, request.model_string.as_deref())
+            .await?;
+
+        println!("DEBUG: process_queued_job built orchestrator for {}", request.job.id);
+        let job_id = request.job.id.clone();
+        orchestrator
+            .generate_lesson_for_job(
+                request.request,
+                request.lesson_id,
+                request.job,
+                &self.base_url,
+                false,
+            )
+            .await?;
+
+        println!("DEBUG: process_queued_job completed for {}", job_id);
+        Ok(())
+    }
+
+    async fn get_api_usage_costs(&self) -> Result<AdminApiCostsResponse> {
+        let window = chrono::Utc::now() - chrono::Duration::days(30);
+
+        // ── Revenue from payment orders (INR) ──────────────────────────────
+        let orders = self.storage
+            .list_all_payment_orders(100_000)
+            .await
+            .unwrap_or_default();
+
+        // ── Per-user revenue map ───────────────────────────────────────────
+        let accounts = self.storage.list_all_tutor_accounts(100_000).await.unwrap_or_default();
+        let subscriptions = self.storage.list_all_subscriptions(100_000).await.unwrap_or_default();
+        let mut plan_map: std::collections::HashMap<String, String> = Default::default();
+        for sub in &subscriptions {
+            if matches!(sub.status, ai_tutor_domain::billing::SubscriptionStatus::Active) {
+                plan_map.insert(sub.account_id.clone(), sub.plan_code.clone());
+            }
+        }
+        let mut revenue_map: std::collections::HashMap<String, f64> = Default::default();
+        for order in &orders {
+            if matches!(order.status, ai_tutor_domain::billing::PaymentOrderStatus::Succeeded)
+                && order.created_at >= window
+            {
+                // Convert to approximate INR (orders in paise → divide by 100)
+                let inr = order.amount_minor as f64 / 100.0;
+                *revenue_map.entry(order.account_id.clone()).or_default() += inr;
+            }
+        }
+
+        // ── API usage costs ────────────────────────────────────────────────
+        // Try to query api_usage_records; fall back to zeroes if table absent.
+        let usage_records = self.storage
+            .list_api_usage_records_since(window)
+            .await
+            .unwrap_or_default();
+
+        let mut by_component_map: std::collections::HashMap<(String, String, String), (i64, i64, i64, i64)> = Default::default();
+        let mut per_account_cost: std::collections::HashMap<String, f64> = Default::default();
+        let mut openrouter_cost = 0.0_f64;
+        let mut groq_cost = 0.0_f64;
+        let mut tts_cost = 0.0_f64;
+
+        for rec in &usage_records {
+            let cost_usd = rec.cost_usd_millicents as f64 / 100_000.0;
+            let key = (rec.component.clone(), rec.provider.clone(), rec.model_id.clone());
+            let entry = by_component_map.entry(key).or_default();
+            entry.0 += 1; // request_count
+            entry.1 += rec.input_tokens;
+            entry.2 += rec.output_tokens;
+            entry.3 += rec.cost_usd_millicents;
+            *per_account_cost.entry(rec.account_id.clone()).or_default() += cost_usd;
+            match rec.provider.as_str() {
+                "openrouter" => openrouter_cost += cost_usd,
+                "groq"       => groq_cost += cost_usd,
+                "elevenlabs" => tts_cost += cost_usd,
+                _            => openrouter_cost += cost_usd, // default bucket
+            }
+        }
+
+        let by_component: Vec<ApiCostByComponent> = by_component_map
+            .into_iter()
+            .map(|((component, provider, model_id), (req, inp, out, cost_mc))| ApiCostByComponent {
+                component,
+                provider,
+                model_id,
+                request_count: req,
+                input_tokens: inp,
+                output_tokens: out,
+                cost_usd: cost_mc as f64 / 100_000.0,
+            })
+            .collect();
+
+        // Build per-user list (only accounts with revenue or cost activity)
+        let email_map: std::collections::HashMap<String, String> = accounts
+            .into_iter()
+            .map(|a| (a.id, a.email))
+            .collect();
+
+        let mut all_account_ids: std::collections::HashSet<String> = Default::default();
+        all_account_ids.extend(revenue_map.keys().cloned());
+        all_account_ids.extend(per_account_cost.keys().cloned());
+
+        let per_user: Vec<ApiCostPerUser> = all_account_ids
+            .into_iter()
+            .map(|account_id| {
+                let revenue_inr = revenue_map.get(&account_id).copied().unwrap_or(0.0);
+                let api_cost_usd = per_account_cost.get(&account_id).copied().unwrap_or(0.0);
+                ApiCostPerUser {
+                    email: email_map.get(&account_id).cloned(),
+                    plan: plan_map.get(&account_id).cloned(),
+                    revenue_inr,
+                    api_cost_usd,
+                    account_id,
+                }
+            })
+            .collect();
+
+        let total = openrouter_cost + groq_cost + tts_cost;
+        let revenue_usd: f64 = per_user.iter().map(|u| u.revenue_inr / 84.0).sum();
+        let margin = if revenue_usd > 0.0 { (revenue_usd - total) / revenue_usd } else { 0.0 };
+
+        Ok(AdminApiCostsResponse {
+            total_cost_usd_30d: total,
+            openrouter_cost_usd: openrouter_cost,
+            groq_cost_usd: groq_cost,
+            tts_cost_usd: tts_cost,
+            estimated_margin_30d: margin,
+            by_component,
+            per_user,
+        })
     }
 
     async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse> {
@@ -5010,10 +5810,45 @@ impl LessonAppService for LiveLessonAppService {
 
     async fn queue_lesson(&self, payload: GenerateLessonPayload) -> Result<GenerateLessonResponse> {
         let model_string = payload.model.clone();
-        let request = build_generation_request(payload)?;
+        let mut request = build_generation_request(payload)?;
         let account_id = request.account_id.clone();
         let lesson_id = Uuid::new_v4().to_string();
         let max_attempts = 3;
+
+        let estimated_credits = estimate_generation_credits_for_request(&request);
+        if let Some(account_id) = account_id.as_deref() {
+            if estimated_credits > 0.0 {
+                let balance = self
+                    .storage
+                    .get_credit_balance(account_id)
+                    .await
+                    .map_err(|err| anyhow!(err))?;
+                if credits_required() && balance.balance < estimated_credits {
+                    anyhow::bail!(
+                        "insufficient credits: required {:.2}, balance {:.2}",
+                        estimated_credits,
+                        balance.balance
+                    );
+                }
+                let entry = CreditLedgerEntry {
+                    id: format!("precharge-{}-{}", account_id, lesson_id),
+                    account_id: account_id.to_string(),
+                    kind: CreditEntryKind::Debit,
+                    amount: estimated_credits,
+                    reason: format!(
+                        "lesson:{} precharge est_secs={:.0}",
+                        lesson_id,
+                        estimated_generation_duration_secs()
+                    ),
+                    created_at: chrono::Utc::now(),
+                };
+                self.storage
+                    .apply_credit_entry(&entry)
+                    .await
+                    .map_err(|err| anyhow!(err))?;
+                request.precharged_credits = Some(estimated_credits);
+            }
+        }
         let job = build_queued_job(Uuid::new_v4().to_string(), &request, chrono::Utc::now());
         self.storage
             .create_job(&job)
@@ -5055,12 +5890,8 @@ impl LessonAppService for LiveLessonAppService {
             .await?;
         }
 
-        let queue = Arc::new(match self.queue_db_path.clone() {
-            Some(db_path) => {
-                FileBackedLessonQueue::with_queue_db(Arc::clone(&self.storage), db_path)
-            }
-            None => FileBackedLessonQueue::new(Arc::clone(&self.storage)),
-        });
+        let queue = Arc::clone(&self.queue);
+        
         queue
             .enqueue(&QueuedLessonRequest {
                 lesson_id: lesson_id.clone(),
@@ -5074,17 +5905,7 @@ impl LessonAppService for LiveLessonAppService {
                 available_at: chrono::Utc::now(),
             })
             .await?;
-        let mut service = LiveLessonAppService::new(
-            Arc::clone(&self.storage),
-            Arc::clone(&self.provider_config),
-            Arc::clone(&self.provider_factory),
-            Arc::clone(&self.image_provider_factory),
-            Arc::clone(&self.video_provider_factory),
-            Arc::clone(&self.tts_provider_factory),
-            self.base_url.clone(),
-        );
-        service.queue_db_path = self.queue_db_path.clone();
-        let service = Arc::new(service);
+        let service = Arc::new(self.clone());
         spawn_one_shot_queue_kick(queue, service);
 
         Ok(GenerateLessonResponse {
@@ -5301,12 +6122,7 @@ impl LessonAppService for LiveLessonAppService {
             return Ok(CancelLessonJobOutcome::NotFound);
         };
 
-        let queue = match self.queue_db_path.clone() {
-            Some(db_path) => {
-                FileBackedLessonQueue::with_queue_db(Arc::clone(&self.storage), db_path)
-            }
-            None => FileBackedLessonQueue::new(Arc::clone(&self.storage)),
-        };
+        let queue = Arc::clone(&self.queue);
 
         match queue.cancel(id).await? {
             QueueCancelResult::Cancelled => {
@@ -5367,12 +6183,8 @@ impl LessonAppService for LiveLessonAppService {
             .await
             .map_err(|err| anyhow!(err))?;
 
-        let queue = Arc::new(match self.queue_db_path.clone() {
-            Some(db_path) => {
-                FileBackedLessonQueue::with_queue_db(Arc::clone(&self.storage), db_path)
-            }
-            None => FileBackedLessonQueue::new(Arc::clone(&self.storage)),
-        });
+        let queue = Arc::clone(&self.queue);
+        
         queue
             .enqueue(&QueuedLessonRequest {
                 lesson_id: snapshot.lesson_id,
@@ -5387,17 +6199,7 @@ impl LessonAppService for LiveLessonAppService {
             })
             .await?;
 
-        let mut service = LiveLessonAppService::new(
-            Arc::clone(&self.storage),
-            Arc::clone(&self.provider_config),
-            Arc::clone(&self.provider_factory),
-            Arc::clone(&self.image_provider_factory),
-            Arc::clone(&self.video_provider_factory),
-            Arc::clone(&self.tts_provider_factory),
-            self.base_url.clone(),
-        );
-        service.queue_db_path = self.queue_db_path.clone();
-        spawn_one_shot_queue_kick(queue, Arc::new(service));
+        spawn_one_shot_queue_kick(queue, Arc::new(self.clone()));
 
         Ok(ResumeLessonJobOutcome::Resumed(job))
     }
@@ -5488,14 +6290,18 @@ impl LessonAppService for LiveLessonAppService {
         let graph_session_id = session_id.clone();
         let graph_cancellation = cancellation.clone();
         let mut graph_handle = tokio::spawn(async move {
-            graph_service
+            let res = graph_service
                 .run_stateless_chat_graph(
                     payload,
                     &graph_session_id,
                     Some(graph_sender),
                     Some(graph_cancellation),
                 )
-                .await
+                .await;
+            if let Err(ref e) = res {
+                println!("run_stateless_chat_graph failed: {:?}", e);
+            }
+            res
         });
 
         // OpenMAIC equivalent:
@@ -5506,9 +6312,11 @@ impl LessonAppService for LiveLessonAppService {
         // - SSE forward path watches downstream channel liveness
         // - on disconnect, abort the running graph task immediately
         let mut graph_result = None;
+        println!("Entering stateless_chat_stream select loop");
         loop {
             tokio::select! {
                 _ = sender.closed() => {
+                    println!("select! resolved sender.closed()");
                     warn!(
                         transport_session_id = %session_id,
                         runtime_session_mode = runtime_session_mode_label,
@@ -5518,6 +6326,7 @@ impl LessonAppService for LiveLessonAppService {
                     break;
                 }
                 maybe_event = graph_receiver.recv() => {
+                    println!("select! resolved graph_receiver.recv()");
                     match maybe_event {
                         Some(graph_event) => {
                             let tutor_event = map_graph_event_to_tutor_event(
@@ -5526,8 +6335,12 @@ impl LessonAppService for LiveLessonAppService {
                                 &runtime_session_id,
                                 runtime_session_mode_label,
                             );
-                            self.record_runtime_action_expectation(&tutor_event).await?;
+                            println!("stateless_chat_stream: sending tutor event {:?}", tutor_event.kind);
+                            if let Err(e) = self.record_runtime_action_expectation(&tutor_event).await {
+                                println!("record_runtime_action_expectation failed: {}", e);
+                            }
                             if sender.send(tutor_event).await.is_err() {
+                                println!("sender.send failed");
                                 warn!(
                                     transport_session_id = %session_id,
                                     runtime_session_mode = runtime_session_mode_label,
@@ -5536,16 +6349,22 @@ impl LessonAppService for LiveLessonAppService {
                                 cancellation.cancel();
                                 break;
                             }
+                            println!("sender.send succeeded");
                         }
-                        None => break,
+                        None => {
+                            println!("graph_receiver returned None");
+                            break;
+                        }
                     }
                 }
                 result = &mut graph_handle => {
+                    println!("select! resolved graph_handle: {:?}", result);
                     graph_result = Some(result);
                     break;
                 }
             }
         }
+        println!("Exited stateless_chat_stream select loop");
 
         if graph_result.is_none() {
             match tokio::time::timeout(Duration::from_millis(250), &mut graph_handle).await {
@@ -5605,18 +6424,11 @@ impl LessonAppService for LiveLessonAppService {
             .ok_or_else(|| anyhow!("invalid lesson id for audio asset"))?;
         let file_name = sanitize_path_segment(file_name)
             .ok_or_else(|| anyhow!("invalid file name for audio asset"))?;
-        let path = self
-            .storage
-            .assets_dir()
-            .join("audio")
-            .join(lesson_id)
-            .join(file_name);
 
-        match tokio::fs::read(path).await {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(err.into()),
-        }
+        self.asset_store
+            .get_asset("audio", &lesson_id, &file_name)
+            .await
+            .map_err(|err| anyhow!(err))
     }
 
     async fn get_media_asset(&self, lesson_id: &str, file_name: &str) -> Result<Option<Vec<u8>>> {
@@ -5624,18 +6436,11 @@ impl LessonAppService for LiveLessonAppService {
             .ok_or_else(|| anyhow!("invalid lesson id for media asset"))?;
         let file_name = sanitize_path_segment(file_name)
             .ok_or_else(|| anyhow!("invalid file name for media asset"))?;
-        let path = self
-            .storage
-            .assets_dir()
-            .join("media")
-            .join(lesson_id)
-            .join(file_name);
 
-        match tokio::fs::read(path).await {
-            Ok(bytes) => Ok(Some(bytes)),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(err.into()),
-        }
+        self.asset_store
+            .get_asset("media", &lesson_id, &file_name)
+            .await
+            .map_err(|err| anyhow!(err))
     }
 
     async fn acknowledge_runtime_action(
@@ -5713,6 +6518,9 @@ impl LessonAppService for LiveLessonAppService {
             .map(|value| value.trim())
             .filter(|value| !value.is_empty())
             .map(|value| value.to_string());
+        let account_id = session_id
+            .as_deref()
+            .and_then(account_id_from_scoped_session_id);
         let workspace = if let Some(session_id) = session_id.as_deref() {
             self.load_pbl_workspace_state(session_id)
                 .await?
@@ -5734,7 +6542,13 @@ impl LessonAppService for LiveLessonAppService {
             None,
             Some(false),
         )?;
-        let llm = self.provider_factory.build(resolved.model_config)?;
+        let model_config = resolved.model_config.clone();
+        let llm = self.wrap_llm_provider(
+            self.provider_factory.build(resolved.model_config)?,
+            &model_config,
+            account_id.as_deref(),
+            "pbl_runtime",
+        );
 
         let resolved_agent = resolve_pbl_runtime_agent(&payload.message, &payload.project_config, &workspace);
         let system_prompt = build_pbl_runtime_system_prompt(
@@ -5807,6 +6621,29 @@ impl LessonAppService for LiveLessonAppService {
             workspace: Some(final_workspace),
             resolved_agent: resolved_agent.name,
         })
+    }
+
+    async fn transcribe(&self, payload: AsrRequest) -> Result<AsrResponse> {
+        let model_string = payload
+            .model_string
+            .clone()
+            .or_else(|| std::env::var("AI_TUTOR_DEFAULT_ASR_MODEL").ok())
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| anyhow!("AI_TUTOR_DEFAULT_ASR_MODEL or model_string is required"))?;
+
+        let resolved = resolve_model(
+            &self.provider_config,
+            Some(&model_string),
+            None,
+            None,
+            None,
+            Some(false),
+        )?;
+        let asr = self.asr_provider_factory.build(resolved.model_config)?;
+
+        let text = asr.transcribe(&payload.audio_url).await?;
+
+        Ok(AsrResponse { text })
     }
 
     async fn redeem_promo_code(
@@ -6550,6 +7387,18 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
             "/api/billing/easebuzz/callback",
             post(easebuzz_callback).get(easebuzz_callback_get),
         )
+        .route(
+            "/api/billing/stripe/callback",
+            get(stripe_callback_get),
+        )
+        .route(
+            "/api/billing/stripe/webhook",
+            post(stripe_webhook),
+        )
+        .route(
+            "/api/billing/free/callback",
+            get(get_free_callback_handler),
+        )
         .route("/api/credits/me", get(get_credit_balance))
         .route("/api/credits/ledger", get(get_credit_ledger))
         .route("/api/credits/redeem", post(redeem_promo_code))
@@ -6562,6 +7411,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/admin/settings", get(get_admin_settings))
         .route("/api/admin/jobs", get(get_admin_jobs))
         .route("/api/admin/audit-logs", get(get_admin_audit_logs))
+        .route("/api/admin/api-costs", get(get_admin_api_costs))
         .route("/api/admin/system/toggle-maintenance", post(toggle_maintenance))
         .route("/api/admin/schools", get(list_schools).post(create_school_handler))
         .route("/api/admin/schools/{id}/members", get(get_school_members))
@@ -6586,6 +7436,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/lessons/jobs/{id}/resume", post(resume_job))
         .route("/api/runtime/actions/ack", post(acknowledge_runtime_action))
         .route("/api/runtime/pbl/chat", post(runtime_pbl_chat))
+        .route("/api/runtime/transcribe", post(transcribe))
         .route("/api/runtime/chat/stream", post(stream_stateless_chat))
         .route("/api/lessons/jobs/{id}", get(get_job))
         .route("/api/lessons/{id}", get(get_lesson))
@@ -6934,6 +7785,25 @@ async fn get_billing_report(
         .map_err(ApiError::internal)
 }
 
+async fn stripe_webhook() -> Result<Response, ApiError> {
+    if !stripe_enabled() && !env_flag("AI_TUTOR_TEST_BILLING_BYPASS") {
+        return Err(ApiError {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: "Stripe checkout requires AI_TUTOR_STRIPE_SECRET_KEY in production".to_string(),
+        });
+    }
+
+    let body = serde_json::json!({
+        "ok": false,
+        "message": "Stripe webhook is not configured yet"
+    });
+    Response::builder()
+        .status(StatusCode::NOT_IMPLEMENTED)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .map_err(ApiError::internal)
+}
+
 async fn get_billing_dashboard(
     State(state): State<AppState>,
     Extension(account): Extension<AuthenticatedAccountContext>,
@@ -6965,6 +7835,34 @@ async fn easebuzz_callback_get(
     state
         .service
         .handle_easebuzz_callback(form_fields)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn stripe_callback_get(
+    State(state): State<AppState>,
+    Query(query_params): Query<HashMap<String, String>>,
+) -> Result<Json<EasebuzzCallbackResponse>, ApiError> {
+    let session_id = query_params.get("session_id").ok_or_else(|| ApiError::bad_request("missing session_id".to_string()))?;
+    state
+        .service
+        .handle_stripe_callback(session_id)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn get_free_callback_handler(
+    State(state): State<AppState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<EasebuzzCallbackResponse>, ApiError> {
+    let order_id = query
+        .get("order_id")
+        .ok_or_else(|| ApiError::bad_request("missing order_id".to_string()))?;
+    state
+        .service
+        .handle_free_callback(order_id)
         .await
         .map(Json)
         .map_err(ApiError::internal)
@@ -7088,6 +7986,18 @@ async fn get_admin_promo_code_stats(
     state
         .service
         .get_admin_promo_code_stats()
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn get_admin_api_costs(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<AdminApiCostsResponse>, ApiError> {
+    state
+        .service
+        .get_api_usage_costs()
         .await
         .map(Json)
         .map_err(ApiError::internal)
@@ -7260,14 +8170,15 @@ async fn generate_lesson(
     account: Option<Extension<AuthenticatedAccountContext>>,
     Json(payload): Json<GenerateLessonPayload>,
 ) -> Result<Json<GenerateLessonResponse>, ApiError> {
+    let payload = inject_account_id(payload, account.as_ref().map(|ctx| ctx.0.account_id.as_str()));
+
     // Check entitlements if account context is available
     if let Some(ctx) = &account {
-        if let Err(err) = check_generation_entitlement(&state, &ctx.0).await {
+        let min_credits = estimate_generation_credits_for_payload(&payload);
+        if let Err(err) = check_generation_entitlement_with_min(&state, &ctx.0, min_credits).await {
             return Err(err);
         }
     }
-
-    let payload = inject_account_id(payload, account.as_ref().map(|ctx| ctx.0.account_id.as_str()));
     state
         .service
         .generate_lesson(payload)
@@ -7281,14 +8192,15 @@ async fn generate_lesson_async(
     account: Option<Extension<AuthenticatedAccountContext>>,
     Json(payload): Json<GenerateLessonPayload>,
 ) -> Result<(StatusCode, Json<GenerateLessonResponse>), ApiError> {
+    let payload = inject_account_id(payload, account.as_ref().map(|ctx| ctx.0.account_id.as_str()));
+
     // Check entitlements if account context is available
     if let Some(ctx) = &account {
-        if let Err(err) = check_generation_entitlement(&state, &ctx.0).await {
+        let min_credits = estimate_generation_credits_for_payload(&payload);
+        if let Err(err) = check_generation_entitlement_with_min(&state, &ctx.0, min_credits).await {
             return Err(err);
         }
     }
-
-    let payload = inject_account_id(payload, account.as_ref().map(|ctx| ctx.0.account_id.as_str()));
     state
         .service
         .queue_lesson(payload)
@@ -7531,6 +8443,27 @@ async fn runtime_pbl_chat(
         .map_err(ApiError::internal)
 }
 
+async fn transcribe(
+    State(state): State<AppState>,
+    account: Option<Extension<AuthenticatedAccountContext>>,
+    Json(payload): Json<AsrRequest>,
+) -> Result<Json<AsrResponse>, ApiError> {
+    if payload.audio_url.trim().is_empty() {
+        return Err(ApiError::bad_request(
+            "asr requires a non-empty audio_url".to_string(),
+        ));
+    }
+
+    // Optional: Add account-based usage tracking/limits for ASR here
+
+    state
+        .service
+        .transcribe(payload)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
 async fn get_job(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -7729,10 +8662,7 @@ fn build_generation_request(payload: GenerateLessonPayload) -> Result<LessonGene
             user_bio: payload.user_bio,
             web_search: payload.enable_web_search,
         },
-        pdf_content: payload.pdf_text.map(|text| PdfContent {
-            text,
-            images: vec![],
-        }),
+        pdf_content: payload.pdf_text,
         enable_web_search: payload.enable_web_search.unwrap_or(false),
         enable_image_generation: payload.enable_image_generation.unwrap_or(false),
         enable_video_generation: payload.enable_video_generation.unwrap_or(false),
@@ -7742,7 +8672,10 @@ fn build_generation_request(payload: GenerateLessonPayload) -> Result<LessonGene
             _ => AgentMode::Default,
         },
         account_id: payload.account_id,
-        generation_mode: payload.generation_mode,
+        school_id: None,
+        quality_mode: payload.quality_mode,
+        learning_mode: payload.learning_mode,
+        precharged_credits: None,
     })
 }
 
@@ -8608,10 +9541,12 @@ fn credit_policy() -> CreditPolicyResponse {
         image_attachment_credits: env_f64("AI_TUTOR_IMAGE_ATTACHMENT_CREDITS", 0.05),
         tts_per_slide_credits: env_f64("AI_TUTOR_TTS_PER_SLIDE_CREDITS", 0.20),
         starter_grant_credits: env_f64("AI_TUTOR_STARTER_GRANT_CREDITS", 10.0),
-        plus_monthly_price_usd: env_f64("AI_TUTOR_PLUS_MONTHLY_PRICE_USD", 5.0),
-        plus_monthly_credits: env_f64("AI_TUTOR_PLUS_MONTHLY_CREDITS", 30.0),
-        pro_monthly_price_usd: env_f64("AI_TUTOR_PRO_MONTHLY_PRICE_USD", 12.0),
-        pro_monthly_credits: env_f64("AI_TUTOR_PRO_MONTHLY_CREDITS", 80.0),
+        basic_monthly_price_usd: env_f64("AI_TUTOR_BASIC_MONTHLY_PRICE_USD", 9.0),
+        basic_monthly_credits: env_f64("AI_TUTOR_BASIC_MONTHLY_CREDITS", 20.0),
+        standard_monthly_price_usd: env_f64("AI_TUTOR_STANDARD_MONTHLY_PRICE_USD", 15.0),
+        standard_monthly_credits: env_f64("AI_TUTOR_STANDARD_MONTHLY_CREDITS", 50.0),
+        premium_monthly_price_usd: env_f64("AI_TUTOR_PREMIUM_MONTHLY_PRICE_USD", 25.0),
+        premium_monthly_credits: env_f64("AI_TUTOR_PREMIUM_MONTHLY_CREDITS", 100.0),
         bundle_small_price_usd: env_f64("AI_TUTOR_BUNDLE_SMALL_PRICE_USD", 5.0),
         bundle_small_credits: env_f64("AI_TUTOR_BUNDLE_SMALL_CREDITS", 10.0),
         bundle_large_price_usd: env_f64("AI_TUTOR_BUNDLE_LARGE_PRICE_USD", 32.5),
@@ -8668,8 +9603,12 @@ fn env_i64(key: &str, default: i64) -> i64 {
         .unwrap_or(default)
 }
 
+fn stripe_enabled() -> bool {
+    read_optional_env("AI_TUTOR_STRIPE_SECRET_KEY").is_some()
+}
+
 fn billing_currency() -> String {
-    read_optional_env("AI_TUTOR_BILLING_CURRENCY").unwrap_or_else(|| "USD".to_string())
+    read_optional_env("AI_TUTOR_BILLING_CURRENCY").unwrap_or_else(|| "INR".to_string())
 }
 
 fn billing_timezone_name() -> String {
@@ -8719,57 +9658,6 @@ fn payment_effective_at(order: &PaymentOrder) -> chrono::DateTime<chrono::Utc> {
     order.completed_at.unwrap_or(order.updated_at)
 }
 
-fn billing_catalog() -> Vec<BillingProductDefinition> {
-    let policy = credit_policy();
-    let currency = billing_currency();
-    vec![
-        BillingProductDefinition {
-            product_code: "plus_monthly".to_string(),
-            kind: BillingProductKind::Subscription,
-            title: "AI Tutor Plus Monthly".to_string(),
-            credits: policy.plus_monthly_credits,
-            currency: currency.clone(),
-            amount_minor: env_i64(
-                "AI_TUTOR_PLUS_MONTHLY_PRICE_MINOR",
-                (policy.plus_monthly_price_usd * 100.0).round() as i64,
-            ),
-        },
-        BillingProductDefinition {
-            product_code: "pro_monthly".to_string(),
-            kind: BillingProductKind::Subscription,
-            title: "AI Tutor Pro Monthly".to_string(),
-            credits: policy.pro_monthly_credits,
-            currency: currency.clone(),
-            amount_minor: env_i64(
-                "AI_TUTOR_PRO_MONTHLY_PRICE_MINOR",
-                (policy.pro_monthly_price_usd * 100.0).round() as i64,
-            ),
-        },
-        BillingProductDefinition {
-            product_code: "bundle_small".to_string(),
-            kind: BillingProductKind::Bundle,
-            title: "AI Tutor Credit Bundle Small".to_string(),
-            credits: policy.bundle_small_credits,
-            currency: currency.clone(),
-            amount_minor: env_i64(
-                "AI_TUTOR_BUNDLE_SMALL_PRICE_MINOR",
-                (policy.bundle_small_price_usd * 100.0).round() as i64,
-            ),
-        },
-        BillingProductDefinition {
-            product_code: "bundle_large".to_string(),
-            kind: BillingProductKind::Bundle,
-            title: "AI Tutor Credit Bundle Large".to_string(),
-            credits: policy.bundle_large_credits,
-            currency,
-            amount_minor: env_i64(
-                "AI_TUTOR_BUNDLE_LARGE_PRICE_MINOR",
-                (policy.bundle_large_price_usd * 100.0).round() as i64,
-            ),
-        },
-    ]
-}
-
 fn easebuzz_config() -> Result<EasebuzzConfig> {
     let environment = read_optional_env("AI_TUTOR_EASEBUZZ_ENV")
         .unwrap_or_else(|| "test".to_string())
@@ -8796,6 +9684,31 @@ fn billing_product_kind_label(kind: &BillingProductKind) -> &'static str {
     match kind {
         BillingProductKind::Subscription => "subscription",
         BillingProductKind::Bundle => "bundle",
+    }
+}
+
+fn highest_allowed_quality_mode(
+    product: &BillingProductDefinition,
+) -> ai_tutor_domain::billing::QualityMode {
+    use ai_tutor_domain::billing::QualityMode;
+
+    if product.allowed_quality_modes.contains(&QualityMode::Premium) {
+        QualityMode::Premium
+    } else if product.allowed_quality_modes.contains(&QualityMode::Standard) {
+        QualityMode::Standard
+    } else {
+        QualityMode::Basic
+    }
+}
+
+fn billing_product_usd_amount_minor(product_code: &str) -> i64 {
+    match product_code {
+        "basic_monthly" => 900,
+        "standard_monthly" => 1500,
+        "premium_monthly" => 2500,
+        "bundle_small" => 200,
+        "bundle_large" => 500,
+        _ => 0,
     }
 }
 
@@ -9732,6 +10645,14 @@ async fn check_generation_entitlement(
     state: &AppState,
     auth_context: &AuthenticatedAccountContext,
 ) -> Result<(), ApiError> {
+    check_generation_entitlement_with_min(state, auth_context, 0.0).await
+}
+
+async fn check_generation_entitlement_with_min(
+    state: &AppState,
+    auth_context: &AuthenticatedAccountContext,
+    min_credits: f64,
+) -> Result<(), ApiError> {
     let billing_ctx = state
         .service
         .load_billing_context(&auth_context.account_id)
@@ -9743,11 +10664,17 @@ async fn check_generation_entitlement(
             ))
         })?;
 
-    // Check if user can generate
     if !billing_ctx.can_generate {
         return Err(ApiError::payment_required(format!(
             "Insufficient credits. Current balance: {}. Please purchase credits or activate a subscription.",
             billing_ctx.credit_balance
+        )));
+    }
+
+    if min_credits > 0.0 && !billing_ctx.can_generate_with_min_credits(min_credits) {
+        return Err(ApiError::payment_required(format!(
+            "Insufficient credits. Need about {:.2} credits, balance is {:.2}.",
+            min_credits, billing_ctx.credit_balance
         )));
     }
 
@@ -9779,28 +10706,84 @@ fn verify_session_token(token: &str) -> Result<SessionClaims> {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct CreditUsage {
-    total: f64,
-    base: f64,
-    images: f64,
-    tts: f64,
+pub(crate) struct CreditUsage {
+    pub total: f64,
+    pub voice: f64,
+    pub multiplier: f64,
 }
 
-fn calculate_credit_usage(lesson: &Lesson, policy: &CreditPolicyResponse) -> CreditUsage {
-    let scene_count = lesson.scenes.len() as f64;
-    let base = scene_count * policy.base_workflow_slide_credits;
-    let image_count = count_scene_images(lesson) as f64;
-    let images = image_count * policy.image_attachment_credits;
-    let tts = if has_tts_audio(lesson) {
-        scene_count * policy.tts_per_slide_credits
-    } else {
-        0.0
-    };
+fn estimated_generation_duration_secs() -> f64 {
+    env_i64("AI_TUTOR_ESTIMATED_DURATION_SECS", 1200) as f64
+}
+
+fn estimate_generation_credits_for_modes(
+    quality_mode: Option<&str>,
+    learning_mode: Option<&str>,
+) -> f64 {
+    use ai_tutor_domain::billing::{lesson_credits, LearningMode, QualityMode};
+
+    let quality = quality_mode
+        .and_then(QualityMode::from_str)
+        .unwrap_or_default();
+    let learning = learning_mode
+        .and_then(LearningMode::from_str)
+        .unwrap_or_default();
+
+    lesson_credits(quality, learning, estimated_generation_duration_secs())
+}
+
+fn estimate_generation_credits_for_request(request: &LessonGenerationRequest) -> f64 {
+    estimate_generation_credits_for_modes(
+        request.quality_mode.as_deref(),
+        request.learning_mode.as_deref(),
+    )
+}
+
+fn estimate_generation_credits_for_payload(payload: &GenerateLessonPayload) -> f64 {
+    estimate_generation_credits_for_modes(
+        payload.quality_mode.as_deref(),
+        payload.learning_mode.as_deref(),
+    )
+}
+
+fn calculate_credit_usage(
+    lesson: &Lesson,
+    request: &ai_tutor_domain::generation::LessonGenerationRequest,
+) -> CreditUsage {
+    use ai_tutor_domain::billing::{QualityMode, LearningMode, lesson_credits};
+
+    let quality = request
+        .quality_mode
+        .as_deref()
+        .and_then(QualityMode::from_str)
+        .unwrap_or_default();
+
+    let learning = request
+        .learning_mode
+        .as_deref()
+        .and_then(LearningMode::from_str)
+        .unwrap_or_default();
+
+    // Estimate duration: ~15 chars per second speaking rate
+    let total_chars: usize = lesson
+        .scenes
+        .iter()
+        .flat_map(|s| s.actions.iter())
+        .map(|a| match a {
+            ai_tutor_domain::action::LessonAction::Speech { text, .. } => text.len(),
+            _ => 0,
+        })
+        .sum();
+
+    let duration_secs = total_chars as f64 / 15.0;
+    
+    // We only charge for voice right now
+    let total = lesson_credits(quality, learning, duration_secs);
+
     CreditUsage {
-        total: base + images + tts,
-        base,
-        images,
-        tts,
+        total,
+        voice: (duration_secs / 60.0) * quality.credits_per_minute(),
+        multiplier: learning.credit_multiplier(),
     }
 }
 
@@ -10162,6 +11145,8 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use tower::util::ServiceExt;
 
+    use crate::queue::FileBackedLessonQueue;
+
     use ai_tutor_domain::{
         generation::{AgentMode, Language, LessonGenerationRequest, UserRequirements},
         job::{
@@ -10178,8 +11163,8 @@ mod tests {
     };
     use ai_tutor_providers::{
         factory::{
-            DefaultImageProviderFactory, DefaultLlmProviderFactory, DefaultTtsProviderFactory,
-            DefaultVideoProviderFactory,
+            DefaultAsrProviderFactory, DefaultImageProviderFactory, DefaultLlmProviderFactory,
+            DefaultTtsProviderFactory, DefaultVideoProviderFactory,
         },
         traits::{
             ImageProvider, LlmProvider, ProviderRuntimeStatus, StreamingPath, TtsProvider,
@@ -10249,6 +11234,26 @@ mod tests {
 
     struct FakeTtsProviderFactory;
 
+    struct FakeAsrProvider;
+
+    struct FakeAsrProviderFactory;
+
+    #[async_trait]
+    impl ai_tutor_providers::traits::AsrProvider for FakeAsrProvider {
+        async fn transcribe(&self, _audio_url: &str) -> Result<String> {
+            Ok("Transcribed text".to_string())
+        }
+    }
+
+    impl ai_tutor_providers::traits::AsrProviderFactory for FakeAsrProviderFactory {
+        fn build(
+            &self,
+            _model_config: ai_tutor_domain::provider::ModelConfig,
+        ) -> Result<Box<dyn ai_tutor_providers::traits::AsrProvider>> {
+            Ok(Box::new(FakeAsrProvider))
+        }
+    }
+
     #[async_trait]
     impl LessonAppService for MockLessonAppService {
         async fn google_login(&self) -> Result<GoogleAuthLoginResponse> {
@@ -10278,18 +11283,74 @@ mod tests {
                 .ok_or_else(|| anyhow!("missing auth session response"))
         }
 
+        async fn contact_enterprise(
+            &self,
+            _payload: ContactEnterpriseRequest,
+        ) -> Result<ContactEnterpriseResponse> {
+            Ok(ContactEnterpriseResponse {
+                success: true,
+                message: "received".to_string(),
+            })
+        }
+
+        async fn bulk_provision_members(
+            &self,
+            _payload: BulkProvisionMembersRequest,
+        ) -> Result<BulkProvisionMembersResponse> {
+            Ok(BulkProvisionMembersResponse {
+                added: 0,
+                updated: 0,
+                errors: vec![],
+            })
+        }
+
+        async fn generate_school_invoice(
+            &self,
+            _payload: GenerateSchoolInvoiceRequest,
+        ) -> Result<GenerateSchoolInvoiceResponse> {
+            Ok(GenerateSchoolInvoiceResponse {
+                invoice_id: "invoice-test".to_string(),
+                amount_cents: 0,
+                payment_link: None,
+            })
+        }
+
+        async fn list_school_invoices(&self, _school_id: &str) -> Result<Vec<SchoolInvoiceResponse>> {
+            Ok(vec![])
+        }
+
+        async fn transcribe(&self, _payload: AsrRequest) -> Result<AsrResponse> {
+            Ok(AsrResponse {
+                text: "Transcribed text".to_string(),
+            })
+        }
+
         async fn get_billing_catalog(&self) -> Result<BillingCatalogResponse> {
             Ok(BillingCatalogResponse {
-                gateway: "easebuzz".to_string(),
+                gateway: "multi".to_string(),
                 items: billing_catalog()
                     .into_iter()
                     .map(|item| BillingCatalogItemResponse {
-                        product_code: item.product_code,
+                        product_code: item.product_code.clone(),
                         kind: billing_product_kind_label(&item.kind).to_string(),
                         title: item.title,
+                        description: item.description,
                         credits: item.credits,
                         currency: item.currency,
                         amount_minor: item.amount_minor,
+                        amount_minor_usd: billing_product_usd_amount_minor(&item.product_code),
+                        gst_amount_minor: item.gst_amount_minor,
+                        allowed_quality_modes: item
+                            .allowed_quality_modes
+                            .iter()
+                            .map(|mode| mode.label().to_string())
+                            .collect(),
+                        allowed_learning_modes: item
+                            .allowed_learning_modes
+                            .iter()
+                            .map(|mode| mode.label().to_string())
+                            .collect(),
+                        is_highlighted: item.is_highlighted,
                     })
                     .collect(),
             })
@@ -10325,6 +11386,28 @@ mod tests {
                     .get("status")
                     .cloned()
                     .unwrap_or_else(|| "success".to_string()),
+                credited: true,
+            })
+        }
+
+        async fn handle_stripe_callback(
+            &self,
+            session_id: &str,
+        ) -> Result<EasebuzzCallbackResponse> {
+            Ok(EasebuzzCallbackResponse {
+                order_id: format!("mock-order-{}", session_id),
+                status: "paid".to_string(),
+                credited: true,
+            })
+        }
+
+        async fn handle_free_callback(
+            &self,
+            order_id: &str,
+        ) -> Result<EasebuzzCallbackResponse> {
+            Ok(EasebuzzCallbackResponse {
+                order_id: order_id.to_string(),
+                status: "success".to_string(),
                 credited: true,
             })
         }
@@ -10530,6 +11613,14 @@ mod tests {
                 Ok(AdminUsersListResponse { users: vec![] })
             }
 
+            async fn create_promo_code(&self, _payload: CreatePromoCodeRequest) -> Result<()> {
+                Ok(())
+            }
+
+            async fn list_all_promo_codes(&self, _limit: usize) -> Result<AdminPromoCodeListResponse> {
+                Ok(AdminPromoCodeListResponse { promo_codes: vec![] })
+            }
+
             async fn get_admin_settings(&self) -> Result<AdminSettingsResponse> {
                 Ok(AdminSettingsResponse {
                     operator_roles: "mock@ai-tutor.local=admin".to_string(),
@@ -10543,6 +11634,18 @@ mod tests {
 
             async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse> {
                 Ok(AdminAuditLogsResponse { logs: vec![] })
+            }
+
+            async fn get_api_usage_costs(&self) -> Result<AdminApiCostsResponse> {
+                Ok(AdminApiCostsResponse {
+                    total_cost_usd_30d: 0.0,
+                    openrouter_cost_usd: 0.0,
+                    groq_cost_usd: 0.0,
+                    tts_cost_usd: 0.0,
+                    estimated_margin_30d: 0.0,
+                    by_component: vec![],
+                    per_user: vec![],
+                })
             }
 
             async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse> {
@@ -10886,10 +11989,12 @@ mod tests {
                     image_attachment_credits: 0.05,
                     tts_per_slide_credits: 0.20,
                     starter_grant_credits: 10.0,
-                    plus_monthly_price_usd: 5.0,
-                    plus_monthly_credits: 30.0,
-                    pro_monthly_price_usd: 12.0,
-                    pro_monthly_credits: 80.0,
+                    basic_monthly_price_usd: 5.0,
+                    basic_monthly_credits: 30.0,
+                    standard_monthly_price_usd: 12.0,
+                    standard_monthly_credits: 80.0,
+                    premium_monthly_price_usd: 25.0,
+                    premium_monthly_credits: 120.0,
                     bundle_small_price_usd: 2.0,
                     bundle_small_credits: 10.0,
                     bundle_large_price_usd: 10.0,
@@ -10934,6 +12039,14 @@ mod tests {
                 provider_runtime: vec![],
                 provider_status_error: None,
             })
+        }
+
+        async fn run_worker_loop(&self) -> Result<()> {
+            Ok(())
+        }
+
+        async fn process_queued_job(&self, _request: QueuedLessonRequest) -> Result<()> {
+            Ok(())
         }
     }
 
@@ -11075,7 +12188,7 @@ mod tests {
     #[async_trait]
     impl LlmProvider for BlockingCancellableFakeLlmProvider {
         async fn generate_text(&self, _system_prompt: &str, _user_prompt: &str) -> Result<String> {
-            Ok("unused".to_string())
+            Ok(r#"{"next_agent":"teacher-1"}"#.to_string())
         }
 
         async fn generate_stream_events_with_history_cancellable(
@@ -11084,9 +12197,9 @@ mod tests {
             cancellation: &CancellationToken,
             _on_event: &mut (dyn FnMut(ai_tutor_providers::traits::ProviderStreamEvent) + Send),
         ) -> Result<String> {
-            self.started.notify_waiters();
+            self.started.notify_one();
             cancellation.cancelled().await;
-            self.cancelled.notify_waiters();
+            self.cancelled.notify_one();
             Err(anyhow!("stream cancelled"))
         }
 
@@ -11216,11 +12329,15 @@ mod tests {
             enable_tts: false,
             agent_mode: AgentMode::Default,
             account_id: None,
-            generation_mode: None,
-        };
-        let now = Utc::now();
+            school_id: None,
+            quality_mode: None,
+            learning_mode: None,
+            precharged_credits: None,
+            };        let now = Utc::now();
         LessonGenerationJob {
             id: "job-1".to_string(),
+            account_id: None,
+            school_id: None,
             status: LessonGenerationJobStatus::Succeeded,
             step: LessonGenerationStep::Completed,
             progress: 100,
@@ -11245,6 +12362,8 @@ mod tests {
         let now = Utc::now();
         Lesson {
             id: "lesson-1".to_string(),
+            account_id: None,
+            school_id: None,
             title: "Fractions".to_string(),
             language: "en-US".to_string(),
             description: Some("Teach fractions".to_string()),
@@ -11396,6 +12515,7 @@ mod tests {
     fn sample_stateless_chat_request() -> StatelessChatRequest {
         StatelessChatRequest {
             session_id: None,
+            quality_mode: None,
             runtime_session: Some(RuntimeSessionSelector {
                 mode: RuntimeSessionMode::StatelessClientState,
                 session_id: None,
@@ -11473,13 +12593,23 @@ mod tests {
 
     fn build_live_service(storage: Arc<FileStorage>) -> Arc<dyn LessonAppService> {
         let provider_config = Arc::new(ServerProviderConfig::default());
+        let asset_store = Arc::new(LocalFileAssetStore::new(
+            storage.root_dir().join("assets"),
+            "http://localhost:8099/assets",
+        ));
+        let queue = Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
+        let telemetry = Arc::new(TelemetryService::new(Arc::clone(&storage) as Arc<dyn ApiUsageRepository>));
         Arc::new(LiveLessonAppService::new(
             storage,
+            asset_store,
             Arc::clone(&provider_config),
             Arc::new(DefaultLlmProviderFactory::new((*provider_config).clone())),
             Arc::new(DefaultImageProviderFactory::new((*provider_config).clone())),
             Arc::new(DefaultVideoProviderFactory::new((*provider_config).clone())),
             Arc::new(DefaultTtsProviderFactory::new((*provider_config).clone())),
+            Arc::new(DefaultAsrProviderFactory::new((*provider_config).clone())),
+            queue,
+            telemetry,
             "http://localhost:8099".to_string(),
         ))
     }
@@ -11495,30 +12625,63 @@ mod tests {
         storage: Arc<FileStorage>,
         queue_db_path: Option<String>,
     ) -> Arc<dyn LessonAppService> {
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_IMAGE_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_VIDEO_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_TTS_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_ASR_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_PBL_RUNTIME_MODEL", "openai:gpt-4o-mini");
+
+        let provider_config = Arc::new(ServerProviderConfig {
+            providers: std::collections::HashMap::from([(
+                "openai".to_string(),
+                ai_tutor_providers::config::ServerProviderEntry {
+                    api_key: Some("test-key".to_string()),
+                    base_url: Some("https://example.test/v1".to_string()),
+                    proxy: None,
+                    models: vec![],
+                    transport_override: None,
+                    pricing_override: None,
+                },
+            )]),
+            ..Default::default()
+        });
+        let asset_store = Arc::new(LocalFileAssetStore::new(
+            storage.root_dir().join("assets"),
+            "http://localhost:8099/assets",
+        ));
+        let queue: Arc<dyn LessonQueue> = match queue_db_path {
+            Some(db_path) => Arc::new(FileBackedLessonQueue::with_queue_db(
+                Arc::clone(&storage),
+                db_path,
+            )),
+            None => Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage))),
+        };
+        let telemetry = Arc::new(TelemetryService::new(
+            Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
+        ));
         Arc::new(
             LiveLessonAppService::new(
                 storage,
-                Arc::new(ServerProviderConfig {
-                    providers: std::collections::HashMap::from([(
-                        "openai".to_string(),
-                        ai_tutor_providers::config::ServerProviderEntry {
-                            api_key: Some("test-key".to_string()),
-                            base_url: Some("https://example.test/v1".to_string()),
-                            proxy: None,
-                            models: vec![],
-                            transport_override: None,
-                            pricing_override: None,
-                        },
-                    )]),
-                    ..Default::default()
-                }),
+                asset_store,
+                Arc::clone(&provider_config),
                 Arc::new(FakeLlmProviderFactory),
                 Arc::new(FakeImageProviderFactory),
                 Arc::new(FakeVideoProviderFactory),
                 Arc::new(FakeTtsProviderFactory),
+                Arc::new(FakeAsrProviderFactory),
+                queue,
+                telemetry,
                 "http://localhost:8099".to_string(),
-            )
-            .with_queue_db_path(queue_db_path),
+            ),
         )
     }
 
@@ -11526,22 +12689,32 @@ mod tests {
         storage: Arc<FileStorage>,
         delay_ms: u64,
     ) -> Arc<LiveLessonAppService> {
+        let provider_config = Arc::new(ServerProviderConfig {
+            providers: std::collections::HashMap::from([(
+                "openai".to_string(),
+                ai_tutor_providers::config::ServerProviderEntry {
+                    api_key: Some("test-key".to_string()),
+                    base_url: Some("https://example.test/v1".to_string()),
+                    proxy: None,
+                    models: vec![],
+                    transport_override: None,
+                    pricing_override: None,
+                },
+            )]),
+            ..Default::default()
+        });
+        let asset_store = Arc::new(LocalFileAssetStore::new(
+            storage.root_dir().join("assets"),
+            "http://localhost:8099/assets",
+        ));
+        let queue = Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
+        let telemetry = Arc::new(TelemetryService::new(
+            Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
+        ));
         Arc::new(LiveLessonAppService::new(
             storage,
-            Arc::new(ServerProviderConfig {
-                providers: std::collections::HashMap::from([(
-                    "openai".to_string(),
-                    ai_tutor_providers::config::ServerProviderEntry {
-                        api_key: Some("test-key".to_string()),
-                        base_url: Some("https://example.test/v1".to_string()),
-                        proxy: None,
-                        models: vec![],
-                        transport_override: None,
-                        pricing_override: None,
-                    },
-                )]),
-                ..Default::default()
-            }),
+            asset_store,
+            Arc::clone(&provider_config),
             Arc::new(DelayedFakeLlmProviderFactory {
                 responses: vec![
                     r#"{"outlines":[{"title":"Intro to Fractions","description":"Basic idea","key_points":["What a fraction is"],"scene_type":"slide"}]}"#.to_string(),
@@ -11553,6 +12726,9 @@ mod tests {
             Arc::new(FakeImageProviderFactory),
             Arc::new(FakeVideoProviderFactory),
             Arc::new(FakeTtsProviderFactory),
+            Arc::new(FakeAsrProviderFactory),
+            queue,
+            telemetry,
             "http://localhost:8099".to_string(),
         ))
     }
@@ -11561,26 +12737,39 @@ mod tests {
         storage: Arc<FileStorage>,
         responses: Vec<String>,
     ) -> Arc<dyn LessonAppService> {
+        let provider_config = Arc::new(ServerProviderConfig {
+            providers: std::collections::HashMap::from([(
+                "openai".to_string(),
+                ai_tutor_providers::config::ServerProviderEntry {
+                    api_key: Some("test-key".to_string()),
+                    base_url: Some("https://example.test/v1".to_string()),
+                    proxy: None,
+                    models: vec![],
+                    transport_override: None,
+                    pricing_override: None,
+                },
+            )]),
+            ..Default::default()
+        });
+        let asset_store = Arc::new(LocalFileAssetStore::new(
+            storage.root_dir().join("assets"),
+            "http://localhost:8099/assets",
+        ));
+        let queue = Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
+        let telemetry = Arc::new(TelemetryService::new(
+            Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
+        ));
         Arc::new(LiveLessonAppService::new(
             storage,
-            Arc::new(ServerProviderConfig {
-                providers: std::collections::HashMap::from([(
-                    "openai".to_string(),
-                    ai_tutor_providers::config::ServerProviderEntry {
-                        api_key: Some("test-key".to_string()),
-                        base_url: Some("https://example.test/v1".to_string()),
-                        proxy: None,
-                        models: vec![],
-                        transport_override: None,
-                        pricing_override: None,
-                    },
-                )]),
-                ..Default::default()
-            }),
+            asset_store,
+            Arc::clone(&provider_config),
             Arc::new(FakeChatLlmProviderFactory { responses }),
             Arc::new(FakeImageProviderFactory),
             Arc::new(FakeVideoProviderFactory),
             Arc::new(FakeTtsProviderFactory),
+            Arc::new(FakeAsrProviderFactory),
+            queue,
+            telemetry,
             "http://localhost:8099".to_string(),
         ))
     }
@@ -11589,26 +12778,39 @@ mod tests {
         storage: Arc<FileStorage>,
         responses: Vec<String>,
     ) -> Arc<LiveLessonAppService> {
+        let provider_config = Arc::new(ServerProviderConfig {
+            providers: std::collections::HashMap::from([(
+                "openai".to_string(),
+                ai_tutor_providers::config::ServerProviderEntry {
+                    api_key: Some("test-key".to_string()),
+                    base_url: Some("https://example.test/v1".to_string()),
+                    proxy: None,
+                    models: vec![],
+                    transport_override: None,
+                    pricing_override: None,
+                },
+            )]),
+            ..Default::default()
+        });
+        let asset_store = Arc::new(LocalFileAssetStore::new(
+            storage.root_dir().join("assets"),
+            "http://localhost:8099/assets",
+        ));
+        let queue = Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
+        let telemetry = Arc::new(TelemetryService::new(
+            Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
+        ));
         Arc::new(LiveLessonAppService::new(
             storage,
-            Arc::new(ServerProviderConfig {
-                providers: std::collections::HashMap::from([(
-                    "openai".to_string(),
-                    ai_tutor_providers::config::ServerProviderEntry {
-                        api_key: Some("test-key".to_string()),
-                        base_url: Some("https://example.test/v1".to_string()),
-                        proxy: None,
-                        models: vec![],
-                        transport_override: None,
-                        pricing_override: None,
-                    },
-                )]),
-                ..Default::default()
-            }),
+            asset_store,
+            Arc::clone(&provider_config),
             Arc::new(FakeChatLlmProviderFactory { responses }),
             Arc::new(FakeImageProviderFactory),
             Arc::new(FakeVideoProviderFactory),
             Arc::new(FakeTtsProviderFactory),
+            Arc::new(FakeAsrProviderFactory),
+            queue,
+            telemetry,
             "http://localhost:8099".to_string(),
         ))
     }
@@ -11618,26 +12820,39 @@ mod tests {
         started: Arc<Notify>,
         cancelled: Arc<Notify>,
     ) -> Arc<LiveLessonAppService> {
+        let provider_config = Arc::new(ServerProviderConfig {
+            providers: std::collections::HashMap::from([(
+                "openai".to_string(),
+                ai_tutor_providers::config::ServerProviderEntry {
+                    api_key: Some("test-key".to_string()),
+                    base_url: Some("https://example.test/v1".to_string()),
+                    proxy: None,
+                    models: vec![],
+                    transport_override: None,
+                    pricing_override: None,
+                },
+            )]),
+            ..Default::default()
+        });
+        let asset_store = Arc::new(LocalFileAssetStore::new(
+            storage.root_dir().join("assets"),
+            "http://localhost:8099/assets",
+        ));
+        let queue = Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
+        let telemetry = Arc::new(TelemetryService::new(
+            Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
+        ));
         Arc::new(LiveLessonAppService::new(
             storage,
-            Arc::new(ServerProviderConfig {
-                providers: std::collections::HashMap::from([(
-                    "openai".to_string(),
-                    ai_tutor_providers::config::ServerProviderEntry {
-                        api_key: Some("test-key".to_string()),
-                        base_url: Some("https://example.test/v1".to_string()),
-                        proxy: None,
-                        models: vec![],
-                        transport_override: None,
-                        pricing_override: None,
-                    },
-                )]),
-                ..Default::default()
-            }),
+            asset_store,
+            Arc::clone(&provider_config),
             Arc::new(BlockingCancellableFakeLlmProviderFactory { started, cancelled }),
             Arc::new(FakeImageProviderFactory),
             Arc::new(FakeVideoProviderFactory),
             Arc::new(FakeTtsProviderFactory),
+            Arc::new(FakeAsrProviderFactory),
+            queue,
+            telemetry,
             "http://localhost:8099".to_string(),
         ))
     }
@@ -11914,6 +13129,10 @@ mod tests {
 
     #[tokio::test]
     async fn live_service_managed_runtime_session_stream_disconnect_persists_resumable_state() {
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_BASELINE_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_REASONING_MODEL", "openai:gpt-4o-mini");
+
         let root = temp_root();
         let storage = Arc::new(FileStorage::new(&root));
         let started = Arc::new(Notify::new());
@@ -12006,7 +13225,7 @@ mod tests {
         let order = PaymentOrder {
             id: "order-sub-success-1".to_string(),
             account_id: "acct-sub-success-1".to_string(),
-            product_code: "plus_monthly".to_string(),
+            product_code: "starter".to_string(),
             product_kind: BillingProductKind::Subscription,
             gateway: "easebuzz".to_string(),
             gateway_txn_id: "txn-sub-success-1".to_string(),
@@ -12038,7 +13257,7 @@ mod tests {
             .unwrap();
         assert_eq!(subscriptions.len(), 1);
         let subscription = &subscriptions[0];
-        assert_eq!(subscription.plan_code, "plus_monthly");
+        assert_eq!(subscription.plan_code, "starter");
         assert!(matches!(subscription.status, SubscriptionStatus::Active));
         assert_eq!(subscription.gateway_subscription_id.as_deref(), Some("sub-ref-1"));
         assert_eq!(
@@ -12058,7 +13277,7 @@ mod tests {
             .save_subscription(&Subscription {
                 id: "sub-existing-1".to_string(),
                 account_id: "acct-sub-fail-1".to_string(),
-                plan_code: "pro_monthly".to_string(),
+                plan_code: "pro".to_string(),
                 gateway: "easebuzz".to_string(),
                 gateway_subscription_id: Some("sub-ref-fail".to_string()),
                 status: SubscriptionStatus::Active,
@@ -12073,6 +13292,13 @@ mod tests {
                 last_payment_order_id: Some("order-previous".to_string()),
                 created_at: now,
                 updated_at: now,
+                quality_mode: ai_tutor_domain::billing::QualityMode::Premium,
+                allowed_learning_modes: vec![
+                    ai_tutor_domain::billing::LearningMode::Explain,
+                    ai_tutor_domain::billing::LearningMode::Revision,
+                    ai_tutor_domain::billing::LearningMode::Exam,
+                    ai_tutor_domain::billing::LearningMode::PlacementPrep,
+                ],
             })
             .await
             .unwrap();
@@ -12080,7 +13306,7 @@ mod tests {
         let failed_order = PaymentOrder {
             id: "order-sub-failed-1".to_string(),
             account_id: "acct-sub-fail-1".to_string(),
-            product_code: "pro_monthly".to_string(),
+            product_code: "pro".to_string(),
             product_kind: BillingProductKind::Subscription,
             gateway: "easebuzz".to_string(),
             gateway_txn_id: "txn-sub-failed-1".to_string(),
@@ -12124,7 +13350,7 @@ mod tests {
         let succeeded_order = PaymentOrder {
             id: "order-sub-refund-embedded-1".to_string(),
             account_id: "acct-sub-fail-1".to_string(),
-            product_code: "pro_monthly".to_string(),
+            product_code: "pro".to_string(),
             product_kind: BillingProductKind::Subscription,
             gateway: "easebuzz".to_string(),
             gateway_txn_id: "txn-sub-refund-embedded-1".to_string(),
@@ -12196,7 +13422,7 @@ mod tests {
         let succeeded_order = PaymentOrder {
             id: "order-sub-refund-1".to_string(),
             account_id: "acct-sub-refund-1".to_string(),
-            product_code: "plus_monthly".to_string(),
+            product_code: "starter".to_string(),
             product_kind: BillingProductKind::Subscription,
             gateway: "easebuzz".to_string(),
             gateway_txn_id: "txn-sub-refund-1".to_string(),
@@ -12390,7 +13616,7 @@ mod tests {
             .save_subscription(&Subscription {
                 id: "sub-renew-1".to_string(),
                 account_id: "acct-renew-1".to_string(),
-                plan_code: "plus_monthly".to_string(),
+                plan_code: "starter".to_string(),
                 gateway: "easebuzz".to_string(),
                 gateway_subscription_id: Some("sub-renew-ref-1".to_string()),
                 status: SubscriptionStatus::Active,
@@ -12405,6 +13631,13 @@ mod tests {
                 last_payment_order_id: Some("order-renew-previous".to_string()),
                 created_at: now - chrono::Duration::days(90),
                 updated_at: now - chrono::Duration::days(10),
+                quality_mode: ai_tutor_domain::billing::QualityMode::Standard,
+                allowed_learning_modes: vec![
+                    ai_tutor_domain::billing::LearningMode::Explain,
+                    ai_tutor_domain::billing::LearningMode::Revision,
+                    ai_tutor_domain::billing::LearningMode::Exam,
+                    ai_tutor_domain::billing::LearningMode::PlacementPrep,
+                ],
             })
             .await
             .unwrap();
@@ -12426,7 +13659,7 @@ mod tests {
         assert_eq!(entries_after_first.len(), 1);
         assert!(entries_after_first[0]
             .reason
-            .starts_with("subscription_renewal:plus_monthly"));
+            .starts_with("subscription_renewal:starter"));
 
         let invoices_after_first = storage
             .list_invoices_for_account("acct-renew-1", 10)
@@ -12436,7 +13669,7 @@ mod tests {
         let expected_renewal_amount = billing_catalog()
             .into_iter()
             .find(|product| {
-                product.product_code == "plus_monthly"
+                product.product_code == "starter"
                     && matches!(product.kind, BillingProductKind::Subscription)
             })
             .map(|product| product.amount_minor)
@@ -12531,7 +13764,7 @@ mod tests {
             .save_subscription(&Subscription {
                 id: "sub-revoke-1".to_string(),
                 account_id: "acct-revoke-1".to_string(),
-                plan_code: "pro_monthly".to_string(),
+                plan_code: "pro".to_string(),
                 gateway: "easebuzz".to_string(),
                 gateway_subscription_id: Some("sub-revoke-ref-1".to_string()),
                 status: SubscriptionStatus::PastDue,
@@ -12546,6 +13779,13 @@ mod tests {
                 last_payment_order_id: Some("order-revoke-previous".to_string()),
                 created_at: now - chrono::Duration::days(90),
                 updated_at: now - chrono::Duration::days(10),
+                quality_mode: ai_tutor_domain::billing::QualityMode::Premium,
+                allowed_learning_modes: vec![
+                    ai_tutor_domain::billing::LearningMode::Explain,
+                    ai_tutor_domain::billing::LearningMode::Revision,
+                    ai_tutor_domain::billing::LearningMode::Exam,
+                    ai_tutor_domain::billing::LearningMode::PlacementPrep,
+                ],
             })
             .await
             .unwrap();
@@ -12593,7 +13833,7 @@ mod tests {
             .save_payment_order(&PaymentOrder {
                 id: "order-recovered-1".to_string(),
                 account_id: "acct-recovered-1".to_string(),
-                product_code: "plus_monthly".to_string(),
+                product_code: "starter".to_string(),
                 product_kind: BillingProductKind::Subscription,
                 gateway: "easebuzz".to_string(),
                 gateway_txn_id: "txn-recovered-1".to_string(),
@@ -12725,7 +13965,7 @@ mod tests {
             .save_payment_order(&PaymentOrder {
                 id: "order-exhausted-1".to_string(),
                 account_id: "acct-exhausted-1".to_string(),
-                product_code: "plus_monthly".to_string(),
+                product_code: "starter".to_string(),
                 product_kind: BillingProductKind::Subscription,
                 gateway: "easebuzz".to_string(),
                 gateway_txn_id: "txn-exhausted-1".to_string(),
@@ -12895,7 +14135,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
         let job = build_queued_job(
@@ -12978,7 +14219,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
 
@@ -12988,6 +14230,7 @@ mod tests {
             chrono::Utc::now(),
         );
         storage.create_job(&active_job).await.unwrap();
+        println!("DEBUG: Enqueuing job {}", active_job.id);
         queue
             .enqueue(&QueuedLessonRequest {
                 lesson_id: "lesson-system-status-active-lease".to_string(),
@@ -13016,6 +14259,7 @@ mod tests {
             chrono::Utc::now(),
         );
         storage.create_job(&stale_job).await.unwrap();
+        println!("DEBUG: Enqueuing job {}", stale_job.id);
         queue
             .enqueue(&QueuedLessonRequest {
                 lesson_id: "lesson-system-status-stale-lease".to_string(),
@@ -13147,7 +14391,6 @@ mod tests {
                 require_https: false,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),
-                redis_url: None,
             },
         );
 
@@ -13164,7 +14407,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
 
@@ -13240,7 +14484,6 @@ mod tests {
                 require_https: false,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),
-                redis_url: None,
             },
         );
 
@@ -13302,7 +14545,6 @@ mod tests {
                 require_https: false,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),
-                redis_url: None,
             },
         );
 
@@ -13438,7 +14680,6 @@ mod tests {
                 require_https: false,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),
-                redis_url: None,
             },
         );
 
@@ -13480,7 +14721,6 @@ mod tests {
                 require_https: true,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),
-                redis_url: None,
             },
         );
 
@@ -13530,7 +14770,6 @@ mod tests {
                 require_https: true,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),
-                redis_url: None,
             },
         );
 
@@ -13675,7 +14914,6 @@ mod tests {
                 require_https: false,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),
-                redis_url: None,
             },
         );
 
@@ -13828,10 +15066,12 @@ mod tests {
                 image_attachment_credits: 0.05,
                 tts_per_slide_credits: 0.2,
                 starter_grant_credits: 10.0,
-                plus_monthly_price_usd: 5.0,
-                plus_monthly_credits: 30.0,
-                pro_monthly_price_usd: 12.0,
-                pro_monthly_credits: 80.0,
+                basic_monthly_price_usd: 5.0,
+                basic_monthly_credits: 30.0,
+                standard_monthly_price_usd: 12.0,
+                standard_monthly_credits: 80.0,
+                premium_monthly_price_usd: 25.0,
+                premium_monthly_credits: 120.0,
                 bundle_small_price_usd: 2.0,
                 bundle_small_credits: 10.0,
                 bundle_large_price_usd: 10.0,
@@ -13868,10 +15108,12 @@ mod tests {
                 image_attachment_credits: 0.05,
                 tts_per_slide_credits: 0.2,
                 starter_grant_credits: 10.0,
-                plus_monthly_price_usd: 5.0,
-                plus_monthly_credits: 30.0,
-                pro_monthly_price_usd: 12.0,
-                pro_monthly_credits: 80.0,
+                basic_monthly_price_usd: 5.0,
+                basic_monthly_credits: 30.0,
+                standard_monthly_price_usd: 12.0,
+                standard_monthly_credits: 80.0,
+                premium_monthly_price_usd: 25.0,
+                premium_monthly_credits: 120.0,
                 bundle_small_price_usd: 2.0,
                 bundle_small_credits: 10.0,
                 bundle_large_price_usd: 10.0,
@@ -14009,7 +15251,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
 
@@ -14065,7 +15308,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
 
@@ -14695,6 +15939,7 @@ mod tests {
 
         let payload = serde_json::to_vec(&StatelessChatRequest {
             session_id: None,
+            quality_mode: None,
             runtime_session: Some(RuntimeSessionSelector {
                 mode: RuntimeSessionMode::StatelessClientState,
                 session_id: None,
@@ -15262,6 +16507,10 @@ mod tests {
 
     #[tokio::test]
     async fn live_service_stateless_chat_stream_aborts_on_downstream_disconnect() {
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_BASELINE_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_REASONING_MODEL", "openai:gpt-4o-mini");
+
         let root = temp_root();
         let storage = Arc::new(FileStorage::new(&root));
         let started = Arc::new(Notify::new());
@@ -15496,7 +16745,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
 
@@ -15583,7 +16833,14 @@ mod tests {
     async fn live_service_generates_and_persists_lesson_via_async_api_route() {
         let root = temp_root();
         let storage = Arc::new(FileStorage::new(&root));
-        let app = build_router(build_live_service_with_fakes(Arc::clone(&storage)));
+        let service = build_live_service_with_fakes(Arc::clone(&storage));
+        let app = build_router(Arc::clone(&service));
+
+        // Start the worker loop in the background for this test
+        let worker_service = Arc::clone(&service);
+        tokio::spawn(async move {
+            let _ = worker_service.run_worker_loop().await;
+        });
 
         let payload = serde_json::to_vec(&GenerateLessonPayload {
             requirement: "Teach fractions".to_string(),
@@ -15598,7 +16855,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
 
@@ -15693,7 +16951,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
 
@@ -15775,10 +17034,15 @@ mod tests {
             enable_tts: false,
             agent_mode: AgentMode::Default,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
+            school_id: None,
+            precharged_credits: None,
         };
         let job = LessonGenerationJob {
             id: "job-stale".to_string(),
+            account_id: None,
+            school_id: None,
             status: LessonGenerationJobStatus::Running,
             step: LessonGenerationStep::GeneratingScenes,
             progress: 60,
@@ -15841,7 +17105,8 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
         let job = build_queued_job("job-cancel-live".to_string(), &request, chrono::Utc::now());
@@ -15904,12 +17169,15 @@ mod tests {
             user_nickname: None,
             user_bio: None,
             account_id: None,
-            generation_mode: None,
+            quality_mode: None,
+            learning_mode: None,
         })
         .unwrap();
         let now = chrono::Utc::now();
         let job = LessonGenerationJob {
             id: "job-resume-live".to_string(),
+            account_id: None,
+            school_id: None,
             status: LessonGenerationJobStatus::Cancelled,
             step: LessonGenerationStep::Cancelled,
             progress: 100,
@@ -15995,7 +17263,7 @@ mod tests {
             .save_payment_order(&PaymentOrder {
                 id: "order-recovered-rt-1".to_string(),
                 account_id: "acct-recovered-rt-1".to_string(),
-                product_code: "plus_monthly".to_string(),
+                product_code: "starter".to_string(),
                 product_kind: BillingProductKind::Subscription,
                 gateway: "easebuzz".to_string(),
                 gateway_txn_id: "txn-recovered-rt-1".to_string(),
@@ -16115,7 +17383,7 @@ mod tests {
             .save_payment_order(&PaymentOrder {
                 id: "order-exhausted-rt-1".to_string(),
                 account_id: "acct-exhausted-rt-1".to_string(),
-                product_code: "plus_monthly".to_string(),
+                product_code: "starter".to_string(),
                 product_kind: BillingProductKind::Subscription,
                 gateway: "easebuzz".to_string(),
                 gateway_txn_id: "txn-exhausted-rt-1".to_string(),

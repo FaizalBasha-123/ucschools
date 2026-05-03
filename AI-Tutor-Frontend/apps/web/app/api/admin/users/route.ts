@@ -1,18 +1,12 @@
 import { type NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { authHeadersFrom } from '@/lib/server/auth';
+import { backendUrl } from '@/lib/server/backend-url';
 
-function backendUrlBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-    process.env.AI_TUTOR_API_BASE_URL ||
-    'http://127.0.0.1:8099'
-  );
-}
 
 export async function GET(request: NextRequest) {
   try {
-    const backendRes = await fetch(`${backendUrlBase()}/api/admin/users`, {
+    const backendRes = await fetch(`${backendUrl()}/api/admin/users`, {
       method: 'GET',
       headers: authHeadersFrom(request),
       cache: 'no-store',

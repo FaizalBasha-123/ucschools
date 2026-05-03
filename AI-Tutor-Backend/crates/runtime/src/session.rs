@@ -526,6 +526,8 @@ mod tests {
     fn builds_playback_events_from_lesson_structure() {
         let lesson = Lesson {
             id: "lesson-1".to_string(),
+            account_id: None,
+            school_id: None,
             title: "Fractions".to_string(),
             language: "en-US".to_string(),
             description: None,

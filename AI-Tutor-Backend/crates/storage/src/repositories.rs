@@ -265,3 +265,22 @@ pub trait SchoolRepository: Send + Sync {
     async fn get_school_invoice(&self, id: &str) -> Result<Option<ai_tutor_domain::school::SchoolInvoice>, String>;
     async fn list_school_invoices(&self, school_id: &str) -> Result<Vec<ai_tutor_domain::school::SchoolInvoice>, String>;
 }
+
+/// Repository for tracking per-request AI provider usage costs.
+/// Returns empty data gracefully when the backing table hasn't been created yet.
+#[async_trait]
+pub trait ApiUsageRepository: Send + Sync {
+    /// Insert a new usage record (called after each LLM call once instrumented).
+    async fn insert_api_usage_record(
+        &self,
+        record: &ai_tutor_domain::billing::ApiUsageRecord,
+    ) -> Result<(), String>;
+
+    /// Fetch all usage records created after `since` for cost aggregation.
+    /// Returns an empty Vec if the table doesn't exist yet.
+    async fn list_api_usage_records_since(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String>;
+}
+

@@ -10,8 +10,8 @@ use crate::{
     config::{PricingOverrideConfig, ServerProviderConfig, TransportOverrideConfig},
     google::GoogleProvider,
     openai::{
-        supports_openai_compatible, OpenAiCompatibleImageProvider, OpenAiCompatibleProvider,
-        OpenAiCompatibleTtsProvider, OpenAiCompatibleVideoProvider,
+        supports_openai_compatible, OpenAiCompatibleAsrProvider, OpenAiCompatibleImageProvider,
+        OpenAiCompatibleProvider, OpenAiCompatibleTtsProvider, OpenAiCompatibleVideoProvider,
     },
     resolve::resolve_model_chain,
     resilient::{is_non_retryable, ProviderPricing},
@@ -298,6 +298,76 @@ impl TtsProviderFactory for DefaultTtsProviderFactory {
                 )
             })?;
 
+            if !supports_openai_compatible(&provider_type) && provider_type != ai_tutor_domain::provider::ProviderType::OpenAi {
+                // ElevenLabs is handled specially or uses custom provider_type if defined in domain
+                // but let's assume "elevenlabs" is a stringly typed fallback for now if it's not in enum
+                // Checking the enum in domain...
+                continue;
+            }
+
+            let label = format!(
+                "{}:{}",
+                resolved.model_config.provider_id, resolved.model_config.model_id
+            );
+
+            // Correct enum matching
+            let is_elevenlabs = match &provider_type {
+                 ai_tutor_domain::provider::ProviderType::OpenAi if resolved.model_config.provider_id.to_lowercase().contains("elevenlabs") => true,
+                 _ => false
+            };
+
+            if is_elevenlabs {
+                match crate::elevenlabs::ElevenLabsTtsProvider::new(resolved.model_config) {
+                    Ok(provider) => providers.push((label, Box::new(provider))),
+                    Err(err) => warn!("skipping tts provider candidate {}: {}", label, err),
+                }
+            } else {
+                match OpenAiCompatibleTtsProvider::new(resolved.model_config) {
+                    Ok(provider) => providers.push((label, Box::new(provider))),
+                    Err(err) => warn!("skipping tts provider candidate {}: {}", label, err),
+                }
+            }
+        }
+
+        if providers.is_empty() {
+            return Err(anyhow!("no supported tts provider candidates could be built"));
+        }
+        Ok(Box::new(ResilientTtsProvider::new(providers)))
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct DefaultAsrProviderFactory {
+    server_config: ServerProviderConfig,
+}
+
+impl DefaultAsrProviderFactory {
+    pub fn new(server_config: ServerProviderConfig) -> Self {
+        Self { server_config }
+    }
+}
+
+impl crate::traits::AsrProviderFactory for DefaultAsrProviderFactory {
+    fn build(&self, model_config: ModelConfig) -> Result<Box<dyn crate::traits::AsrProvider>> {
+        let model_string = format!("{}:{}", model_config.provider_id, model_config.model_id);
+        let chain = resolve_model_chain(
+            &self.server_config,
+            Some(&model_string),
+            Some(&model_config.api_key),
+            model_config.base_url.as_deref(),
+            model_config.provider_type.clone(),
+            model_config.requires_api_key,
+        )?;
+
+        let mut providers: Vec<(String, Box<dyn crate::traits::AsrProvider>)> = Vec::new();
+        for resolved in chain {
+            let provider_type = resolved.model_config.provider_type.clone().ok_or_else(|| {
+                anyhow!(
+                    "provider type missing for {}",
+                    resolved.model_config.provider_id
+                )
+            })?;
+
             if !supports_openai_compatible(&provider_type) {
                 continue;
             }
@@ -306,16 +376,60 @@ impl TtsProviderFactory for DefaultTtsProviderFactory {
                 "{}:{}",
                 resolved.model_config.provider_id, resolved.model_config.model_id
             );
-            match OpenAiCompatibleTtsProvider::new(resolved.model_config) {
+            match OpenAiCompatibleAsrProvider::new(resolved.model_config) {
                 Ok(provider) => providers.push((label, Box::new(provider))),
-                Err(err) => warn!("skipping tts provider candidate {}: {}", label, err),
+                Err(err) => warn!("skipping asr provider candidate {}: {}", label, err),
             }
         }
 
         if providers.is_empty() {
-            return Err(anyhow!("no supported tts provider candidates could be built"));
+            return Err(anyhow!("no supported asr provider candidates could be built"));
         }
-        Ok(Box::new(ResilientTtsProvider::new(providers)))
+        Ok(Box::new(ResilientAsrProvider::new(providers)))
+    }
+}
+
+struct ResilientAsrProvider {
+    providers: Vec<(String, Box<dyn crate::traits::AsrProvider>)>,
+}
+
+impl ResilientAsrProvider {
+    fn new(providers: Vec<(String, Box<dyn crate::traits::AsrProvider>)>) -> Self {
+        Self { providers }
+    }
+}
+
+#[async_trait]
+impl crate::traits::AsrProvider for ResilientAsrProvider {
+    async fn transcribe(&self, audio_url: &str) -> Result<String> {
+        let mut last_error = None;
+        for (label, provider) in &self.providers {
+            for attempt in 0..MEDIA_PROVIDER_MAX_ATTEMPTS {
+                match provider.transcribe(audio_url).await {
+                    Ok(text) => return Ok(text),
+                    Err(err) => {
+                        let non_retryable = is_non_retryable(&err);
+                        warn!(
+                            "asr provider {} failed attempt {}/{} (non_retryable={}): {}",
+                            label,
+                            attempt + 1,
+                            MEDIA_PROVIDER_MAX_ATTEMPTS,
+                            non_retryable,
+                            err
+                        );
+                        last_error = Some(anyhow!("{}: {}", label, err));
+                        if non_retryable || attempt + 1 == MEDIA_PROVIDER_MAX_ATTEMPTS {
+                            break;
+                        }
+                        sleep(Duration::from_millis(
+                            MEDIA_PROVIDER_BACKOFF_MS * (attempt as u64 + 1),
+                        ))
+                        .await;
+                    }
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| anyhow!("all asr providers failed")))
     }
 }
 

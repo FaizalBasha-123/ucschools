@@ -42,7 +42,8 @@ export interface GenerateClassroomInput {
   enableVideoGeneration?: boolean;
   enableTTS?: boolean;
   agentMode?: 'default' | 'generate';
-  generationMode?: string;
+  qualityMode?: 'basic' | 'standard' | 'premium';
+  learningMode?: 'explain' | 'revision' | 'exam' | 'placement_prep';
 }
 
 export type ClassroomGenerationStep =

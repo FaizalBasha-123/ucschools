@@ -219,7 +219,7 @@ impl LlmGenerationPipeline {
         }
 
         let pdf_excerpt =
-            normalize_pdf_excerpt(request.pdf_content.as_ref().map(|pdf| pdf.text.as_str()));
+            normalize_pdf_excerpt(request.pdf_content.as_ref().map(|pdf| pdf.as_str()));
         let rewrite_attempted = should_rewrite_search_query(&raw_requirement, &pdf_excerpt);
         let mut query = raw_requirement.clone();
 
@@ -299,13 +299,16 @@ impl LlmGenerationPipeline {
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
         research_context: &Option<String>,
+        pdf_context: Option<&str>,
     ) -> Option<ScientificModel> {
         let config = outline.interactive_config.as_ref()?;
+        let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let system =
             "You are a scientific concept modeler for educational interactives. Return strict JSON only.";
         let user = format!(
             "Create a scientific model for an educational interactive.\n\
              Requirement: {}\n\
+             {}\n\
              Scene title: {}\n\
              Concept name: {}\n\
              Concept overview: {}\n\
@@ -315,6 +318,7 @@ impl LlmGenerationPipeline {
              Return JSON object with shape {{\"core_formulas\":[\"...\"],\"mechanism\":[\"...\"],\"constraints\":[\"...\"],\"forbidden_errors\":[\"...\"],\"variables\":[\"...\"],\"interaction_guidance\":[\"...\"],\"experiment_steps\":[\"...\"],\"observation_prompts\":[\"...\"]}}.\n\
              Focus on scientifically valid relationships, important constraints, common misconceptions to avoid, interactive guidance the HTML simulator must obey, a short experiment sequence, and observation prompts students should answer.",
             request.requirements.requirement,
+            pdf_info,
             outline.title,
             config.concept_name,
             config.concept_overview,
@@ -655,13 +659,16 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
     async fn generate_outlines(
         &self,
         request: &LessonGenerationRequest,
+        pdf_context: Option<&str>,
     ) -> Result<Vec<SceneOutline>> {
         let language = language_code(&request.requirements.language);
         let research_context = self.research_context_for_request(request).await;
+        let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let system = "You are an instructional designer. Return strict JSON only.";
         let user = format!(
     "Create a lesson outline for this requirement.
      Requirement: {}
+     {}
      Language: {}
      {}
      Infer a coherent 15-30 minute classroom flow unless the requirement implies otherwise.
@@ -680,6 +687,7 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
      If image generation is enabled, you may request 0 or 1 generated image for a slide scene.
      If video generation is disabled, do not request video media.",
     request.requirements.requirement,
+    pdf_info,
     language,
     research_context_prompt(&research_context),
     language,
@@ -765,12 +773,13 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         &self,
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
+        pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         match outline.scene_type {
-            SceneType::Slide => self.generate_slide_content(request, outline).await,
-            SceneType::Quiz => self.generate_quiz_content(request, outline).await,
-            SceneType::Interactive => self.generate_interactive_content(request, outline).await,
-            SceneType::Pbl => self.generate_project_content(request, outline).await,
+            SceneType::Slide => self.generate_slide_content(request, outline, pdf_context).await,
+            SceneType::Quiz => self.generate_quiz_content(request, outline, pdf_context).await,
+            SceneType::Interactive => self.generate_interactive_content(request, outline, pdf_context).await,
+            SceneType::Pbl => self.generate_project_content(request, outline, pdf_context).await,
         }
     }
 
@@ -779,10 +788,11 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
         content: &SceneContent,
+        pdf_context: Option<&str>,
     ) -> Result<Vec<LessonAction>> {
         let research_context = self.research_context_for_request(request).await;
         let (system, user) =
-            build_scene_action_prompt(request, outline, content, &research_context)?;
+            build_scene_action_prompt(request, outline, content, &research_context, pdf_context)?;
 
         let primary_response = self
             .generate_with_retry_using(self.scene_actions_llm(), &system, &user)
@@ -827,13 +837,16 @@ impl LlmGenerationPipeline {
         &self,
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
+        pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let language = language_code(&request.requirements.language);
         let research_context = self.research_context_for_request(request).await;
+        let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let system = "You are a slide designer. Return strict JSON only. Slides are visual aids, not lecture scripts. Keep on-slide text concise, scannable, and layout-aware.";
         let user = format!(
             "Create slide elements for a teaching slide.\n\
              Lesson requirement: {}\n\
+             {}\n\
              Scene title: {}\n\
              Scene description: {}\n\
              Teaching objective: {}\n\
@@ -850,6 +863,7 @@ impl LlmGenerationPipeline {
              Text must stay within the canvas margins, and all dimensions must be positive.\n\
              Language: {}",
             request.requirements.requirement,
+            pdf_info,
             outline.title,
             outline.description,
             outline
@@ -906,18 +920,22 @@ impl LlmGenerationPipeline {
         &self,
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
+        pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let research_context = self.research_context_for_request(request).await;
+        let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let system = "You are a quiz generator. Return strict JSON only.";
         let user = format!(
             "Create quiz questions for this lesson scene.\n\
              Requirement: {}\n\
+             {}\n\
              Scene title: {}\n\
              Key points: {}\n\
              {}\n\
              Return JSON object with shape {{\"questions\":[{{\"question\":\"...\",\"options\":[\"...\"],\"answer\":[\"...\"]}}]}}.\n\
              Use 2 or 3 multiple-choice questions.",
             request.requirements.requirement,
+            pdf_info,
             outline.title,
             outline.key_points.join(" | "),
             research_context_prompt(&research_context)
@@ -964,15 +982,18 @@ impl LlmGenerationPipeline {
         &self,
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
+        pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let research_context = self.research_context_for_request(request).await;
         let scientific_model = self
-            .generate_interactive_scientific_model(request, outline, &research_context)
+            .generate_interactive_scientific_model(request, outline, &research_context, pdf_context)
             .await;
+        let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let system = "You are a professional educational interactive web developer. Return a complete self-contained HTML document.";
         let user = format!(
             "Create interactive scene HTML.\n\
              Requirement: {}\n\
+             {}\n\
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
@@ -982,6 +1003,7 @@ impl LlmGenerationPipeline {
              The interaction should guide students from simple observation to active exploration. Include concise instructions, visible controls, and immediate feedback.\n\
              Keep the experience classroom-friendly and in {}.",
             request.requirements.requirement,
+            pdf_info,
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
@@ -1030,12 +1052,15 @@ impl LlmGenerationPipeline {
         &self,
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
+        pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let research_context = self.research_context_for_request(request).await;
+        let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let system = "You design structured project-based learning plans. Return strict JSON only.";
         let user = format!(
             "Create a structured project plan for a PBL scene.\n\
              Requirement: {}\n\
+             {}\n\
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
@@ -1044,6 +1069,7 @@ impl LlmGenerationPipeline {
              Return JSON object with shape {{\"summary\":\"...\",\"title\":\"...\",\"driving_question\":\"...\",\"final_deliverable\":\"...\",\"target_skills\":[\"...\"],\"milestones\":[\"...\"],\"team_roles\":[\"...\"],\"assessment_focus\":[\"...\"],\"starter_prompt\":\"...\"}}.\n\
              Make it classroom-usable: include a clear driving question, a concrete deliverable, 3-5 milestones, useful team roles, and concise assessment criteria.",
             request.requirements.requirement,
+            pdf_info,
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
@@ -1668,13 +1694,16 @@ fn build_scene_action_prompt(
     outline: &SceneOutline,
     content: &SceneContent,
     research_context: &Option<String>,
+    pdf_context: Option<&str>,
 ) -> Result<(String, String)> {
     let content_summary = scene_content_summary(content)?;
     let language = language_code(&request.requirements.language);
+    let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
     let prompt = match outline.scene_type {
         SceneType::Slide => format!(
             "Create ordered classroom actions for this slide scene.\n\
              Lesson requirement: {}\n\
+             {}\n\
              Slide title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
@@ -1688,6 +1717,7 @@ fn build_scene_action_prompt(
              discussion is optional and must be the final action if used.\n\
              Generate 4-8 items, include at least one spoken text segment, and keep all speech in {}.",
             request.requirements.requirement,
+            pdf_info,
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
@@ -1699,6 +1729,7 @@ fn build_scene_action_prompt(
         SceneType::Quiz => format!(
             "Create ordered classroom actions for this quiz scene.\n\
              Lesson requirement: {}\n\
+             {}\n\
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
@@ -1707,6 +1738,7 @@ fn build_scene_action_prompt(
              Return a JSON array directly using {{\"type\":\"text\",\"content\":\"...\"}} and an optional final discussion action {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\",\"prompt\":\"optional\"}}}}.\n\
              Use 3-6 items, keep all speech in {}, and only use discussion when the quiz genuinely invites reflection.",
             request.requirements.requirement,
+            pdf_info,
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
@@ -2716,7 +2748,7 @@ fn request_research_cache_key(request: &LessonGenerationRequest) -> u64 {
     request
         .pdf_content
         .as_ref()
-        .map(|pdf| pdf.text.as_str())
+        .map(|pdf| pdf.as_str())
         .unwrap_or_default()
         .hash(&mut hasher);
     hasher.finish()
@@ -3187,6 +3219,10 @@ mod tests {
             enable_tts: false,
             agent_mode: AgentMode::Default,
             account_id: None,
+            school_id: None,
+            quality_mode: None,
+            learning_mode: None,
+            precharged_credits: None,
         }
     }
 
@@ -3204,13 +3240,13 @@ mod tests {
         let mut request = sample_request();
         request.enable_image_generation = true;
 
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines.len(), 2);
         assert!(matches!(outlines[0].scene_type, SceneType::Slide));
         assert_eq!(outlines[0].media_generations.len(), 1);
 
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
         match &content {
@@ -3229,7 +3265,7 @@ mod tests {
         }
 
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content)
+            .generate_scene_actions(&request, &outlines[0], &content, None)
             .await
             .unwrap();
         assert!(!actions.is_empty());
@@ -3246,7 +3282,7 @@ mod tests {
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
         let request = sample_request();
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
 
         assert_eq!(outlines.len(), 1);
         assert!(outlines[0].media_generations.is_empty());
@@ -3264,7 +3300,7 @@ mod tests {
         let mut request = sample_request();
         request.enable_image_generation = true;
 
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
 
         assert_eq!(outlines.len(), 1);
         assert_eq!(outlines[0].media_generations.len(), 1);
@@ -3290,9 +3326,9 @@ mod tests {
         let mut request = sample_request();
         request.enable_image_generation = true;
 
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
 
@@ -3317,7 +3353,7 @@ mod tests {
         let mut request = sample_request();
         request.enable_image_generation = true;
 
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
 
         assert_eq!(outlines.len(), 3);
         assert!(matches!(outlines[0].scene_type, SceneType::Slide));
@@ -3334,7 +3370,7 @@ mod tests {
         };
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
-        let outlines = pipeline.generate_outlines(&sample_request()).await.unwrap();
+        let outlines = pipeline.generate_outlines(&sample_request(), None).await.unwrap();
 
         assert_eq!(outlines.len(), 1);
         assert_eq!(outlines[0].title, "Intro to Fractions");
@@ -3349,7 +3385,7 @@ mod tests {
         };
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
-        let outlines = pipeline.generate_outlines(&sample_request()).await.unwrap();
+        let outlines = pipeline.generate_outlines(&sample_request(), None).await.unwrap();
 
         assert_eq!(outlines.len(), 2);
         assert!(matches!(outlines[0].scene_type, SceneType::Interactive));
@@ -3380,7 +3416,7 @@ mod tests {
         };
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
-        let outlines = pipeline.generate_outlines(&sample_request()).await.unwrap();
+        let outlines = pipeline.generate_outlines(&sample_request(), None).await.unwrap();
 
         assert_eq!(outlines.len(), 1);
         assert_eq!(outlines[0].title, "Intro to Fractions");
@@ -3399,9 +3435,9 @@ mod tests {
         let mut request = sample_request();
         request.enable_image_generation = true;
 
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
 
@@ -3433,7 +3469,8 @@ mod tests {
         let content = pipeline
             .generate_scene_content(
                 &sample_request(),
-                &pipeline.generate_outlines(&sample_request()).await.unwrap()[0],
+                &pipeline.generate_outlines(&sample_request(), None).await.unwrap()[0],
+                None,
             )
             .await
             .unwrap();
@@ -3469,13 +3506,13 @@ mod tests {
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
         let request = sample_request();
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content)
+            .generate_scene_actions(&request, &outlines[0], &content, None)
             .await
             .unwrap();
 
@@ -3522,11 +3559,11 @@ mod tests {
         .with_scene_actions_fallback_llm(Box::new(fallback_llm));
 
         let request = sample_request();
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines[0].title, "Phase Routed Outline");
 
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
         match &content {
@@ -3540,7 +3577,7 @@ mod tests {
         }
 
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content)
+            .generate_scene_actions(&request, &outlines[0], &content, None)
             .await
             .unwrap();
         assert!(actions.iter().any(|action| {
@@ -3566,7 +3603,7 @@ mod tests {
         let mut request = sample_request();
         request.enable_image_generation = true;
 
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
 
         assert_eq!(outlines.len(), 1);
         assert_eq!(llm.call_count.load(Ordering::SeqCst), 3);
@@ -3585,7 +3622,7 @@ mod tests {
             inner: Arc::clone(&llm),
         }));
         let error = pipeline
-            .generate_outlines(&sample_request())
+            .generate_outlines(&sample_request(), None)
             .await
             .unwrap_err();
 
@@ -3607,12 +3644,12 @@ mod tests {
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
         let request = sample_request();
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines.len(), 1);
         assert!(matches!(outlines[0].scene_type, SceneType::Interactive));
 
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
         match &content {
@@ -3631,7 +3668,7 @@ mod tests {
         }
 
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content)
+            .generate_scene_actions(&request, &outlines[0], &content, None)
             .await
             .unwrap();
         assert!(!actions.is_empty());
@@ -3651,9 +3688,9 @@ mod tests {
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
         let request = sample_request();
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
 
@@ -3684,12 +3721,12 @@ mod tests {
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
         let request = sample_request();
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines.len(), 1);
         assert!(matches!(outlines[0].scene_type, SceneType::Pbl));
 
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
         match &content {
@@ -3716,7 +3753,7 @@ mod tests {
         }
 
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content)
+            .generate_scene_actions(&request, &outlines[0], &content, None)
             .await
             .unwrap();
         assert!(actions
@@ -3738,9 +3775,9 @@ mod tests {
 
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
         let request = sample_request();
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
 
@@ -3778,7 +3815,7 @@ mod tests {
         let mut request = sample_request();
         request.enable_web_search = true;
 
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines.len(), 1);
     }
 
@@ -3802,13 +3839,13 @@ mod tests {
             "Sources:\n- [Fraction basics](https://example.com): Fractions are parts of a whole.",
         );
 
-        let outlines = pipeline.generate_outlines(&request).await.unwrap();
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0])
+            .generate_scene_content(&request, &outlines[0], None)
             .await
             .unwrap();
         let _actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content)
+            .generate_scene_actions(&request, &outlines[0], &content, None)
             .await
             .unwrap();
 

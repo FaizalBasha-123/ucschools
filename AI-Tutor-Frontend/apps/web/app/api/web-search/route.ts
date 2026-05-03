@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('WebSearch');
 
@@ -19,15 +20,8 @@ export async function POST(req: NextRequest) {
 
     if (!query || !query.trim()) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'query is required');
-    }
-
-    const backendUrl =
-      process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-      process.env.AI_TUTOR_API_BASE_URL ||
-      'http://127.0.0.1:8099';
-
-    // Proxy the request to the Rust backend
-    const backendRes = await fetch(`${backendUrl}/api/tools/web-search`, {
+    }    // Proxy the request to the Rust backend
+    const backendRes = await fetch(`${backendUrl()}/api/tools/web-search`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -17,6 +17,7 @@ pub struct GenerationState {
     pub stage: Stage,
     pub outlines: Vec<SceneOutline>,
     pub scenes: Vec<Scene>,
+    pub pdf_context: Option<String>,
     pub started_at: DateTime<Utc>,
 }
 

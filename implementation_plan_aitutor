@@ -1,0 +1,321 @@
+# Complete Platform Redesign: Credits, Pricing, Modes & Operator Console
+
+A full-stack overhaul of the AI Tutor's billing, model selection, PDF processing, and operator monitoring systems.
+
+---
+
+## Current State Assessment
+
+| Component | Status | Notes |
+|---|---|---|
+| `QualityMode` / `LearningMode` domain enums | ✅ Done | In `billing.rs` with correct rates |
+| Three-tier env vars (BASIC/STANDARD/PREMIUM) | ✅ Done | In `.env` + `pedagogy_router.rs` |
+| Pricing page UI | ⚠️ Exists but basic | Needs premium redesign |
+| Credit formula logic | ⚠️ Partial | Domain types exist, not wired to generation handlers |
+| API usage recording | ⚠️ Struct only | `ApiUsageRecord` defined but never inserted |
+| Stripe integration | ❌ Missing | Only Easebuzz exists |
+| PDF smart processing | ❌ Missing | Currently sends full PDF to AI every time |
+| R2 storage + auto-flush | ❌ Missing | No object storage integration |
+| Operator revenue dashboard | ⚠️ Skeleton | Admin page exists with placeholder data |
+| Per-user API cost tracking | ❌ Missing | No OpenRouter/Groq cost scraping |
+| Enterprise invoice management | ⚠️ Domain types exist | No due date tracking or dashboard |
+
+---
+
+## Phased Implementation
+
+> [!IMPORTANT]
+> This is a **6-phase plan**. Each phase is self-contained and deployable. I recommend approving and executing **one phase at a time** to avoid scope creep and catch bugs early.
+
+---
+
+## Phase 1: Model Stack & Env Var Alignment
+**Effort: Small | Risk: Low**
+
+Update `.env` model selections to exactly match the user's specified model stack.
+
+### [MODIFY] [.env](file:///d:/uc-school/AI-Tutor-Backend/.env)
+
+Update model assignments per the user's spec:
+
+| Component | Basic | Standard | Premium |
+|---|---|---|---|
+| **Orchestrator** | `gemini-1.5-flash` | `gemini-2.5-flash` | `claude-3-5-haiku` |
+| **Outline** | `gemini-2.0-flash` | `gemini-2.5-flash` | `claude-sonnet-4-6` |
+| **Content** | `deepseek-v3` (short) | `deepseek-v3` (full) | DeepSeek draft → Claude refine |
+| **Scene Actions** | `llama-8b` (Groq) | DeepSeek V3 reuse | Same + higher configs |
+| **PDF** | `gemini-flash-lite` | `gemini-2.0-flash` | `gemini-2.0-flash` |
+| **Image** | `flux-schnell` | `flux-dev` | `flux-1.1-pro` |
+| **TTS** | `kokoro-82m` | `kokoro-82m` | `elevenlabs:eleven_multilingual_v2` |
+| **ASR** | `whisper-small` | `whisper-large-v3` | `whisper-large-v3` |
+
+> [!NOTE]
+> The Groq Llama 8B for basic-tier scene actions requires adding `GROQ_LLAMA_MODEL` to the env and a provider routing change in `pedagogy_router.rs`.
+
+---
+
+## Phase 2: Credit Consumption Engine (Backend)
+**Effort: Medium | Risk: Medium**
+
+Wire credit deduction into every generation handler so credits are actually consumed.
+
+### [MODIFY] [billing.rs](file:///d:/uc-school/AI-Tutor-Backend/crates/domain/src/billing.rs)
+
+Add credit computation functions:
+
+```rust
+/// Calculate credits for a lesson generation.
+pub fn lesson_credits(quality: QualityMode, learning: LearningMode, duration_secs: f64) -> f64 {
+    let base = (duration_secs / 60.0) * quality.credits_per_minute();
+    base * learning.credit_multiplier()
+}
+
+/// Calculate credits for PDF analysis.
+pub fn pdf_credits(page_count: u32) -> f64 {
+    1.0 + (page_count as f64 * 0.20)
+}
+
+/// Image analysis credit costs.
+pub fn image_credits(action: ImageAnalysisAction) -> f64 {
+    match action {
+        ImageAnalysisAction::View => 0.0,
+        ImageAnalysisAction::BasicCaption => 0.5,
+        ImageAnalysisAction::DeepExplanation => 3.0,
+    }
+}
+```
+
+### [MODIFY] [app.rs](file:///d:/uc-school/AI-Tutor-Backend/crates/api/src/app.rs)
+
+- In `generate_lesson_async` handler: deduct credits **before** starting generation
+- Add `BillingContext` check: reject with 402 if insufficient credits
+- After generation completes: record `ApiUsageRecord` with actual token counts
+
+### [MODIFY] [filesystem.rs](file:///d:/uc-school/AI-Tutor-Backend/crates/storage/src/filesystem.rs)
+
+Implement `deduct_credits(account_id, amount) -> Result<f64>` (returns new balance).
+Implement `insert_api_usage_record(record) -> Result<()>`.
+
+---
+
+## Phase 3: Payment Gateway Integration
+**Effort: Large | Risk: High**
+
+### India: Easebuzz (already implemented)
+- Keep existing flow, update catalog to match new plan prices
+- Add GST (18%) display on frontend
+
+### International: Stripe (NEW)
+
+#### [NEW] `crates/api/src/stripe.rs`
+- Stripe Checkout Session creation
+- Webhook handler for `checkout.session.completed`
+- Credit granting on successful payment
+
+#### [MODIFY] [app.rs](file:///d:/uc-school/AI-Tutor-Backend/crates/api/src/app.rs)
+- Route `/api/billing/checkout`: detect region from request, dispatch to Easebuzz or Stripe
+- Add `/api/billing/stripe/webhook` endpoint
+- Update `billing_catalog()` to return both INR and USD prices
+
+#### [MODIFY] [pricing/page.tsx](file:///d:/uc-school/AI-Tutor-Frontend/apps/web/app/pricing/page.tsx)
+- Geo-detection (already exists via ipapi.co) to show INR vs USD
+- India checkout → Easebuzz redirect
+- International checkout → Stripe Checkout redirect
+- Show "+18% GST" badge for India
+
+### Billing Catalog (updated plans)
+
+| Plan | INR | USD | Credits | Quality Access | Learning Modes |
+|---|---|---|---|---|---|
+| Basic | ₹30 | $1 | 20 | basic only | Explain ✅, Revision ⚠️limited |
+| Starter | ₹199 | $3 | 180 | basic + standard | All, Exam+Placement ⚠️limited |
+| Pro | ₹499 | $6 | 650 | all tiers | All, Placement ⚠️limited |
+| Power | ₹999 | $12 | 1800 | all tiers | All ✅ full |
+
+### Credit Add-on Packs
+| Pack | INR | USD | Credits |
+|---|---|---|---|
+| Small | ₹99 | $2 | 150 |
+| Large | ₹199 | $3 | 350 |
+
+---
+
+## Phase 4: Pricing Page Premium UI Redesign
+**Effort: Medium | Risk: Low**
+
+#### [MODIFY] [pricing/page.tsx](file:///d:/uc-school/AI-Tutor-Frontend/apps/web/app/pricing/page.tsx)
+
+Complete visual overhaul:
+- **Dark-capable design** with glassmorphism cards
+- **Animated credit calculator** with real-time slider for PDF pages
+- **Interactive quality mode selector** showing voice cost and model stack
+- **Learning mode grid** with multiplier badges and lock icons for restricted modes
+- **Enterprise section** with prominent contact form (schools, colleges, institutions, academies)
+- **Promo code** redemption modal (keep existing logic)
+- Credit display banner if user is logged in
+- "+18% GST at checkout" for India region
+
+#### [MODIFY] [mode-selector.tsx](file:///d:/uc-school/AI-Tutor-Frontend/apps/web/components/generation/mode-selector.tsx)
+
+- Show `🎧 Voice → ~X.X credits/min` for current mode
+- Show credit multiplier for selected learning mode
+- Show estimated total: `~{rate} credits/min for {learning} + {quality} mode`
+
+---
+
+## Phase 5: API Cost Tracking & Operator Revenue Dashboard
+**Effort: Large | Risk: Medium**
+
+### Backend: Instrument All AI Calls
+
+#### [MODIFY] Orchestrator crate — every LLM/TTS/image call
+
+After each API call to OpenRouter/Groq/ElevenLabs:
+1. Parse `x-ratelimit-*` or response headers for token counts
+2. Look up cost-per-million-token from a static pricing table
+3. Insert `ApiUsageRecord` into storage
+
+```rust
+// Static pricing table (USD per 1M tokens)
+pub struct ModelPricing {
+    pub input_per_1m: f64,
+    pub output_per_1m: f64,
+}
+
+pub fn openrouter_pricing(model_id: &str) -> ModelPricing { ... }
+```
+
+#### [NEW] `crates/domain/src/operator.rs`
+
+```rust
+pub struct OperatorDashboardData {
+    pub total_revenue_inr: i64,
+    pub total_revenue_usd: i64,
+    pub total_api_cost_usd: f64,
+    pub gross_margin_pct: f64,
+    pub per_user_costs: Vec<UserCostSummary>,
+    pub daily_revenue: Vec<DailyRevenue>,
+    pub daily_api_costs: Vec<DailyApiCost>,
+}
+
+pub struct UserCostSummary {
+    pub account_id: String,
+    pub email: String,
+    pub total_paid_inr: i64,
+    pub total_api_cost_usd: f64,
+    pub lessons_generated: u32,
+    pub credits_used: f64,
+    pub credits_remaining: f64,
+}
+```
+
+#### [MODIFY] [admin/page.tsx](file:///d:/uc-school/AI-Tutor-Frontend/apps/web/app/admin/page.tsx)
+
+**Overview Tab:**
+- Total users, active subscriptions, credits consumed today
+- Revenue (INR + USD) vs API costs (USD) with gross margin %
+- Revenue trend chart (last 30 days)
+
+**Revenue Tab:**
+- Per-user payment history table (who paid, amount, date, plan)
+- Enterprise invoice table (school, amount, due date, status: paid/overdue)
+- Filter by date range, plan type
+
+**API Costs (Expenses) Tab:**
+- Total API spend by provider (OpenRouter, Groq, ElevenLabs)
+- Per-user API cost breakdown table (account, email, cost USD, tokens)
+- Cost by component (orchestrator, content, TTS, image, PDF)
+- Daily cost trend chart
+
+**Enterprise Tab:**
+- School list with student count, plan, billing status
+- Invoice management: generate invoice, mark paid, set due date
+- Per-school cost analysis
+
+---
+
+## Phase 6: Smart PDF Processing Pipeline
+**Effort: Very Large | Risk: High**
+
+> [!WARNING]
+> This phase involves R2 integration, embedding generation, and background job scheduling. It should be implemented last and can be deferred if needed.
+
+### Architecture
+
+```
+User uploads PDF
+       ↓
+[Layer 1: Cheap indexing — one-time]
+  lopdf/pdfium → extract text blocks + image refs
+  Store chunks in Postgres with has_image flag
+  Store images in R2
+  Generate embeddings (small model)
+       ↓
+[Layer 2: On-demand AI — per query]
+  User query → embedding search → top chunks
+  If chunk.has_image → selective vision call
+  Generate answer with relevant context only
+       ↓
+[Cleanup: 10-minute TTL]
+  Background job flushes R2 objects + Postgres chunks
+```
+
+### New Backend Components
+
+#### [NEW] `crates/pdf_indexer/src/lib.rs`
+- Parse PDF into `PdfChunk` structs with `has_image` flag
+- Extract and store images separately in R2
+- Generate embeddings via small embedding model API
+
+#### [MODIFY] Storage crate
+- `insert_pdf_chunks(chunks: Vec<PdfChunk>)` → Postgres
+- `search_chunks_by_embedding(query_embedding, top_k)` → vector similarity
+- `flush_expired_pdf_data(older_than: Duration)` → cleanup job
+
+#### [NEW] Background cleanup job
+- Runs every 5 minutes
+- Deletes R2 objects and Postgres chunks older than 10 minutes post-lesson-creation
+
+### Credit Charges
+| Action | Credits |
+|---|---|
+| View image | 0 |
+| Basic caption | 0.5 |
+| Deep explanation | 2–4 |
+| PDF text analysis | `1 + (pages × 0.20)` |
+
+---
+
+## Open Questions
+
+> [!IMPORTANT]
+> **1. Stripe Account:** Do you already have a Stripe account and API keys? If not, Phase 3 international payments will need to be deferred.
+
+> [!IMPORTANT]
+> **2. R2 (Cloudflare):** Do you have R2 credentials configured? Phase 6 depends on this. If not, we can use the existing local/S3 storage as a fallback.
+
+> [!IMPORTANT]
+> **3. Embedding Model:** For Phase 6 PDF indexing, which embedding model should we use? Options: OpenAI `text-embedding-3-small` (~$0.02/1M tokens), or a local model via Ollama.
+
+> [!IMPORTANT]
+> **4. OpenRouter Cost API:** OpenRouter provides per-request cost in the `x-openrouter-cost` response header. Should we rely on this for real-time cost tracking, or maintain our own static pricing table as a fallback?
+
+> [!IMPORTANT]
+> **5. Execution Order:** I recommend executing **Phases 1→2→4→3→5→6**. Phase 4 (UI) can be done in parallel with Phase 2 (backend credits). Phase 6 (PDF) can be deferred. Do you agree with this order?
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- `cargo test --workspace` after each backend phase
+- Credit deduction unit tests: verify `lesson_credits()`, `pdf_credits()` formulas
+- Billing catalog test: verify plan prices match spec
+
+### Manual Verification
+- **Phase 1:** Verify correct models are resolved for each quality tier via `cargo check`
+- **Phase 2:** Test credit deduction flow end-to-end (generate lesson → verify balance decreased)
+- **Phase 3:** Test Easebuzz checkout (India) and Stripe checkout (international) with test keys
+- **Phase 4:** Visual review of pricing page in both light/dark mode, INR/USD toggle
+- **Phase 5:** Generate lessons from test accounts, verify API costs appear in operator dashboard
+- **Phase 6:** Upload PDF, verify chunks indexed, verify cleanup after 10 minutes

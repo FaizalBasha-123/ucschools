@@ -2,6 +2,9 @@ pub mod app;
 pub mod tools;
 pub mod notifications;
 pub mod queue;
+pub mod queue_redis;
+pub mod telemetry;
+pub mod telemetry_provider;
 pub mod startup_readiness;
 
 pub mod subscription_scheduler;

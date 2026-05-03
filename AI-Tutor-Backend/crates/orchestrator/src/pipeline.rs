@@ -32,12 +32,14 @@ pub trait LessonGenerationPipeline: Send + Sync {
     async fn generate_outlines(
         &self,
         request: &LessonGenerationRequest,
+        pdf_context: Option<&str>,
     ) -> Result<Vec<SceneOutline>>;
 
     async fn generate_scene_content(
         &self,
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
+        pdf_context: Option<&str>,
     ) -> Result<SceneContent>;
 
     async fn generate_scene_actions(
@@ -45,6 +47,7 @@ pub trait LessonGenerationPipeline: Send + Sync {
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
         content: &SceneContent,
+        pdf_context: Option<&str>,
     ) -> Result<Vec<LessonAction>>;
 }
 
@@ -157,6 +160,7 @@ where
             stage,
             outlines: Vec::new(),
             scenes: Vec::new(),
+            pdf_context: None,
             started_at: now,
         };
 
@@ -178,6 +182,8 @@ where
 
         let lesson = Lesson {
             id: lesson_id.clone(),
+            account_id: state.job.account_id.clone(),
+            school_id: state.job.school_id.clone(),
             title: state.stage.name.clone(),
             language: language_code(&state.request.requirements.language).to_string(),
             description: Some(state.request.requirements.requirement.clone()),
@@ -217,6 +223,35 @@ where
     }
 
     async fn run_pipeline(&self, state: &mut GenerationState, _base_url: &str) -> Result<()> {
+        // Step 0: PDF Processing
+        if let Some(pdf_b64) = &state.request.pdf_content {
+            update_job(
+                &self.jobs,
+                &mut state.job,
+                LessonGenerationJobStatus::Running,
+                LessonGenerationStep::AnalyzingInput,
+                10,
+                "Analyzing PDF content",
+            )
+            .await?;
+
+            use ai_tutor_media::pdf_processor::PdfProcessor;
+            use base64::{engine::general_purpose::STANDARD, Engine as _};
+            
+            let pdf_bytes = STANDARD.decode(pdf_b64)
+                .map_err(|err| anyhow!("Failed to decode PDF content: {}", err))?;
+            
+            if let Ok(pdf_result) = PdfProcessor::process_pdf(&pdf_bytes) {
+                // For now, we'll just use the first 15000 chars as context
+                let context = if pdf_result.full_text.len() > 15000 {
+                    format!("{}... [TRUNCATED]", &pdf_result.full_text[..15000])
+                } else {
+                    pdf_result.full_text.clone()
+                };
+                state.pdf_context = Some(context);
+            }
+        }
+
         if state.request.enable_web_search {
             update_job(
                 &self.jobs,
@@ -239,7 +274,7 @@ where
         )
         .await?;
 
-        state.outlines = self.pipeline.generate_outlines(&state.request).await?;
+        state.outlines = self.pipeline.generate_outlines(&state.request, state.pdf_context.as_deref()).await?;
         state.job.total_scenes = Some(state.outlines.len() as i32);
         state.job.updated_at = Utc::now();
         self.jobs
@@ -264,11 +299,11 @@ where
         for (index, outline) in state.outlines.iter().enumerate() {
             let content = self
                 .pipeline
-                .generate_scene_content(&state.request, outline)
+                .generate_scene_content(&state.request, outline, state.pdf_context.as_deref())
                 .await?;
             let actions = self
                 .pipeline
-                .generate_scene_actions(&state.request, outline, &content)
+                .generate_scene_actions(&state.request, outline, &content, state.pdf_context.as_deref())
                 .await?;
 
             state.scenes.push(Scene {
@@ -684,6 +719,8 @@ pub fn build_queued_job(
 ) -> LessonGenerationJob {
     LessonGenerationJob {
         id: job_id,
+        account_id: request.account_id.clone(),
+        school_id: request.school_id.clone(),
         status: LessonGenerationJobStatus::Queued,
         step: LessonGenerationStep::Queued,
         progress: 0,
@@ -743,6 +780,7 @@ mod tests {
         async fn generate_outlines(
             &self,
             request: &LessonGenerationRequest,
+            _pdf_context: Option<&str>,
         ) -> Result<Vec<SceneOutline>> {
             Ok(vec![
                 SceneOutline {
@@ -784,6 +822,7 @@ mod tests {
             &self,
             _request: &LessonGenerationRequest,
             outline: &SceneOutline,
+            _pdf_context: Option<&str>,
         ) -> Result<SceneContent> {
             Ok(match outline.scene_type {
                 SceneType::Slide => SceneContent::Slide {
@@ -845,6 +884,7 @@ mod tests {
             _request: &LessonGenerationRequest,
             outline: &SceneOutline,
             _content: &SceneContent,
+            _pdf_context: Option<&str>,
         ) -> Result<Vec<LessonAction>> {
             Ok(vec![LessonAction::Speech {
                 id: format!("action-{}", outline.id),
@@ -938,6 +978,7 @@ mod tests {
         async fn generate_outlines(
             &self,
             request: &LessonGenerationRequest,
+            _pdf_context: Option<&str>,
         ) -> Result<Vec<SceneOutline>> {
             Ok(vec![SceneOutline {
                 id: "outline-1".to_string(),
@@ -966,6 +1007,7 @@ mod tests {
             &self,
             _request: &LessonGenerationRequest,
             _outline: &SceneOutline,
+            _pdf_context: Option<&str>,
         ) -> Result<SceneContent> {
             Ok(SceneContent::Slide {
                 canvas: ai_tutor_domain::scene::SlideCanvas {
@@ -997,6 +1039,7 @@ mod tests {
             _request: &LessonGenerationRequest,
             outline: &SceneOutline,
             _content: &SceneContent,
+            _pdf_context: Option<&str>,
         ) -> Result<Vec<LessonAction>> {
             Ok(vec![LessonAction::Speech {
                 id: format!("action-{}", outline.id),
@@ -1016,6 +1059,7 @@ mod tests {
         async fn generate_outlines(
             &self,
             request: &LessonGenerationRequest,
+            _pdf_context: Option<&str>,
         ) -> Result<Vec<SceneOutline>> {
             Ok(vec![SceneOutline {
                 id: "outline-1".to_string(),
@@ -1044,6 +1088,7 @@ mod tests {
             &self,
             _request: &LessonGenerationRequest,
             _outline: &SceneOutline,
+            _pdf_context: Option<&str>,
         ) -> Result<SceneContent> {
             Ok(SceneContent::Slide {
                 canvas: ai_tutor_domain::scene::SlideCanvas {
@@ -1075,6 +1120,7 @@ mod tests {
             _request: &LessonGenerationRequest,
             outline: &SceneOutline,
             _content: &SceneContent,
+            _pdf_context: Option<&str>,
         ) -> Result<Vec<LessonAction>> {
             Ok(vec![LessonAction::Speech {
                 id: format!("action-{}", outline.id),
@@ -1156,6 +1202,20 @@ mod tests {
         ) -> std::result::Result<Option<LessonGenerationJob>, String> {
             Ok(self.jobs.lock().unwrap().get(job_id).cloned())
         }
+
+        async fn list_all_jobs(
+            &self,
+            limit: usize,
+        ) -> std::result::Result<Vec<LessonGenerationJob>, String> {
+            Ok(self
+                .jobs
+                .lock()
+                .unwrap()
+                .values()
+                .take(limit)
+                .cloned()
+                .collect())
+        }
     }
 
     fn sample_request() -> LessonGenerationRequest {
@@ -1174,6 +1234,10 @@ mod tests {
             enable_tts: false,
             agent_mode: AgentMode::Default,
             account_id: None,
+            school_id: None,
+            quality_mode: None,
+            learning_mode: None,
+            precharged_credits: None,
         }
     }
 

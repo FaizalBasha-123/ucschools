@@ -31,6 +31,13 @@ pub trait AssetStore: Send + Sync {
         content_type: &str,
         bytes: Vec<u8>,
     ) -> Result<String>;
+
+    async fn get_asset(
+        &self,
+        kind: &str,
+        lesson_id: &str,
+        file_name: &str,
+    ) -> Result<Option<Vec<u8>>>;
 }
 
 pub type DynAssetStore = Arc<dyn AssetStore>;
@@ -50,7 +57,6 @@ impl LocalFileAssetStore {
 
     fn asset_dir(&self, kind: AssetKind, lesson_id: &str) -> PathBuf {
         self.root
-            .join("assets")
             .join(kind.folder_name())
             .join(lesson_id)
     }
@@ -76,6 +82,25 @@ impl AssetStore for LocalFileAssetStore {
             lesson_id,
             file_name
         ))
+    }
+
+    async fn get_asset(
+        &self,
+        kind: &str,
+        lesson_id: &str,
+        file_name: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let path = self
+            .root
+            .join(kind)
+            .join(lesson_id)
+            .join(file_name);
+
+        match tokio::fs::read(path).await {
+            Ok(bytes) => Ok(Some(bytes)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(err.into()),
+        }
     }
 }
 
@@ -154,6 +179,32 @@ impl AssetStore for R2AssetStore {
             self.public_base_url.trim_end_matches('/'),
             key
         ))
+    }
+
+    async fn get_asset(
+        &self,
+        kind: &str,
+        lesson_id: &str,
+        file_name: &str,
+    ) -> Result<Option<Vec<u8>>> {
+        let key = format!("{}/{}/{}", kind, lesson_id, file_name);
+        let key = if self.key_prefix.is_empty() {
+            key
+        } else {
+            format!("{}/{}", self.key_prefix, key)
+        };
+
+        let action = self.bucket.get_object(Some(&self.credentials), &key);
+        let signed_url = action.sign(Duration::from_secs(60 * 15));
+
+        let response = self.client.get(signed_url.to_string()).send().await?;
+
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        let bytes = response.error_for_status()?.bytes().await?;
+        Ok(Some(bytes.to_vec()))
     }
 }
 

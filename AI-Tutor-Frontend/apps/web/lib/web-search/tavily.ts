@@ -6,6 +6,7 @@
 
 import { proxyFetch } from '@/lib/server/proxy-fetch';
 import type { WebSearchResult, WebSearchSource } from '@/lib/types/web-search';
+import { backendUrl } from '@/lib/server/backend-url';
 
 /**
  * Search the web by proxying the request to our secure Rust backend.
@@ -16,14 +17,7 @@ export async function searchWithTavily(params: {
   apiKey?: string; // Kept for signature compatibility, but ignored
   maxResults?: number;
 }): Promise<WebSearchResult> {
-  const { query, pdfText } = params;
-
-  const backendUrl =
-    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-    process.env.AI_TUTOR_API_BASE_URL ||
-    'http://127.0.0.1:8099';
-
-  const res = await proxyFetch(`${backendUrl}/api/tools/web-search`, {
+  const { query, pdfText } = params;  const res = await proxyFetch(`${backendUrl()}/api/tools/web-search`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

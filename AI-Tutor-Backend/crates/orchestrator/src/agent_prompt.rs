@@ -921,6 +921,7 @@ mod tests {
     fn base_payload(scene: SceneContent) -> StatelessChatRequest {
         StatelessChatRequest {
             session_id: None,
+            quality_mode: None,
             runtime_session: Some(RuntimeSessionSelector {
                 mode: RuntimeSessionMode::StatelessClientState,
                 session_id: None,

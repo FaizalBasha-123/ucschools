@@ -16,3 +16,4 @@ tokio.workspace = true
 postgres = { version = "0.19", features = ["with-chrono-0_4"] }
 native-tls = "0.2"
 postgres-native-tls = "0.5"
+uuid = { workspace = true, features = ["v4"] }

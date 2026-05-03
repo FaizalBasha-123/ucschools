@@ -25,7 +25,7 @@ export function UseCasesSection() {
           </div>
           <h3 className="text-2xl font-bold mb-4 text-neutral-900 dark:text-white">The Student</h3>
           <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed font-medium mb-6">
-            "11 PM cramming made safe."
+            &quot;11 PM cramming made safe.&quot;
           </p>
           <p className="text-sm text-neutral-500 dark:text-neutral-500 leading-relaxed mt-auto">
             Stuck on a tricky calculus concept? Generate an instant interactive classroom that acts as a Socratic tutor, questioning rather than telling, ensuring you actually understand the core principles before the exam.
@@ -46,7 +46,7 @@ export function UseCasesSection() {
           </div>
           <h3 className="text-2xl font-bold mb-4 text-neutral-900 dark:text-white">The Educator</h3>
           <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed font-medium mb-6">
-            "Draft a 12-slide interactive lesson in 4 seconds."
+            &quot;Draft a 12-slide interactive lesson in 4 seconds.&quot;
           </p>
           <p className="text-sm text-neutral-500 dark:text-neutral-500 leading-relaxed mt-auto">
             Instead of spending hours gathering images and formatting layouts, input your syllabus topic. Our engine instantly builds a comprehensive, beautiful slide deck complete with interactive voice agents ready for your class.
@@ -66,7 +66,7 @@ export function UseCasesSection() {
           </div>
           <h3 className="text-2xl font-bold mb-4 text-neutral-900 dark:text-white">The Polymath</h3>
           <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed font-medium mb-6">
-            "Distill 500-page density."
+            &quot;Distill 500-page density.&quot;
           </p>
           <p className="text-sm text-neutral-500 dark:text-neutral-500 leading-relaxed mt-auto">
             Upload dense research PDFs. The AI pipeline reads the raw academic text and completely restructures it into digestible, sequential modules—allowing you to ingest high-level knowledge at extreme velocities.

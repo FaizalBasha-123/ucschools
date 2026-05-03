@@ -3,6 +3,11 @@
  *
  * Extracts the repeated parseModelString → resolveApiKey → resolveBaseUrl →
  * resolveProxy → getModel boilerplate into a single call.
+ *
+ * Quality tiers map to env-var prefixes:
+ *   basic    → BASIC_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL
+ *   standard → STANDARD_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL  (default)
+ *   premium  → PREMIUM_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL
  */
 
 import type { NextRequest } from 'next/server';
@@ -17,12 +22,23 @@ export interface ResolvedModel extends ModelWithInfo {
   apiKey: string;
 }
 
+/** Map a quality tier to the correct env-var prefix. */
+function qualityPrefix(qualityMode?: string): string {
+  switch (qualityMode) {
+    case 'premium':  return 'PREMIUM_MODE_';
+    case 'basic':    return 'BASIC_MODE_';
+    default:         return 'STANDARD_MODE_';
+  }
+}
+
 /**
  * Resolve a language model from explicit parameters.
  *
  * Use this when model config comes from the request body or headers.
- * When generationMode is 'best', resolves from BEST_MODE_ env vars.
- * Otherwise defaults to BALANCED_MODE_ env vars.
+ * qualityMode selects the env-var tier:
+ *   basic    → BASIC_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL
+ *   standard → STANDARD_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL (default)
+ *   premium  → PREMIUM_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL
  */
 export function resolveModel(params: {
   modelString?: string;
@@ -30,13 +46,13 @@ export function resolveModel(params: {
   baseUrl?: string;
   providerType?: string;
   requiresApiKey?: boolean;
-  generationMode?: string;
+  qualityMode?: string;
 }): ResolvedModel {
-  const prefix = params.generationMode === 'best' ? 'BEST_MODE_' : 'BALANCED_MODE_';
+  const prefix = qualityPrefix(params.qualityMode);
   const modelString =
     params.modelString ||
     process.env[`${prefix}AI_TUTOR_CHAT_SCAFFOLD_MODEL`] ||
-    process.env.BALANCED_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL;
+    process.env.STANDARD_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL;
   if (!modelString) {
     throw new Error(
       `${prefix}AI_TUTOR_CHAT_SCAFFOLD_MODEL environment variable is required but not set.`,
@@ -73,16 +89,14 @@ export function resolveModel(params: {
 /**
  * Resolve a language model from standard request headers.
  *
- * The backend owns the active model selection.
- * Reads only credential and endpoint overrides from headers.
- * Passes through x-generation-mode so the correct BALANCED_MODE_/BEST_MODE_
- * env var set is used for the frontend generation pipeline.
+ * Reads x-quality-mode to select the correct model tier env-var set.
+ * Credential/endpoint overrides are read from x-api-key / x-base-url.
  */
 export function resolveModelFromHeaders(req: NextRequest): ResolvedModel {
   return resolveModel({
     apiKey: req.headers.get('x-api-key') || undefined,
     baseUrl: req.headers.get('x-base-url') || undefined,
     requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
-    generationMode: req.headers.get('x-generation-mode') || undefined,
+    qualityMode: req.headers.get('x-quality-mode') || undefined,
   });
 }
