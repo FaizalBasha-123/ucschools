@@ -2141,7 +2141,7 @@ impl LiveLessonAppService {
         product: &BillingProductDefinition,
     ) -> Result<CheckoutSessionResponse> {
         let config = easebuzz_config()?;
-        let amount_minor = product.total_with_gst_minor();
+        let amount_minor = product.amount_minor + product.gst_amount_minor;
         let order_id = Uuid::new_v4().to_string();
         let gateway_txn_id = format!("aitutor-{}", Uuid::new_v4().simple());
         let success_url = format!("{}/api/billing/easebuzz/callback", self.base_url.trim_end_matches('/'));
@@ -9703,11 +9703,14 @@ fn highest_allowed_quality_mode(
 
 fn billing_product_usd_amount_minor(product_code: &str) -> i64 {
     match product_code {
-        "basic_monthly" => 900,
-        "standard_monthly" => 1500,
-        "premium_monthly" => 2500,
-        "bundle_small" => 200,
-        "bundle_large" => 500,
+        "starter" => 500,        // $5
+        "pro" => 1000,           // $10
+        "power" => 3000,         // $30
+        "starter_yearly" => 4800, // $48
+        "pro_yearly" => 9600,     // $96
+        "power_yearly" => 28800,  // $288
+        "pack_150" => 200,        // $2
+        "pack_500" => 500,        // $5
         _ => 0,
     }
 }
