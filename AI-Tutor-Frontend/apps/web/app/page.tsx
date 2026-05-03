@@ -19,6 +19,7 @@ import {
   Monitor,
   ChevronUp,
   BotOff,
+  Loader2,
 } from 'lucide-react';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { LanguageSwitcher } from '@/components/language-switcher';
@@ -76,7 +77,7 @@ type LessonShelfFilter = 'all' | 'in-progress' | 'completed' | 'archived';
 interface FormState {
   pdfFile: File | null;
   requirement: string;
-  language: 'zh-CN' | 'en-US';
+  language: string;
   webSearch: boolean;
 }
 
@@ -124,7 +125,7 @@ function HomePage() {
   // When the user switches language in the header (TA ↔ EN),
   // the lesson generation language updates automatically.
   useEffect(() => {
-    setForm((prev) => ({ ...prev, language: locale as 'zh-CN' | 'en-US' }));
+    setForm((prev) => ({ ...prev, language: locale }));
     try {
       localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
     } catch { /* ignore */ }
@@ -310,7 +311,7 @@ function HomePage() {
     } catch (err) {
       log.warn('Failed to mark lesson shelf item opened:', err);
     }
-    router.push(`/classroom/${item.lesson_id}`);
+    router.push(`/lessons/${item.lesson_id}`);
   };
 
   const handleRenameShelfItem = async (item: LessonShelfItem) => {
@@ -408,8 +409,10 @@ function HomePage() {
     );
   };
 
+  const [isGenerating, setIsGenerating] = useState(false);
+
   const handleGenerate = async () => {
-    if (authChecking) return;
+    if (authChecking || isGenerating) return;
 
     if (!isAuthenticated) {
       router.push('/auth?next=/');
@@ -437,6 +440,7 @@ function HomePage() {
     }
 
     setError(null);
+    setIsGenerating(true);
 
     try {
       // 1. First Check Billing Status
@@ -507,6 +511,8 @@ function HomePage() {
     } catch (err) {
       log.error('Error preparing generation:', err);
       setError(err instanceof Error ? err.message : t('upload.generateFailed'));
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -525,9 +531,24 @@ function HomePage() {
   const canGenerate = !!form.requirement.trim();
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (canGenerate) handleGenerate();
+      if (canGenerate && !isGenerating) handleGenerate();
+    } else if ((e.key === 'Tab' && e.shiftKey) || (e.key === 'Enter' && e.shiftKey)) {
+      e.preventDefault();
+      const textarea = e.currentTarget;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const value = textarea.value;
+      
+      const newValue = value.substring(0, start) + '\n' + value.substring(end);
+      updateForm('requirement', newValue);
+      
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 1;
+        }
+      }, 0);
     }
   };
 
@@ -652,15 +673,15 @@ function HomePage() {
 
               <button
                 onClick={handleGenerate}
-                disabled={!canGenerate || authChecking}
+                disabled={!canGenerate || authChecking || isGenerating}
                 className={cn(
                   'shrink-0 h-8 w-8 rounded-lg flex items-center justify-center transition-all',
-                  canGenerate && !authChecking
+                  canGenerate && !authChecking && !isGenerating
                     ? 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm cursor-pointer'
                     : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
                 )}
               >
-                <ArrowUp className="size-4" />
+                {isGenerating ? <Loader2 className="size-4 animate-spin text-primary" /> : <ArrowUp className="size-4" />}
               </button>
             </div>
           </div>
@@ -917,7 +938,7 @@ function HomePage() {
                         confirmingDelete={pendingDeleteId === classroom.id}
                         onConfirmDelete={() => confirmDelete(classroom.id)}
                         onCancelDelete={() => setPendingDeleteId(null)}
-                        onClick={() => router.push(`/classroom/${classroom.id}`)}
+                        onClick={() => router.push(`/lessons/${classroom.id}`)}
                       />
                     </motion.div>
                   ))}

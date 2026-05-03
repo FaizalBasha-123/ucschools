@@ -15,6 +15,8 @@ export interface LessonShelfItem {
   archived_at?: string | null;
   thumbnail_url?: string | null;
   failure_reason?: string | null;
+  group_id?: string | null;
+  is_shared?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +40,8 @@ export interface LessonShelfItemResponse {
   archived_at?: string | null;
   thumbnail_url?: string | null;
   failure_reason?: string | null;
+  group_id?: string | null;
+  is_shared?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -801,7 +801,7 @@ function GenerationPreviewContent() {
 
       sessionStorage.removeItem('generationSession');
       await store.saveToStorage();
-      router.push(`/classroom/${stage.id}`);
+      router.push(`/lessons/${stage.id}`);
     } catch (err) {
       // AbortError is expected when navigating away — don't show as error
       if (err instanceof DOMException && err.name === 'AbortError') {

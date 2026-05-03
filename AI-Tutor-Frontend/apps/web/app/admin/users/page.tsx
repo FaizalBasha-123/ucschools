@@ -18,7 +18,7 @@ interface AdminUser {
   plan: string | null;
   credits: number;
   school_id: string | null;
-  promo_code?: string | null;
+  promo_codes_used: number;
 }
 
 export default function AdminUsersPage() {
@@ -150,13 +150,13 @@ export default function AdminUsersPage() {
                             <Badge variant="outline" className={cn("px-2.5 py-1 text-[10px] font-black uppercase tracking-wider border-0 shadow-sm", planColor(user.plan))}>
                               {user.plan || 'Free'}
                             </Badge>
-                            {user.promo_code && (
+                            {user.promo_codes_used > 0 && (
                               <div 
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase border border-emerald-100 cursor-help"
-                                title={`Redeemed Promo: ${user.promo_code}`}
+                                title={`Redeemed ${user.promo_codes_used} promo codes`}
                               >
                                 <Ticket className="size-2.5" />
-                                PROMO REDEEMED
+                                {user.promo_codes_used} PROMOS USED
                               </div>
                             )}
                           </div>

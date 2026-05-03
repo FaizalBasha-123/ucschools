@@ -79,6 +79,6 @@ export async function persistClassroom(
 
   return {
     ...classroomData,
-    url: `${baseUrl}/classroom/${data.id}`,
+    url: `${baseUrl}/lessons/${data.id}`,
   };
 }

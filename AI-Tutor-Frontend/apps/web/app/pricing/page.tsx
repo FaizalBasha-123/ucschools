@@ -70,6 +70,228 @@ const MODES_DISPLAY = [
 
 // ─── Components ──────────────────────────────────────────────
 
+const CALC_QUALITY = [
+  { id: 'basic', label: 'Basic', rate: 0.4, color: 'emerald' },
+  { id: 'standard', label: 'Standard', rate: 0.8, color: 'blue' },
+  { id: 'premium', label: 'Premium', rate: 1.5, color: 'amber' },
+];
+
+const CALC_LEARNING = [
+  { id: 'explain', label: 'Explain', mul: 1.6 },
+  { id: 'revision', label: 'Revision', mul: 0.6 },
+  { id: 'exam', label: 'Exam', mul: 1.3 },
+  { id: 'placement', label: 'Placement', mul: 2.0 },
+];
+
+function CreditBreakdownCalculator() {
+  const [quality, setQuality] = useState(CALC_QUALITY[1]);
+  const [learning, setLearning] = useState(CALC_LEARNING[0]);
+  const [duration, setDuration] = useState(5); // minutes
+  const [useVoice, setUseVoice] = useState(true);
+  const [usePdf, setUsePdf] = useState(false);
+  const [pdfPages, setPdfPages] = useState(10);
+
+  // Generation always costs a base of 4 credits (core slide + structure build)
+  const baseCost = 4.0;
+  const modeCost = +(quality.rate * learning.mul * duration).toFixed(2);
+  const voiceCost = useVoice ? +(quality.rate * duration * 0.5).toFixed(2) : 0;
+  const pdfCost = usePdf ? +(pdfPages * 0.15).toFixed(2) : 0;
+  const totalCost = +(baseCost + modeCost + voiceCost + pdfCost).toFixed(2);
+
+  const lineItems = [
+    { label: 'Lesson Generation', desc: 'Core slides & structure', cost: baseCost },
+    { label: `${learning.label} Mode`, desc: `${duration} min × ${quality.label}`, cost: modeCost },
+    ...(useVoice ? [{ label: 'Voice Interaction', desc: `${duration} min TTS + ASR`, cost: voiceCost }] : []),
+    ...(usePdf ? [{ label: 'PDF Context', desc: `${pdfPages} pages processed`, cost: pdfCost }] : []),
+  ];
+
+  return (
+    <div className="bg-neutral-900 text-white rounded-[3rem] p-10 md:p-16 overflow-hidden relative">
+      <div className="absolute top-0 right-0 w-1/3 h-full bg-orange-600/10 blur-[100px] rounded-full" />
+      <div className="relative z-10 grid lg:grid-cols-2 gap-16 items-start">
+        {/* Left: Controls */}
+        <div>
+          <h2 className="text-3xl md:text-5xl font-black mb-4 tracking-tight">
+            Credit Breakdown
+            <br />
+            <span className="text-orange-600">Calculator</span>
+          </h2>
+          <p className="text-neutral-400 text-base mb-8 leading-relaxed">
+            Adjust the options to estimate how many credits a session will cost.
+          </p>
+
+          {/* Quality */}
+          <div className="mb-6">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">
+              AI Quality
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {CALC_QUALITY.map((q) => (
+                <button
+                  key={q.id}
+                  onClick={() => setQuality(q)}
+                  className={cn(
+                    'rounded-xl border px-3 py-2 text-xs font-semibold text-center transition-all',
+                    quality.id === q.id
+                      ? 'bg-white/10 border-white/30 text-white ring-1 ring-white/20'
+                      : 'border-white/10 text-neutral-500 hover:border-white/20 hover:text-white',
+                  )}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Learning Style */}
+          <div className="mb-6">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">
+              Learning Style
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {CALC_LEARNING.map((l) => (
+                <button
+                  key={l.id}
+                  onClick={() => setLearning(l)}
+                  className={cn(
+                    'rounded-xl border px-3 py-2 text-xs font-semibold text-center transition-all',
+                    learning.id === l.id
+                      ? 'bg-white/10 border-white/30 text-white ring-1 ring-white/20'
+                      : 'border-white/10 text-neutral-500 hover:border-white/20 hover:text-white',
+                  )}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Duration */}
+          <div className="mb-6">
+            <label className="block text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">
+              Session Duration: <span className="text-white">{duration} min</span>
+            </label>
+            <input
+              type="range"
+              min={1}
+              max={30}
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+              className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-orange-500"
+            />
+            <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+              <span>1 min</span>
+              <span>30 min</span>
+            </div>
+          </div>
+
+          {/* Toggles */}
+          <div className="flex gap-3 flex-wrap">
+            <button
+              onClick={() => setUseVoice(!useVoice)}
+              className={cn(
+                'px-4 py-2 rounded-full text-xs font-semibold border transition-all',
+                useVoice
+                  ? 'bg-orange-600/20 border-orange-500/40 text-orange-400'
+                  : 'bg-white/5 border-white/10 text-neutral-500 hover:text-white',
+              )}
+            >
+              <Mic2 className="inline size-3.5 mr-1.5 -mt-0.5" />
+              Voice {useVoice ? 'ON' : 'OFF'}
+            </button>
+            <button
+              onClick={() => setUsePdf(!usePdf)}
+              className={cn(
+                'px-4 py-2 rounded-full text-xs font-semibold border transition-all',
+                usePdf
+                  ? 'bg-orange-600/20 border-orange-500/40 text-orange-400'
+                  : 'bg-white/5 border-white/10 text-neutral-500 hover:text-white',
+              )}
+            >
+              <FileText className="inline size-3.5 mr-1.5 -mt-0.5" />
+              PDF {usePdf ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          {usePdf && (
+            <div className="mt-4">
+              <label className="block text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">
+                PDF Pages: <span className="text-white">{pdfPages}</span>
+              </label>
+              <input
+                type="range"
+                min={1}
+                max={100}
+                value={pdfPages}
+                onChange={(e) => setPdfPages(Number(e.target.value))}
+                className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-orange-500"
+              />
+              <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                <span>1 page</span>
+                <span>100 pages</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Live Breakdown */}
+        <div className="bg-white/5 rounded-3xl p-8 border border-white/10 backdrop-blur-md">
+          <div className="flex items-center gap-2 mb-6">
+            <div className="size-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-xs font-bold text-neutral-400 uppercase tracking-widest">
+              Live Estimate
+            </span>
+          </div>
+
+          <div className="space-y-5">
+            {lineItems.map((item, i) => (
+              <motion.div
+                key={item.label}
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex justify-between items-center group"
+              >
+                <div>
+                  <p className="font-bold text-white group-hover:text-orange-500 transition-colors">
+                    {item.label}
+                  </p>
+                  <p className="text-xs text-neutral-500">{item.desc}</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-mono font-bold text-orange-500">
+                    +{item.cost.toFixed(1)}
+                  </p>
+                  <p className="text-[10px] text-neutral-600 uppercase">credits</p>
+                </div>
+              </motion.div>
+            ))}
+
+            <div className="pt-6 border-t border-white/10 flex justify-between items-center">
+              <p className="text-xl font-black uppercase tracking-tighter">
+                Total Estimated
+              </p>
+              <div className="text-right">
+                <motion.p
+                  key={totalCost}
+                  initial={{ scale: 1.15, color: '#f97316' }}
+                  animate={{ scale: 1, color: '#ffffff' }}
+                  className="text-3xl font-black"
+                >
+                  {totalCost.toFixed(1)}
+                </motion.p>
+                <p className="text-[10px] text-neutral-400 uppercase font-bold">
+                  Credits / session
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PricingContent() {
   const router = useRouter();
   const isAuthenticated = hasAuthSessionHint();
@@ -594,52 +816,9 @@ function PricingContent() {
             </div>
           </section>
 
-          {/* ── Section: Example Usecase Breakdown ── */}
+          {/* ── Section: Credit Breakdown Calculator ── */}
           <section className="mb-32">
-            <div className="bg-neutral-900 text-white rounded-[3rem] p-10 md:p-16 overflow-hidden relative">
-              <div className="absolute top-0 right-0 w-1/3 h-full bg-orange-600/10 blur-[100px] rounded-full" />
-              <div className="relative z-10 grid lg:grid-cols-2 gap-16 items-center">
-                <div>
-                  <h2 className="text-3xl md:text-5xl font-black mb-6 tracking-tight">Real-World Math: <br /><span className="text-orange-600">A Sample Lesson</span></h2>
-                  <p className="text-neutral-400 text-lg mb-8 leading-relaxed">
-                    Wondering how far your credits go? Here is a breakdown of a deep learning session using a Pro Plan on Standard Mode.
-                  </p>
-                  <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full border border-white/10 text-sm font-bold">
-                    <div className="size-2 rounded-full bg-green-500 animate-pulse" />
-                    Transparent Calculation
-                  </div>
-                </div>
-
-                <div className="bg-white/5 rounded-3xl p-8 border border-white/10 backdrop-blur-md">
-                  <div className="space-y-6">
-                    {[
-                      { label: 'Full Lesson Generation', desc: 'Core slides & structure', cost: '4.0' },
-                      { label: 'Explain Mode deep-dive', desc: '1 complex concept', cost: '6.4' },
-                      { label: 'Voice Interaction', desc: '2 minutes (TTS + ASR)', cost: '3.6' },
-                      { label: 'PDF Context', desc: '10 pages processed', cost: '1.5' },
-                    ].map((item, i) => (
-                      <div key={i} className="flex justify-between items-center group">
-                        <div>
-                          <p className="font-bold text-white group-hover:text-orange-500 transition-colors">{item.label}</p>
-                          <p className="text-xs text-neutral-500">{item.desc}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-mono font-bold text-orange-500">+{item.cost}</p>
-                          <p className="text-[10px] text-neutral-600 uppercase">credits</p>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="pt-6 border-t border-white/10 flex justify-between items-center">
-                      <p className="text-xl font-black uppercase tracking-tighter">Total Estimated Cost</p>
-                      <div className="text-right">
-                        <p className="text-3xl font-black text-white">15.5</p>
-                        <p className="text-[10px] text-neutral-400 uppercase font-bold">Credits / session</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <CreditBreakdownCalculator />
           </section>
 
           {/* ── Section: FAQ ── */}

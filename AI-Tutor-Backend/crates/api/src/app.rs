@@ -554,6 +554,8 @@ pub struct LessonShelfItemResponse {
     pub archived_at: Option<String>,
     pub thumbnail_url: Option<String>,
     pub failure_reason: Option<String>,
+    pub group_id: Option<String>,
+    pub is_shared: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -606,7 +608,7 @@ pub struct AdminUser {
     pub plan: Option<String>,
     pub credits: f64,
     pub school_id: Option<String>,
-    pub promo_code: Option<String>,
+    pub promo_codes_used: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1020,6 +1022,8 @@ pub struct CreatePromoCodeRequest {
     pub code: String,
     pub grant_credits: f64,
     pub max_redemptions: Option<usize>,
+    pub max_accounts: Option<usize>,
+    pub max_uses_per_account: Option<usize>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
@@ -1654,6 +1658,8 @@ impl LiveLessonAppService {
             archived_at: item.archived_at.map(|value| value.to_rfc3339()),
             thumbnail_url: item.thumbnail_url.clone(),
             failure_reason: item.failure_reason.clone(),
+            group_id: item.group_id.clone(),
+            is_shared: item.is_shared,
             created_at: item.created_at.to_rfc3339(),
             updated_at: item.updated_at.to_rfc3339(),
         }
@@ -1769,6 +1775,8 @@ impl LiveLessonAppService {
                 archived_at: None,
                 thumbnail_url: None,
                 failure_reason,
+                group_id: None,
+                is_shared: false,
                 created_at: now,
                 updated_at: now,
             }
@@ -5114,18 +5122,18 @@ impl LessonAppService for LiveLessonAppService {
             }
         }
 
-        // Build a fast lookup: account_id -> redeemed promo_code
-        let mut promo_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        // Build a fast lookup: account_id -> number of times promo codes were used
+        let mut promo_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         for promo in &promo_codes {
             for account_id in &promo.redeemed_by_accounts {
-                promo_map.insert(account_id.clone(), promo.code.clone());
+                *promo_counts.entry(account_id.clone()).or_insert(0) += 1;
             }
         }
 
         let mut users = Vec::with_capacity(accounts.len());
         for a in accounts {
             let plan = plan_map.get(&a.id).cloned();
-            let promo_code = promo_map.get(&a.id).cloned();
+            let promo_codes_used = promo_counts.get(&a.id).copied().unwrap_or(0);
             // Fetch individual credit balance (best effort — default to 0 if missing)
             let credits = self.storage
                 .get_credit_balance(&a.id)
@@ -5140,7 +5148,7 @@ impl LessonAppService for LiveLessonAppService {
                 plan,
                 credits,
                 school_id: a.school_id,
-                promo_code,
+                promo_codes_used,
             });
         }
 
@@ -5153,6 +5161,8 @@ impl LessonAppService for LiveLessonAppService {
             code: payload.code,
             grant_credits: payload.grant_credits,
             max_redemptions: payload.max_redemptions,
+            max_accounts: payload.max_accounts,
+            max_uses_per_account: payload.max_uses_per_account,
             expires_at: payload.expires_at,
             redeemed_by_accounts: Vec::new(),
             created_at: now,

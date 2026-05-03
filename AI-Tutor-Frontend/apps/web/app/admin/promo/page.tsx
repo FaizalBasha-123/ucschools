@@ -14,6 +14,8 @@ interface PromoCode {
   code: string;
   grant_credits: number;
   max_redemptions: number | null;
+  max_accounts: number | null;
+  max_uses_per_account: number | null;
   redeemed_by_accounts: string[];
   expires_at: string | null;
   created_at: string;
@@ -30,7 +32,9 @@ export default function AdminPromoPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newCode, setNewCode] = useState('');
   const [credits, setCredits] = useState(50);
-  const [maxUses, setMaxUses] = useState('');
+  const [maxGlobalUses, setMaxGlobalUses] = useState('');
+  const [maxAccounts, setMaxAccounts] = useState('');
+  const [maxUsesPerAccount, setMaxUsesPerAccount] = useState('1');
   const [expiry, setExpiry] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -68,7 +72,9 @@ export default function AdminPromoPage() {
         body: JSON.stringify({
           code: newCode.toUpperCase().trim(),
           grant_credits: Number(credits),
-          max_redemptions: maxUses ? Number(maxUses) : null,
+          max_redemptions: maxGlobalUses ? Number(maxGlobalUses) : null,
+          max_accounts: maxAccounts ? Number(maxAccounts) : null,
+          max_uses_per_account: maxUsesPerAccount ? Number(maxUsesPerAccount) : null,
           expires_at: expiry ? new Date(expiry).toISOString() : null,
         })
       });
@@ -77,7 +83,9 @@ export default function AdminPromoPage() {
       setMessage({ type: 'success', text: `Promo code ${newCode} created successfully!` });
       setNewCode('');
       setCredits(50);
-      setMaxUses('');
+      setMaxGlobalUses('');
+      setMaxAccounts('');
+      setMaxUsesPerAccount('1');
       setExpiry('');
       setShowCreate(false);
       fetchPromos();
@@ -130,9 +138,9 @@ export default function AdminPromoPage() {
               <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
                 <Ticket className="size-5 text-[#F97316]" /> Create New Promotion
               </h2>
-              <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-end relative z-10">
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-white/50">Code</label>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/50">Code</label>
                   <input 
                     required 
                     value={newCode} 
@@ -142,7 +150,7 @@ export default function AdminPromoPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-white/50">Credits</label>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/50">Credits per claim</label>
                   <input 
                     required 
                     type="number"
@@ -152,16 +160,37 @@ export default function AdminPromoPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-white/50">Max Uses (Empty = Unlimited)</label>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/50">Uses per account</label>
                   <input 
                     type="number"
-                    value={maxUses} 
-                    onChange={e => setMaxUses(e.target.value)}
+                    value={maxUsesPerAccount} 
+                    onChange={e => setMaxUsesPerAccount(e.target.value)}
+                    placeholder="Default: 1"
                     className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-wider text-white/50">Expiry Date</label>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/50">Max Unique Accounts</label>
+                  <input 
+                    type="number"
+                    value={maxAccounts} 
+                    onChange={e => setMaxAccounts(e.target.value)}
+                    placeholder="Empty = Unlimited"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/50">Global Total Uses</label>
+                  <input 
+                    type="number"
+                    value={maxGlobalUses} 
+                    onChange={e => setMaxGlobalUses(e.target.value)}
+                    placeholder="Empty = Unlimited"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-white/50">Expiry Date</label>
                   <input 
                     type="date"
                     value={expiry} 
@@ -169,10 +198,10 @@ export default function AdminPromoPage() {
                     className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
                   />
                 </div>
-                <div className="md:col-span-2 lg:col-span-4 flex justify-end mt-4">
+                <div className="md:col-span-2 flex justify-end">
                   <button 
                     disabled={createLoading}
-                    className="bg-[#F97316] text-white px-10 py-3 rounded-xl font-bold hover:bg-orange-600 transition-all flex items-center gap-2"
+                    className="bg-[#F97316] text-white px-10 py-3 rounded-xl font-bold hover:bg-orange-600 transition-all flex items-center gap-2 h-[46px]"
                   >
                     {createLoading ? <Loader2 className="size-5 animate-spin" /> : "Save Promo Code"}
                   </button>
@@ -199,12 +228,13 @@ export default function AdminPromoPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full text-left text-sm whitespace-nowrap">
                 <thead className="bg-[#F8FAFC] dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800">
                   <tr>
                     <th className="px-6 py-4 font-bold text-neutral-500 uppercase text-[10px]">Promo Code</th>
                     <th className="px-6 py-4 font-bold text-neutral-500 uppercase text-[10px]">Credits</th>
-                    <th className="px-6 py-4 font-bold text-neutral-500 uppercase text-[10px]">Utilization</th>
+                    <th className="px-6 py-4 font-bold text-neutral-500 uppercase text-[10px]">Usage Limits</th>
+                    <th className="px-6 py-4 font-bold text-neutral-500 uppercase text-[10px]">Global Util</th>
                     <th className="px-6 py-4 font-bold text-neutral-500 uppercase text-[10px]">Status</th>
                     <th className="px-6 py-4 font-bold text-neutral-500 uppercase text-[10px]">Created</th>
                   </tr>
@@ -212,20 +242,23 @@ export default function AdminPromoPage() {
                 <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center">
+                      <td colSpan={6} className="px-6 py-12 text-center">
                         <Loader2 className="size-6 animate-spin mx-auto text-[#F97316] mb-2" />
                         <p className="text-neutral-400">Loading promo codes...</p>
                       </td>
                     </tr>
                   ) : filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-neutral-400">No promo codes found.</td>
+                      <td colSpan={6} className="px-6 py-12 text-center text-neutral-400">No promo codes found.</td>
                     </tr>
                   ) : (
                     filtered.map((p) => {
                       const isExpired = p.expires_at && new Date(p.expires_at) < new Date();
                       const isExhausted = p.max_redemptions && p.redeemed_by_accounts.length >= p.max_redemptions;
-                      const active = !isExpired && !isExhausted;
+                      const uniqueAccounts = new Set(p.redeemed_by_accounts).size;
+                      const isAccountsExhausted = p.max_accounts && uniqueAccounts >= p.max_accounts;
+                      
+                      const active = !isExpired && !isExhausted && !isAccountsExhausted;
 
                       return (
                         <tr key={p.code} className="hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors">
@@ -238,15 +271,36 @@ export default function AdminPromoPage() {
                             </div>
                           </td>
                           <td className="px-6 py-5 font-bold text-emerald-600">+{p.grant_credits}</td>
-                          <td className="px-6 py-5 text-neutral-600">
-                            <div className="flex flex-col gap-1">
-                              <span className="font-bold">{p.redeemed_by_accounts.length} / {p.max_redemptions || '∞'}</span>
-                              <div className="w-24 h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-[#F97316]" 
-                                  style={{ width: `${p.max_redemptions ? (p.redeemed_by_accounts.length / p.max_redemptions) * 100 : 0}%` }} 
-                                />
+                          <td className="px-6 py-5">
+                            <div className="flex flex-col gap-1 text-xs text-neutral-500">
+                              <div>
+                                <span className="font-semibold text-neutral-700 dark:text-neutral-300">
+                                  {uniqueAccounts}
+                                </span>
+                                 / {p.max_accounts || '∞'} Accounts
                               </div>
+                              <div>
+                                <span className="font-semibold text-neutral-700 dark:text-neutral-300">
+                                  Max {p.max_uses_per_account || '1'} uses/acc
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-5 text-neutral-600">
+                            <div className="flex flex-col gap-1 w-32">
+                              <span className="font-bold text-xs">{p.redeemed_by_accounts.length} / {p.max_redemptions || '∞'} Total</span>
+                              {p.max_redemptions ? (
+                                <div className="w-full h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                                  <div 
+                                    className="h-full bg-[#F97316]" 
+                                    style={{ width: `${(p.redeemed_by_accounts.length / p.max_redemptions) * 100}%` }} 
+                                  />
+                                </div>
+                              ) : (
+                                <div className="w-full h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                                  <div className="h-full w-1/4 bg-emerald-500/50" />
+                                </div>
+                              )}
                             </div>
                           </td>
                           <td className="px-6 py-5">
@@ -256,7 +310,7 @@ export default function AdminPromoPage() {
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-black uppercase">
-                                <Trash2 className="size-3" /> {isExhausted ? 'Exhausted' : 'Expired'}
+                                <Trash2 className="size-3" /> {(isExhausted || isAccountsExhausted) ? 'Exhausted' : 'Expired'}
                               </span>
                             )}
                           </td>
