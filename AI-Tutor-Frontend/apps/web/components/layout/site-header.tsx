@@ -248,7 +248,14 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
           >
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100 dark:border-border/40">
-              <div className="flex items-center gap-2.5">
+              <div
+                className="flex items-center gap-2.5 cursor-pointer select-none"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  if (variant === 'landing') window.scrollTo({ top: 0, behavior: 'smooth' });
+                  else router.push('/');
+                }}
+              >
                 <div className="size-7 rounded-lg bg-primary flex items-center justify-center shadow-md shadow-primary/20">
                   <BotOff className="size-4 text-primary-foreground stroke-[2.5]" />
                 </div>
