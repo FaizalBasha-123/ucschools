@@ -3487,12 +3487,10 @@ impl PromoCodeRepository for FileStorage {
             .await?
             .ok_or_else(|| "promo code not found".to_string())?;
         
-        // Add account to redeemed list if not already present
-        if !promo.redeemed_by_accounts.contains(&account_id.to_string()) {
-            promo.redeemed_by_accounts.push(account_id.to_string());
-            promo.updated_at = Utc::now();
-            self.save_promo_code(&promo).await?;
-        }
+        // Add account to redeemed list (allowing duplicates for multiple uses)
+        promo.redeemed_by_accounts.push(account_id.to_string());
+        promo.updated_at = Utc::now();
+        self.save_promo_code(&promo).await?;
         
         Ok(())
     }

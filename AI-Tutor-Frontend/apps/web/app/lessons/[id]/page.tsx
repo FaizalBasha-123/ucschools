@@ -50,7 +50,7 @@ export default function ClassroomDetailPage() {
       if (!useStageStore.getState().stage) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
         try {
-          const res = await fetch(`/api/classroom?id=${encodeURIComponent(classroomId)}`);
+          const res = await fetch(`/api/lessons?id=${encodeURIComponent(classroomId)}`);
           if (res.ok) {
             const json = await res.json();
             if (json.success && json.classroom) {
@@ -71,9 +71,15 @@ export default function ClassroomDetailPage() {
                 log.info('Hydrated server-generated agents:', agentIds);
               }
             }
+          } else if (res.status === 404) {
+            throw new Error('Classroom not found (404 Error)');
+          } else {
+            throw new Error(`Server returned ${res.status}`);
           }
         } catch (fetchErr) {
           log.warn('Server-side storage fetch failed:', fetchErr);
+          // Re-throw so the outer try-catch handles the error and renders the error UI
+          throw fetchErr;
         }
       }
 
@@ -116,7 +122,7 @@ export default function ClassroomDetailPage() {
 
   useEffect(() => {
     if (!hasAuthSessionHint()) {
-      router.replace(`/auth?next=${encodeURIComponent(`/classroom/${classroomId}`)}`);
+      router.replace(`/auth?next=${encodeURIComponent(`/lessons/${classroomId}`)}`);
       return;
     }
 

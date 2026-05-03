@@ -32,9 +32,15 @@ pub struct PromoCode {
     pub code: String,
     /// Amount of credits granted per redemption.
     pub grant_credits: f64,
-    /// Max number of accounts that can redeem this code (None = unlimited).
+    /// Max total redemptions across all accounts (None = unlimited).
     pub max_redemptions: Option<usize>,
-    /// Accounts that have already redeemed this code (enforces one-per-account).
+    /// Max unique accounts that can redeem this code (None = unlimited).
+    #[serde(default)]
+    pub max_accounts: Option<usize>,
+    /// Max times a single account can redeem this code (None = defaults to 1).
+    #[serde(default)]
+    pub max_uses_per_account: Option<usize>,
+    /// Accounts that have redeemed this code (can contain duplicates if redeemed multiple times).
     pub redeemed_by_accounts: Vec<String>,
     /// When this promo code expires (None = no expiry).
     pub expires_at: Option<DateTime<Utc>>,
@@ -43,7 +49,7 @@ pub struct PromoCode {
 }
 
 impl PromoCode {
-    /// Check if this promo code is still valid (not expired, not exhausted, not already used by account).
+    /// Check if this promo code is still valid (not expired, not exhausted, not already used by account max times).
     pub fn is_valid_for_account(&self, account_id: &str) -> bool {
         // Check expiry
         if let Some(expiry) = self.expires_at {
@@ -52,15 +58,27 @@ impl PromoCode {
             }
         }
 
-        // Check if account already redeemed
-        if self.redeemed_by_accounts.contains(&account_id.to_string()) {
-            return false;
-        }
-
-        // Check max redemptions
+        // Check total redemptions
         if let Some(max) = self.max_redemptions {
             if self.redeemed_by_accounts.len() >= max {
                 return false;
+            }
+        }
+
+        // Check account uses
+        let uses_by_account = self.redeemed_by_accounts.iter().filter(|&id| id == account_id).count();
+        let max_uses = self.max_uses_per_account.unwrap_or(1);
+        if uses_by_account >= max_uses {
+            return false;
+        }
+
+        // Check max unique accounts ONLY if the account hasn't already started using it
+        if uses_by_account == 0 {
+            if let Some(max_acc) = self.max_accounts {
+                let unique_accounts = self.redeemed_by_accounts.iter().collect::<std::collections::HashSet<_>>().len();
+                if unique_accounts >= max_acc {
+                    return false;
+                }
             }
         }
 

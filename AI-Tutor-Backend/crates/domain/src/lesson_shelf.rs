@@ -25,6 +25,8 @@ pub struct LessonShelfItem {
     pub archived_at: Option<DateTime<Utc>>,
     pub thumbnail_url: Option<String>,
     pub failure_reason: Option<String>,
+    pub group_id: Option<String>,
+    pub is_shared: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

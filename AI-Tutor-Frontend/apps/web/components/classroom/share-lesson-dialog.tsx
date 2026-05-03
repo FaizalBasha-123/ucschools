@@ -93,7 +93,7 @@ export function ShareLessonDialog({
       if (!stage) throw new Error('Stage not found');
 
       // SYNC to server so others can view it via the share link
-      const syncRes = await fetch('/api/classroom', {
+      const syncRes = await fetch('/api/lessons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stage, scenes }),

@@ -60,7 +60,7 @@ export function ClassroomSidebar({ currentStageId }: ClassroomSidebarProps) {
   }, []);
 
   const handleCopyInvite = (id: string) => {
-    const link = `${window.location.origin}/classroom/${id}`;
+    const link = `${window.location.origin}/lessons/${id}`;
     navigator.clipboard.writeText(link);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -74,10 +74,10 @@ export function ClassroomSidebar({ currentStageId }: ClassroomSidebarProps) {
       setNewClassroomName('');
       setIsCreating(false);
       await loadClassrooms();
-      router.push(`/classroom/${id}`);
-      toast.success('Classroom created');
+      router.push(`/lessons/${id}`);
+      toast.success('Lesson created');
     } catch (error) {
-      toast.error('Failed to create classroom');
+      toast.error('Failed to create lesson');
     }
   };
 
@@ -150,7 +150,7 @@ export function ClassroomSidebar({ currentStageId }: ClassroomSidebarProps) {
         {classrooms.map((cls) => (
           <div key={cls.id} className="relative group">
             <Link
-              href={`/classroom/${cls.id}`}
+              href={`/lessons/${cls.id}`}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all",
                 currentStageId === cls.id 
@@ -218,14 +218,14 @@ export function ClassroomSidebar({ currentStageId }: ClassroomSidebarProps) {
           <DialogHeader>
             <DialogTitle>Invite to {invitingClassroom?.name}</DialogTitle>
             <DialogDescription>
-              Share this link to invite others to see the lessons in this classroom.
+              Share this link to invite others to see this lesson.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center space-x-2 py-4">
             <div className="grid flex-1 gap-2">
               <Input
                 readOnly
-                value={invitingClassroom ? `${window.location.origin}/classroom/${invitingClassroom.id}` : ''}
+                value={invitingClassroom ? `${window.location.origin}/lessons/${invitingClassroom.id}` : ''}
                 className="h-9"
               />
             </div>
