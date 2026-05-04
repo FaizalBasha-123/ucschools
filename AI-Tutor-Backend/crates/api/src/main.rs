@@ -91,8 +91,7 @@ async fn run_startup_readiness_checks(
         "1" | "true" | "yes" | "on"
     );
     if operator_otp_enabled {
-        ai_tutor_api::app::init_operator_db()
-            .map_err(|e| anyhow!("startup readiness failed: operator db initialization error: {:?}", e))?;
+        // Redis is initialized lazily when first used.
 
         if !is_configured_secret(std::env::var("AI_TUTOR_OPERATOR_ALLOWED_EMAILS").ok()) {
             return Err(anyhow!(

@@ -767,11 +767,6 @@ pub struct OperatorOtpResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct OperatorOtpChallenge {
-    otp_hash: String,
-    expires_at_unix: i64,
-    attempts_remaining: i32,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OperatorSessionState {
@@ -10211,48 +10206,23 @@ fn ensure_operator_otp_enabled() -> Result<(), ApiError> {
     }
 }
 
-fn operator_db_path() -> Result<String, ApiError> {
-    let storage_root = read_optional_env("AI_TUTOR_STORAGE_ROOT")
-        .unwrap_or_else(|| "/tmp/ai-tutor".to_string());
-    Ok(format!("{}/runtime/operator-auth.db", storage_root))
-}
+static REDIS_CLIENT: tokio::sync::OnceCell<redis::Client> = tokio::sync::OnceCell::const_new();
 
-pub fn init_operator_db() -> Result<(), ApiError> {
-    let path = operator_db_path()?;
-    if let Some(parent) = std::path::Path::new(&path).parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| ApiError::internal(format!("failed to create operator db dir: {}", e)))?;
-    }
-    let conn = rusqlite::Connection::open(&path)
-        .map_err(|e| ApiError::internal(format!("failed to open operator db: {}", e)))?;
-    conn.execute_batch(
-        "
-        PRAGMA journal_mode = WAL;
-        PRAGMA synchronous = NORMAL;
-        CREATE TABLE IF NOT EXISTS otp_challenges (
-            email TEXT PRIMARY KEY,
-            otp_hash TEXT NOT NULL,
-            expires_at_unix INTEGER NOT NULL,
-            attempts_remaining INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS rate_limits (
-            key TEXT PRIMARY KEY,
-            count INTEGER NOT NULL,
-            expires_at_unix INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS risk_counters (
-            key TEXT PRIMARY KEY,
-            count INTEGER NOT NULL,
-            expires_at_unix INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS operator_sessions (
-            session_id TEXT PRIMARY KEY,
-            payload TEXT NOT NULL,
-            expires_at_unix INTEGER NOT NULL
-        );
-        "
-    ).map_err(|e| ApiError::internal(format!("failed to init operator db schema: {}", e)))?;
-    Ok(())
+async fn operator_redis_conn() -> Result<redis::aio::MultiplexedConnection, ApiError> {
+    let client = REDIS_CLIENT
+        .get_or_try_init(|| async {
+            let url = read_optional_env("AI_TUTOR_REDIS_URL")
+                .or_else(|| read_optional_env("REDIS_URL"))
+                .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
+            redis::Client::open(url).map_err(|e| ApiError::internal(format!("invalid redis url: {}", e)))
+        })
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to init redis client: {}", e)))?;
+        
+    client
+        .get_multiplexed_async_connection()
+        .await
+        .map_err(|e| ApiError::internal(format!("failed to connect to redis: {}", e)))
 }
 
 fn operator_session_cookie_name() -> String {
@@ -10379,43 +10349,19 @@ fn resolve_operator_role_for_email(email: &str) -> &'static str {
 }
 
 async fn enforce_otp_request_rate_limit(email: &str) -> Result<(), ApiError> {
-    let db_path = operator_db_path()?;
+    use redis::AsyncCommands;
     let key = operator_otp_rate_limit_key(email);
     let limit = operator_otp_request_rate_limit_per_minute();
     let email_log = email.to_string();
 
-    let count: i64 = tokio::task::spawn_blocking(move || -> Result<i64, ApiError> {
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| ApiError::internal(format!("db open error: {}", e)))?;
-        let now = chrono::Utc::now().timestamp();
+    let mut conn = operator_redis_conn().await?;
+    let count: i64 = conn.incr(&key, 1).await
+        .map_err(|e| ApiError::internal(format!("redis incr error: {}", e)))?;
         
-        conn.execute("DELETE FROM rate_limits WHERE expires_at_unix < ?", [now])
-            .map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-            
-        let mut count: i64 = 0;
-        let _ = conn.query_row("SELECT count FROM rate_limits WHERE key = ?", [&key], |row| {
-            count = row.get(0)?;
-            Ok(())
-        });
-        
-        count += 1;
-        
-        if count == 1 {
-            conn.execute(
-                "INSERT OR REPLACE INTO rate_limits (key, count, expires_at_unix) VALUES (?, ?, ?)", 
-                rusqlite::params![&key, count, now + 60]
-            ).map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-        } else {
-            conn.execute(
-                "UPDATE rate_limits SET count = ? WHERE key = ?", 
-                rusqlite::params![count, &key]
-            ).map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-        }
-        
-        Ok(count)
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("task failed: {}", e)))??;
+    if count == 1 {
+        let _: () = conn.expire(&key, 60).await
+            .map_err(|e| ApiError::internal(format!("redis expire error: {}", e)))?;
+    }
 
     if count > i64::from(limit) {
         warn!(
@@ -10438,42 +10384,16 @@ async fn bump_operator_risk_counter(
     key: &str,
     ttl_seconds: i64,
 ) -> Result<i64, ApiError> {
-    let db_path = operator_db_path()?;
-    let key = key.to_string();
-
-    let count: i64 = tokio::task::spawn_blocking(move || -> Result<i64, ApiError> {
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| ApiError::internal(format!("db open error: {}", e)))?;
-        let now = chrono::Utc::now().timestamp();
+    use redis::AsyncCommands;
+    let mut conn = operator_redis_conn().await?;
+    let count: i64 = conn.incr(key, 1).await
+        .map_err(|e| ApiError::internal(format!("redis incr error: {}", e)))?;
         
-        conn.execute("DELETE FROM risk_counters WHERE expires_at_unix < ?", [now])
-            .map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-            
-        let mut count: i64 = 0;
-        let _ = conn.query_row("SELECT count FROM risk_counters WHERE key = ?", [&key], |row| {
-            count = row.get(0)?;
-            Ok(())
-        });
-        
-        count += 1;
-        
-        if count == 1 {
-            conn.execute(
-                "INSERT OR REPLACE INTO risk_counters (key, count, expires_at_unix) VALUES (?, ?, ?)", 
-                rusqlite::params![&key, count, now + ttl_seconds]
-            ).map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-        } else {
-            conn.execute(
-                "UPDATE risk_counters SET count = ? WHERE key = ?", 
-                rusqlite::params![count, &key]
-            ).map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-        }
-        
-        Ok(count)
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("task failed: {}", e)))??;
-
+    if count == 1 {
+        let _: () = conn.expire(key, ttl_seconds).await
+            .map_err(|e| ApiError::internal(format!("redis expire error: {}", e)))?;
+    }
+    
     Ok(count)
 }
 
@@ -10497,86 +10417,54 @@ async fn save_operator_otp_challenge(
     email: &str,
     challenge: &OperatorOtpChallenge,
 ) -> Result<(), ApiError> {
-    let db_path = operator_db_path()?;
-    let email = email.to_string();
-    let otp_hash = challenge.otp_hash.clone();
-    let expires_at_unix = challenge.expires_at_unix;
-    let attempts_remaining = challenge.attempts_remaining;
-
-    tokio::task::spawn_blocking(move || -> Result<(), ApiError> {
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| ApiError::internal(format!("db open error: {}", e)))?;
-        conn.execute(
-            "INSERT OR REPLACE INTO otp_challenges (email, otp_hash, expires_at_unix, attempts_remaining) VALUES (?, ?, ?, ?)",
-            rusqlite::params![&email, &otp_hash, expires_at_unix, attempts_remaining],
-        )
-        .map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("task failed: {}", e)))??;
-
+    use redis::AsyncCommands;
+    let key = operator_otp_challenge_key(email);
+    let mut conn = operator_redis_conn().await?;
+    
+    let payload = serde_json::to_string(challenge)
+        .map_err(|e| ApiError::internal(format!("serialize challenge failed: {}", e)))?;
+        
+    let now = chrono::Utc::now().timestamp();
+    let ttl = std::cmp::max(1, challenge.expires_at_unix - now);
+    
+    let _: () = conn.set_ex(&key, payload, ttl as u64).await
+        .map_err(|e| ApiError::internal(format!("redis set error: {}", e)))?;
+        
     Ok(())
 }
 
 async fn load_operator_otp_challenge(
     email: &str,
 ) -> Result<Option<OperatorOtpChallenge>, ApiError> {
-    let db_path = operator_db_path()?;
-    let email = email.to_string();
-
-    let challenge = tokio::task::spawn_blocking(move || -> Result<Option<OperatorOtpChallenge>, ApiError> {
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| ApiError::internal(format!("db open error: {}", e)))?;
+    use redis::AsyncCommands;
+    let key = operator_otp_challenge_key(email);
+    let mut conn = operator_redis_conn().await?;
+    
+    let payload: Option<String> = conn.get(&key).await
+        .map_err(|e| ApiError::internal(format!("redis get error: {}", e)))?;
+        
+    if let Some(payload) = payload {
+        let challenge = serde_json::from_str::<OperatorOtpChallenge>(&payload)
+            .map_err(|e| ApiError::internal(format!("parse challenge failed: {}", e)))?;
+        
         let now = chrono::Utc::now().timestamp();
-
-        conn.execute("DELETE FROM otp_challenges WHERE expires_at_unix < ?", [now])
-            .map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-
-        let mut hash = String::new();
-        let mut expires: i64 = 0;
-        let mut attempts: i64 = 0;
-        let res = conn.query_row(
-            "SELECT otp_hash, expires_at_unix, attempts_remaining FROM otp_challenges WHERE email = ?",
-            [&email],
-            |row| {
-                hash = row.get(0)?;
-                expires = row.get(1)?;
-                attempts = row.get(2)?;
-                Ok(())
-            },
-        );
-
-        match res {
-            Ok(_) => Ok(Some(OperatorOtpChallenge {
-                otp_hash: hash,
-                expires_at_unix: expires,
-                attempts_remaining: attempts as i32,
-            })),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(ApiError::internal(format!("db query error: {}", e))),
+        if challenge.expires_at_unix < now {
+            let _: () = conn.del(&key).await.ok();
+            return Ok(None);
         }
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("task failed: {}", e)))??;
-
-    Ok(challenge)
+        
+        Ok(Some(challenge))
+    } else {
+        Ok(None)
+    }
 }
 
 async fn delete_operator_otp_challenge(email: &str) -> Result<(), ApiError> {
-    let db_path = operator_db_path()?;
-    let email = email.to_string();
-
-    tokio::task::spawn_blocking(move || -> Result<(), ApiError> {
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| ApiError::internal(format!("db open error: {}", e)))?;
-        conn.execute("DELETE FROM otp_challenges WHERE email = ?", [&email])
-            .map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("task failed: {}", e)))??;
-
+    use redis::AsyncCommands;
+    let key = operator_otp_challenge_key(email);
+    let mut conn = operator_redis_conn().await?;
+    let _: () = conn.del(&key).await
+        .map_err(|e| ApiError::internal(format!("redis del error: {}", e)))?;
     Ok(())
 }
 
@@ -10584,87 +10472,51 @@ async fn save_operator_session(
     session_id: &str,
     session: &OperatorSessionState,
 ) -> Result<(), ApiError> {
-    let db_path = operator_db_path()?;
-    let session_id = session_id.to_string();
+    use redis::AsyncCommands;
+    let key = operator_session_key(session_id);
+    let mut conn = operator_redis_conn().await?;
+    
     let payload = serde_json::to_string(session)
-        .map_err(|err| ApiError::internal(format!("serialize operator session failed: {err}")))?;
-    let expires_at_unix = chrono::Utc::now().timestamp() + operator_session_ttl_seconds();
-
-    tokio::task::spawn_blocking(move || -> Result<(), ApiError> {
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| ApiError::internal(format!("db open error: {}", e)))?;
-        conn.execute(
-            "INSERT OR REPLACE INTO operator_sessions (session_id, payload, expires_at_unix) VALUES (?, ?, ?)",
-            rusqlite::params![&session_id, &payload, expires_at_unix],
-        )
-        .map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("task failed: {}", e)))??;
-
+        .map_err(|e| ApiError::internal(format!("serialize session failed: {}", e)))?;
+        
+    let ttl = operator_session_ttl_seconds();
+    
+    let _: () = conn.set_ex(&key, payload, ttl as u64).await
+        .map_err(|e| ApiError::internal(format!("redis set error: {}", e)))?;
+        
     Ok(())
 }
 
 async fn load_operator_session(
     session_id: &str,
 ) -> Result<Option<OperatorSessionState>, ApiError> {
-    let db_path = operator_db_path()?;
-    let session_id = session_id.to_string();
-    let ttl_seconds = operator_session_ttl_seconds();
-
-    let session = tokio::task::spawn_blocking(move || -> Result<Option<OperatorSessionState>, ApiError> {
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| ApiError::internal(format!("db open error: {}", e)))?;
-        let now = chrono::Utc::now().timestamp();
-
-        conn.execute("DELETE FROM operator_sessions WHERE expires_at_unix < ?", [now])
-            .map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-
-        let mut payload = String::new();
-        let res = conn.query_row(
-            "SELECT payload FROM operator_sessions WHERE session_id = ?",
-            [&session_id],
-            |row| {
-                payload = row.get(0)?;
-                Ok(())
-            },
-        );
-
-        match res {
-            Ok(_) => {
-                let state = serde_json::from_str::<OperatorSessionState>(&payload)
-                    .map_err(|e| ApiError::internal(format!("parse operator session failed: {}", e)))?;
-                conn.execute(
-                    "UPDATE operator_sessions SET expires_at_unix = ? WHERE session_id = ?",
-                    rusqlite::params![now + ttl_seconds, &session_id],
-                ).map_err(|e| ApiError::internal(format!("db update session expires error: {}", e)))?;
-                Ok(Some(state))
-            }
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(ApiError::internal(format!("db query error: {}", e))),
-        }
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("task failed: {}", e)))??;
-
-    Ok(session)
+    use redis::AsyncCommands;
+    let key = operator_session_key(session_id);
+    let mut conn = operator_redis_conn().await?;
+    
+    let payload: Option<String> = conn.get(&key).await
+        .map_err(|e| ApiError::internal(format!("redis get error: {}", e)))?;
+        
+    if let Some(payload) = payload {
+        let session = serde_json::from_str::<OperatorSessionState>(&payload)
+            .map_err(|e| ApiError::internal(format!("parse session failed: {}", e)))?;
+            
+        let ttl = operator_session_ttl_seconds();
+        let _: () = conn.expire(&key, ttl as i64).await
+            .map_err(|e| ApiError::internal(format!("redis expire error: {}", e)))?;
+            
+        Ok(Some(session))
+    } else {
+        Ok(None)
+    }
 }
 
 async fn delete_operator_session(session_id: &str) -> Result<(), ApiError> {
-    let db_path = operator_db_path()?;
-    let session_id = session_id.to_string();
-
-    tokio::task::spawn_blocking(move || -> Result<(), ApiError> {
-        let conn = rusqlite::Connection::open(&db_path)
-            .map_err(|e| ApiError::internal(format!("db open error: {}", e)))?;
-        conn.execute("DELETE FROM operator_sessions WHERE session_id = ?", [&session_id])
-            .map_err(|e| ApiError::internal(format!("db execute error: {}", e)))?;
-        Ok(())
-    })
-    .await
-    .map_err(|e| ApiError::internal(format!("task failed: {}", e)))??;
-
+    use redis::AsyncCommands;
+    let key = operator_session_key(session_id);
+    let mut conn = operator_redis_conn().await?;
+    let _: () = conn.del(&key).await
+        .map_err(|e| ApiError::internal(format!("redis del error: {}", e)))?;
     Ok(())
 }
 
