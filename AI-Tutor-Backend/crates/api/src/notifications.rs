@@ -504,7 +504,7 @@ async fn send_via_smtp_auth(
     let mut last_err = None;
     for addr in ipv4_addrs {
         tracing::info!("smtp: attempting tcp connect to {}", addr);
-        match tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect(addr)).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(15), TcpStream::connect(addr)).await {
             Ok(Ok(s)) => {
                 tracing::info!("smtp: successfully connected to {}", addr);
                 stream = Some(s);
@@ -515,7 +515,7 @@ async fn send_via_smtp_auth(
                 last_err = Some(e.into());
             }
             Err(_) => {
-                tracing::warn!("smtp: connection to {} timed out after 5s", addr);
+                tracing::warn!("smtp: connection to {} timed out after 15s", addr);
                 last_err = Some(anyhow!("connection timed out"));
             }
         }
