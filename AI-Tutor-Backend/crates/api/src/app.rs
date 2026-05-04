@@ -10216,8 +10216,7 @@ async fn operator_redis_conn() -> Result<redis::aio::MultiplexedConnection, ApiE
                 .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
             redis::Client::open(url).map_err(|e| ApiError::internal(format!("invalid redis url: {}", e)))
         })
-        .await
-        .map_err(|e| ApiError::internal(format!("failed to init redis client: {}", e)))?;
+        .await?;
         
     client
         .get_multiplexed_async_connection()
@@ -10449,7 +10448,7 @@ async fn load_operator_otp_challenge(
         
         let now = chrono::Utc::now().timestamp();
         if challenge.expires_at_unix < now {
-            let _: () = conn.del(&key).await.ok();
+            let _ = conn.del::<_, ()>(&key).await;
             return Ok(None);
         }
         
