@@ -7581,18 +7581,32 @@ async fn request_operator_otp(
         read_optional_env("AI_TUTOR_BASE_URL").unwrap_or_else(|| "http://127.0.0.1:8099".to_string()),
     );
     let name = operator_name_from_email(&email);
-    let notification_future = service
-        .send_operator_otp(OperatorOtpNotification {
-            operator_email: email.clone(),
-            operator_name: name,
-            otp_code,
-            expires_in_minutes: (operator_otp_ttl_seconds() / 60).max(1),
-        });
+    let payload = OperatorOtpNotification {
+        operator_email: email.clone(),
+        operator_name: name,
+        otp_code,
+        expires_in_minutes: (operator_otp_ttl_seconds() / 60).max(1),
+    };
 
-    tokio::time::timeout(std::time::Duration::from_secs(8), notification_future)
-        .await
-        .map_err(|_| ApiError::internal("timeout waiting for notification service"))?
-        .map_err(ApiError::internal)?;
+    tokio::spawn(async move {
+        let timeout_result = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            service.send_operator_otp(payload)
+        )
+        .await;
+
+        match timeout_result {
+            Ok(Ok(_)) => {
+                tracing::info!("operator otp email sent successfully");
+            }
+            Ok(Err(err)) => {
+                tracing::error!(error = %err, "failed to send operator otp email");
+            }
+            Err(_) => {
+                tracing::error!("timeout (30s) waiting for notification service to send operator otp email");
+            }
+        }
+    });
 
     info!(
         event = "operator_audit_auth",
