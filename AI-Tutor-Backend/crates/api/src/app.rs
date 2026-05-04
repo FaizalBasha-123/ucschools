@@ -767,6 +767,11 @@ pub struct OperatorOtpResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct OperatorOtpChallenge {
+    otp_hash: String,
+    expires_at_unix: i64,
+    attempts_remaining: i32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OperatorSessionState {
