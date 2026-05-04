@@ -7581,14 +7581,17 @@ async fn request_operator_otp(
         read_optional_env("AI_TUTOR_BASE_URL").unwrap_or_else(|| "http://127.0.0.1:8099".to_string()),
     );
     let name = operator_name_from_email(&email);
-    service
+    let notification_future = service
         .send_operator_otp(OperatorOtpNotification {
             operator_email: email.clone(),
             operator_name: name,
             otp_code,
             expires_in_minutes: (operator_otp_ttl_seconds() / 60).max(1),
-        })
+        });
+
+    tokio::time::timeout(std::time::Duration::from_secs(8), notification_future)
         .await
+        .map_err(|_| ApiError::internal("timeout waiting for notification service"))?
         .map_err(ApiError::internal)?;
 
     info!(

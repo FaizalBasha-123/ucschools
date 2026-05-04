@@ -2,11 +2,13 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { backendUrl } from '@/lib/server/backend-url';
 
-
-
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.json();
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     const backendRes = await fetch(`${backendUrl()}/api/operator/auth/verify-otp`, {
       method: 'POST',
       headers: {
@@ -14,7 +16,9 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify(payload),
       cache: 'no-store',
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     const setCookie = backendRes.headers.get('set-cookie');
     const text = await backendRes.text();
