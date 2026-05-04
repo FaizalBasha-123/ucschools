@@ -840,7 +840,29 @@ async fn run_chat_graph_internal(
         whiteboard_state,
         cancellation_token,
     };
-    let pedagogy_route = resolve_chat_pedagogy_route(&state.payload, state.payload.model.as_deref())?;
+    let pedagogy_enabled = std::env::var("AI_TUTOR_PEDAGOGY_ROUTING_ENABLED")
+        .ok()
+        .map(|v| matches!(v.trim(), "1" | "true" | "TRUE"))
+        .unwrap_or(true);
+
+    let pedagogy_route = if pedagogy_enabled {
+        resolve_chat_pedagogy_route(&state.payload, state.payload.model.as_deref())?
+    } else {
+        // Fallback to static model if routing is disabled
+        let model = state.payload.model.clone()
+            .or_else(|| std::env::var("BALANCED_MODE_AI_TUTOR_MODEL").ok())
+            .unwrap_or_else(|| "openai:gpt-4o-mini".to_string());
+        
+        crate::pedagogy_router::PedagogyRoutingDecision {
+            tier: crate::pedagogy_router::PedagogyTier::Baseline,
+            model,
+            fallback_model: None,
+            stage: "static",
+            reason: "Pedagogy routing is disabled via environment variable.".to_string(),
+            confidence: 1.0,
+            thinking_budget_tokens: None,
+        }
+    };
     let thinking_message = thinking_message_for_chat(&pedagogy_route);
     let thinking_model = pedagogy_route.model.clone();
     let whiteboard_snapshot = state.whiteboard_state.clone();

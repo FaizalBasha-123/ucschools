@@ -346,5 +346,20 @@ async fn main() {
         .expect("bind api listener");
 
     info!("AI-Tutor-Backend API listening on {}", addr);
+    
+    // Perform final production readiness check before accepting traffic
+    if std::env::var("AI_TUTOR_STRICT_STARTUP_READINESS").ok().is_some_and(|v| matches!(v.trim(), "1" | "true")) {
+        info!("Strict startup readiness check enabled. Verifying infrastructure...");
+        let checker = ai_tutor_api::startup_readiness::ProductionReadinessChecker;
+        let readiness = checker.check_all().await;
+        if !readiness.is_ready_for_traffic() {
+            error!("Production readiness check failed: {:?}", readiness);
+            // In a real k8s environment we might not want to exit immediately to allow 
+            // the pod to stay up for debugging, but for strict mode we exit.
+            std::process::exit(1);
+        }
+        info!("Infrastructure verified. Readiness status: PASS");
+    }
+
     axum::serve(listener, app).await.expect("serve api");
 }

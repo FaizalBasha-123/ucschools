@@ -7466,8 +7466,27 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .with_state(AppState { service })
 }
 
-async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse { status: "ok" })
+async fn health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Json<HealthResponse> {
+    let mut status = "ok";
+    
+    // Perform dependency checks if admin token is provided
+    if let Some(auth) = headers.get(header::AUTHORIZATION) {
+        if let Ok(auth_str) = auth.to_str() {
+            let token = auth_str.strip_prefix("Bearer ").unwrap_or(auth_str);
+            if state.service.verify_admin_token(token) {
+                if let Ok(readiness) = state.service.get_system_status().await {
+                    if readiness.runtime_alert_level == "degraded" {
+                        status = "degraded";
+                    }
+                }
+            }
+        }
+    }
+
+    Json(HealthResponse { status })
 }
 
 async fn get_system_status(

@@ -56,6 +56,18 @@ services:
       - key: RUST_LOG
         value: "info"
 
+      # --- Hardening & Readiness ---
+      - key: AI_TUTOR_REQUIRE_HTTPS
+        value: "1"
+      - key: AI_TUTOR_COOKIE_SECURE
+        value: "1"
+      - key: AI_TUTOR_STRICT_STARTUP_READINESS
+        value: "0"  # Set to 1 to fail startup if infrastructure is not ready
+      - key: AI_TUTOR_PEDAGOGY_ROUTING_ENABLED
+        value: "1"
+      - key: AI_TUTOR_OPS_GATE_STRICT
+        value: "0"
+
       # --- Redis/Valkey internal connection from Render Key Value ---
       - key: REDIS_URL
         fromService:
@@ -88,6 +100,14 @@ services:
       - key: AI_TUTOR_GOOGLE_OAUTH_REDIRECT_URI
         value: "https://uc-aitutor.vercel.app/auth/callback"
       - key: AI_TUTOR_GOOGLE_OAUTH_STATE_SECRET
+        sync: false
+
+      # --- Operator OTP Auth ---
+      - key: AI_TUTOR_OPERATOR_OTP_ENABLED
+        value: "1"
+      - key: AI_TUTOR_OPERATOR_ALLOWED_EMAILS
+        sync: false  # Comma-separated list of allowed emails
+      - key: AI_TUTOR_OPERATOR_OTP_SECRET
         sync: false
 
       # --- Firebase Phone Auth ---
