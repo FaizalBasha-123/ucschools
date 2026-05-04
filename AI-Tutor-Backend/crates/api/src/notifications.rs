@@ -483,13 +483,49 @@ async fn send_via_smtp_auth(
     html: &str,
     text_fallback: &str,
 ) -> Result<()> {
+    tracing::info!("smtp: resolving dns for {}:{}", config.host, config.port);
     let address = format!("{}:{}", config.host, config.port);
-    let stream = TcpStream::connect(&address)
-        .await
-        .map_err(|err| anyhow!("smtp tcp connect failed: {err}"))?;
+    let addrs = tokio::net::lookup_host(&address).await
+        .map_err(|err| anyhow!("smtp dns lookup failed: {err}"))?;
+        
+    let mut ipv4_addrs = Vec::new();
+    let mut ipv6_addrs = Vec::new();
+    for addr in addrs {
+        if addr.is_ipv4() {
+            ipv4_addrs.push(addr);
+        } else {
+            ipv6_addrs.push(addr);
+        }
+    }
+    // Prioritize IPv4 to avoid IPv6 blackholes in some cloud environments
+    ipv4_addrs.extend(ipv6_addrs);
+    
+    let mut stream = None;
+    let mut last_err = None;
+    for addr in ipv4_addrs {
+        tracing::info!("smtp: attempting tcp connect to {}", addr);
+        match tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect(addr)).await {
+            Ok(Ok(s)) => {
+                tracing::info!("smtp: successfully connected to {}", addr);
+                stream = Some(s);
+                break;
+            }
+            Ok(Err(e)) => {
+                tracing::warn!("smtp: failed to connect to {}: {}", addr, e);
+                last_err = Some(e.into());
+            }
+            Err(_) => {
+                tracing::warn!("smtp: connection to {} timed out after 5s", addr);
+                last_err = Some(anyhow!("connection timed out"));
+            }
+        }
+    }
+    
+    let stream = stream.ok_or_else(|| anyhow!("smtp: all tcp connection attempts failed: {:?}", last_err))?;
 
     // Port 465 uses Implicit TLS. Others use STARTTLS.
     if config.port == 465 {
+        tracing::info!("smtp: initiating implicit TLS handshake on port 465");
         let connector = native_tls::TlsConnector::builder()
             .build()
             .map_err(|err| anyhow!("smtp tls connector build failed: {err}"))?;
@@ -499,10 +535,13 @@ async fn send_via_smtp_auth(
             .await
             .map_err(|err| anyhow!("smtp tls handshake failed: {err}"))?;
             
+        tracing::info!("smtp: TLS handshake complete");
         let (read_half, mut write_half) = tokio::io::split(tls_stream);
         let mut reader = BufReader::new(read_half);
 
+        tracing::info!("smtp: waiting for 220 banner");
         expect_smtp_code(&mut reader, 220).await?;
+        tracing::info!("smtp: sending EHLO");
         send_smtp_command(&mut write_half, "EHLO ai-tutor.local").await?;
         expect_smtp_code(&mut reader, 250).await?;
 
@@ -519,17 +558,22 @@ async fn send_via_smtp_auth(
         )
         .await
     } else {
+        tracing::info!("smtp: plain text connection established on port {}", config.port);
         let (read_half, mut write_half) = tokio::io::split(stream);
         let mut reader = BufReader::new(read_half);
 
+        tracing::info!("smtp: waiting for 220 banner");
         expect_smtp_code(&mut reader, 220).await?;
+        tracing::info!("smtp: sending EHLO");
         send_smtp_command(&mut write_half, "EHLO ai-tutor.local").await?;
         expect_smtp_code(&mut reader, 250).await?;
 
         if config.use_tls {
+            tracing::info!("smtp: sending STARTTLS");
             send_smtp_command(&mut write_half, "STARTTLS").await?;
             expect_smtp_code(&mut reader, 220).await?;
 
+            tracing::info!("smtp: upgrading connection to TLS");
             let stream = reader.into_inner().unsplit(write_half);
             
             let connector = native_tls::TlsConnector::builder()
@@ -541,9 +585,11 @@ async fn send_via_smtp_auth(
                 .await
                 .map_err(|err| anyhow!("smtp starttls handshake failed: {err}"))?;
                 
+            tracing::info!("smtp: STARTTLS handshake complete");
             let (read_half, mut write_half) = tokio::io::split(tls_stream);
             let mut reader = BufReader::new(read_half);
 
+            tracing::info!("smtp: sending EHLO over TLS");
             send_smtp_command(&mut write_half, "EHLO ai-tutor.local").await?;
             expect_smtp_code(&mut reader, 250).await?;
 
@@ -560,6 +606,7 @@ async fn send_via_smtp_auth(
             )
             .await
         } else {
+            tracing::info!("smtp: proceeding without TLS (STARTTLS disabled)");
             run_smtp_auth_and_send(
                 &mut reader,
                 &mut write_half,
@@ -591,24 +638,29 @@ where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-
+    tracing::info!("smtp: sending AUTH LOGIN");
     send_smtp_command(write_half, "AUTH LOGIN").await?;
     expect_smtp_code(reader, 334).await?;
 
     let user_b64 = base64::engine::general_purpose::STANDARD.encode(user.as_bytes());
+    tracing::info!("smtp: sending auth user");
     send_smtp_command(write_half, &user_b64).await?;
     expect_smtp_code(reader, 334).await?;
 
     let pass_b64 = base64::engine::general_purpose::STANDARD.encode(password.as_bytes());
+    tracing::info!("smtp: sending auth pass");
     send_smtp_command(write_half, &pass_b64).await?;
     expect_smtp_code(reader, 235).await?;
 
+    tracing::info!("smtp: sending MAIL FROM");
     send_smtp_command(write_half, &format!("MAIL FROM:<{}>", from_email)).await?;
     expect_smtp_code(reader, 250).await?;
 
+    tracing::info!("smtp: sending RCPT TO");
     send_smtp_command(write_half, &format!("RCPT TO:<{}>", to_email)).await?;
     expect_smtp_code(reader, 250).await?;
 
+    tracing::info!("smtp: sending DATA command");
     send_smtp_command(write_half, "DATA").await?;
     expect_smtp_code(reader, 354).await?;
 
@@ -623,6 +675,7 @@ where
         html = html,
     );
 
+    tracing::info!("smtp: writing email body");
     write_half
         .write_all(body.as_bytes())
         .await
@@ -637,9 +690,11 @@ where
         .map_err(|err| anyhow!("smtp flush failed: {err}"))?;
     expect_smtp_code(reader, 250).await?;
 
+    tracing::info!("smtp: sending QUIT");
     send_smtp_command(write_half, "QUIT").await?;
     let _ = expect_smtp_code(reader, 221).await;
 
+    tracing::info!("smtp: email sent successfully");
     Ok(())
 }
 
