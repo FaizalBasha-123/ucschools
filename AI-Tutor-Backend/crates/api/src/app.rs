@@ -7468,7 +7468,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
 
 async fn health(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    headers: axum::http::HeaderMap,
 ) -> Json<HealthResponse> {
     let mut status = "ok";
     
@@ -7476,7 +7476,10 @@ async fn health(
     if let Some(auth) = headers.get(header::AUTHORIZATION) {
         if let Ok(auth_str) = auth.to_str() {
             let token = auth_str.strip_prefix("Bearer ").unwrap_or(auth_str);
-            if state.service.verify_admin_token(token) {
+            let is_admin = std::env::var("AI_TUTOR_API_KEY")
+                .map(|key| !key.is_empty() && key == token)
+                .unwrap_or(false);
+            if is_admin {
                 if let Ok(readiness) = state.service.get_system_status().await {
                     if readiness.runtime_alert_level == "degraded" {
                         status = "degraded";
@@ -8474,7 +8477,7 @@ async fn runtime_pbl_chat(
 
 async fn transcribe(
     State(state): State<AppState>,
-    account: Option<Extension<AuthenticatedAccountContext>>,
+    _account: Option<Extension<AuthenticatedAccountContext>>,
     Json(payload): Json<AsrRequest>,
 ) -> Result<Json<AsrResponse>, ApiError> {
     if payload.audio_url.trim().is_empty() {
