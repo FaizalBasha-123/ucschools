@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use tokio::time::{sleep, Duration};
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use ai_tutor_domain::{
@@ -15,6 +15,7 @@ use ai_tutor_domain::{
         LessonGenerationJobStatus, LessonGenerationStep,
     },
     lesson::Lesson,
+    routing::{tier_limits, QualityTier},
     scene::{Scene, SceneContent, SceneOutline, Stage},
 };
 use ai_tutor_media::{
@@ -25,7 +26,10 @@ use ai_tutor_providers::resilient::is_non_retryable;
 use ai_tutor_providers::traits::{ImageProvider, TtsProvider, VideoProvider};
 use ai_tutor_storage::repositories::{LessonJobRepository, LessonRepository};
 
+use crate::context::{self, detect_complexity};
+use crate::cost_guard::{self, CostDecision};
 use crate::state::{GenerationOutput, GenerationState};
+use crate::validator;
 
 #[async_trait]
 pub trait LessonGenerationPipeline: Send + Sync {
@@ -237,18 +241,24 @@ where
 
             use ai_tutor_media::pdf_processor::PdfProcessor;
             use base64::{engine::general_purpose::STANDARD, Engine as _};
-            
-            let pdf_bytes = STANDARD.decode(pdf_b64)
+
+            let pdf_bytes = STANDARD
+                .decode(pdf_b64)
                 .map_err(|err| anyhow!("Failed to decode PDF content: {}", err))?;
-            
+
             if let Ok(pdf_result) = PdfProcessor::process_pdf(&pdf_bytes) {
-                // For now, we'll just use the first 15000 chars as context
-                let context = if pdf_result.full_text.len() > 15000 {
-                    format!("{}... [TRUNCATED]", &pdf_result.full_text[..15000])
-                } else {
-                    pdf_result.full_text.clone()
-                };
-                state.pdf_context = Some(context);
+                // Use tier-aware PDF compression instead of naive truncation.
+                let tier = resolve_quality_tier(&state.request);
+                let limits = tier_limits(tier);
+                let compressed =
+                    context::compress_pdf(&pdf_result.full_text, limits.max_pdf_context_chars);
+                info!(
+                    "PDF compressed: {} chars → {} chars (tier={:?})",
+                    pdf_result.full_text.len(),
+                    compressed.len(),
+                    tier
+                );
+                state.pdf_context = Some(compressed);
             }
         }
 
@@ -274,7 +284,26 @@ where
         )
         .await?;
 
-        state.outlines = self.pipeline.generate_outlines(&state.request, state.pdf_context.as_deref()).await?;
+        state.outlines = self
+            .pipeline
+            .generate_outlines(&state.request, state.pdf_context.as_deref())
+            .await?;
+
+        // ── Outline count validation: complexity-aware slide cap ──────
+        let tier = resolve_quality_tier(&state.request);
+        let complexity = detect_complexity(&state.request.requirements.requirement);
+        let max_slides = ai_tutor_domain::routing::effective_max_slides(tier, complexity);
+        if state.outlines.len() > max_slides {
+            info!(
+                "Trimming outlines from {} to {} (tier={:?}, complexity={:?})",
+                state.outlines.len(),
+                max_slides,
+                tier,
+                complexity
+            );
+            state.outlines.truncate(max_slides);
+        }
+
         state.job.total_scenes = Some(state.outlines.len() as i32);
         state.job.updated_at = Utc::now();
         self.jobs
@@ -296,14 +325,82 @@ where
         )
         .await?;
 
+        let tier = resolve_quality_tier(&state.request);
+
         for (index, outline) in state.outlines.iter().enumerate() {
-            let content = self
+            // ── Step 1: Cost Guard — estimate and check budget ────────
+            let prompt_estimate = format!(
+                "{} {} {}",
+                state.request.requirements.requirement,
+                outline.title,
+                outline.key_points.join(" ")
+            );
+            let cost_estimate = cost_guard::estimate_cost_from_text(&prompt_estimate, &tier);
+            match cost_guard::enforce_budget(&tier, &cost_estimate) {
+                CostDecision::Deny => {
+                    warn!(
+                        "CostGuard DENIED scene {}: est_tokens={} est_cost=${}",
+                        outline.title,
+                        cost_estimate.estimated_tokens,
+                        cost_estimate.estimated_cost_usd
+                    );
+                    // Skip this scene entirely rather than blowing budget.
+                    continue;
+                }
+                CostDecision::Compress => {
+                    info!("CostGuard: compressing context for scene {}", outline.title);
+                    // Context is already compressed via tier limits — this is a
+                    // signal that we should not add any extra research/PDF context.
+                }
+                CostDecision::Warn => {
+                    info!(
+                        "CostGuard WARN: scene {} approaching budget limit",
+                        outline.title
+                    );
+                }
+                CostDecision::Allow => {}
+            }
+
+            // ── Step 2: Generate content ──────────────────────────────
+            let mut content = self
                 .pipeline
                 .generate_scene_content(&state.request, outline, state.pdf_context.as_deref())
                 .await?;
+
+            // ── Step 3: Validate (structural + semantic) with fix-in-place
+            let validation = validator::validate_content(&mut content, &tier);
+            if !validation.issues.is_empty() {
+                info!(
+                    "Validator fixed {} issues in scene {} (score={})",
+                    validation.issues.len(),
+                    outline.title,
+                    validation.score
+                );
+            }
+
+            // ── Step 4: Quality Escalation (Premium only) ────────────
+            // If validation score is below threshold and we are on Premium,
+            // we could invoke a refinement model here. For now we log the
+            // signal — the actual refinement call is wired separately via
+            // the generation pipeline's `refine` LLM slot.
+            if crate::router::should_escalate(validation.score, &tier) {
+                info!(
+                    "Quality escalation triggered for scene {} (score={})",
+                    outline.title, validation.score
+                );
+                // Future: invoke refinement model to polish content.
+                // content = self.pipeline.refine_content(&content).await?;
+            }
+
+            // ── Step 5: Generate actions for this scene ───────────────
             let actions = self
                 .pipeline
-                .generate_scene_actions(&state.request, outline, &content, state.pdf_context.as_deref())
+                .generate_scene_actions(
+                    &state.request,
+                    outline,
+                    &content,
+                    state.pdf_context.as_deref(),
+                )
                 .await?;
 
             state.scenes.push(Scene {
@@ -742,6 +839,15 @@ fn language_code(language: &Language) -> &'static str {
         Language::ZhCn => "zh-CN",
         Language::EnUs => "en-US",
     }
+}
+
+/// Map the request's `quality_mode` string to the routing engine's `QualityTier`.
+fn resolve_quality_tier(request: &LessonGenerationRequest) -> QualityTier {
+    request
+        .quality_mode
+        .as_deref()
+        .map(QualityTier::from_str_loose)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

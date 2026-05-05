@@ -25,7 +25,7 @@ reqwest.workspace = true
 jsonwebtoken.workspace = true
 sha2 = "0.10"
 base64 = "0.22"
-native-tls = "0.2"
+native-tls = { version = "0.2", features = ["vendored"] }
 tokio-native-tls = "0.3"
 redis = { version = "0.27", features = ["tokio-comp"] }
 rand = "0.8"
