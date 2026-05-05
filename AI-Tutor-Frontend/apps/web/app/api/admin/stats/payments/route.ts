@@ -1,36 +1,32 @@
-import { type NextRequest } from 'next/server';
-import { apiError, apiSuccess } from '@/lib/server/api-response';
-import { createLogger } from '@/lib/logger';
-import { authHeadersFrom } from '@/lib/server/auth';
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { backendUrl } from '@/lib/server/backend-url';
-
-const log = createLogger('AdminPaymentStatsAPI');
-
-
 
 export async function GET(request: NextRequest) {
   try {
-    const backendRes = await fetch(`${backendUrl()}/api/admin/stats/payments`, {
+    const apiBaseUrl = backendUrl();
+    const cookieStore = await cookies();
+    const sessionId = cookieStore.get('ai_tutor_ops_session');
+
+    if (!sessionId) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const res = await fetch(`${apiBaseUrl}/api/admin/stats/payments`, {
       method: 'GET',
-      headers: authHeadersFrom(request),
+      headers: {
+        'Cookie': `ai_tutor_ops_session=${sessionId.value}`,
+      },
       cache: 'no-store',
     });
 
-    if (!backendRes.ok) {
-      const errorText = await backendRes.text();
-      log.error(`Backend payment stats fetch failed: [${backendRes.status}] ${errorText}`);
-      return apiError('INTERNAL_ERROR', backendRes.status, 'Failed to load admin payment stats', errorText);
+    if (!res.ok) {
+      return NextResponse.json({ success: false, error: `Backend error: ${res.status}` }, { status: res.status });
     }
 
-    const payload = await backendRes.json();
-    return apiSuccess(payload);
+    const data = await res.json();
+    return NextResponse.json({ success: true, ...data });
   } catch (error) {
-    log.error('Admin payment stats proxy failed:', error);
-    return apiError(
-      'INTERNAL_ERROR',
-      500,
-      'Failed to load admin payment stats',
-      error instanceof Error ? error.message : String(error),
-    );
+    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
   }
 }

@@ -7437,6 +7437,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/admin/stats/subscriptions", get(get_admin_subscription_stats))
         .route("/api/admin/stats/payments", get(get_admin_payment_stats))
         .route("/api/admin/stats/promo-codes", get(get_admin_promo_code_stats))
+        .route("/api/admin/promo-codes", get(get_admin_promo_codes).post(create_admin_promo_code))
         .route("/api/admin/users", get(get_admin_users))
         .route("/api/admin/settings", get(get_admin_settings))
         .route("/api/admin/jobs", get(get_admin_jobs))
@@ -7510,6 +7511,31 @@ async fn health(
     }
 
     Json(HealthResponse { status })
+}
+
+async fn get_admin_promo_codes(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<AdminPromoCodeListResponse>, ApiError> {
+    state
+        .service
+        .list_all_promo_codes(1000)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn create_admin_promo_code(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Json(payload): Json<CreatePromoCodeRequest>,
+) -> Result<StatusCode, ApiError> {
+    state
+        .service
+        .create_promo_code(payload)
+        .await
+        .map(|_| StatusCode::CREATED)
+        .map_err(ApiError::internal)
 }
 
 async fn get_system_status(
