@@ -357,7 +357,9 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
                 created_at TIMESTAMPTZ NOT NULL,
                 started_at TIMESTAMPTZ,
                 completed_at TIMESTAMPTZ,
-                updated_at TIMESTAMPTZ NOT NULL
+                updated_at TIMESTAMPTZ NOT NULL,
+                scenes_generated INTEGER NOT NULL DEFAULT 0,
+                total_scenes INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS lesson_adaptive_states (
@@ -444,6 +446,14 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             CREATE INDEX IF NOT EXISTS idx_runtime_sessions_account_id ON runtime_sessions (account_id);
             CREATE INDEX IF NOT EXISTS idx_lessons_school_id ON lessons (school_id);
             CREATE INDEX IF NOT EXISTS idx_lesson_jobs_school_id ON lesson_jobs (school_id);
+        "#,
+    },
+    PostgresMigration {
+        version: 12,
+        name: "lesson_jobs_scenes_counts",
+        sql: r#"
+            ALTER TABLE lesson_jobs ADD COLUMN IF NOT EXISTS scenes_generated INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE lesson_jobs ADD COLUMN IF NOT EXISTS total_scenes INTEGER;
         "#,
     },
 ];
@@ -2447,8 +2457,24 @@ impl LessonJobRepository for FileStorage {
                 let lesson_id = job.result.as_ref().map(|r| r.lesson_id.clone());
                 
                 client.execute(
-                    "INSERT INTO lesson_jobs (id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, lesson_id, created_at, started_at, completed_at, updated_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+                    "INSERT INTO lesson_jobs (id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, lesson_id, created_at, started_at, completed_at, updated_at, scenes_generated, total_scenes)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                     ON CONFLICT (id) DO UPDATE SET
+                         account_id = EXCLUDED.account_id,
+                         school_id = EXCLUDED.school_id,
+                         status = EXCLUDED.status,
+                         step = EXCLUDED.step,
+                         progress = EXCLUDED.progress,
+                         message = EXCLUDED.message,
+                         error = EXCLUDED.error,
+                         result_json = EXCLUDED.result_json,
+                         input_summary_json = EXCLUDED.input_summary_json,
+                         lesson_id = EXCLUDED.lesson_id,
+                         started_at = EXCLUDED.started_at,
+                         completed_at = EXCLUDED.completed_at,
+                         updated_at = EXCLUDED.updated_at,
+                         scenes_generated = EXCLUDED.scenes_generated,
+                         total_scenes = EXCLUDED.total_scenes",
                     &[
                         &job.id,
                         &job.account_id,
@@ -2465,6 +2491,8 @@ impl LessonJobRepository for FileStorage {
                         &job.started_at,
                         &job.completed_at,
                         &job.updated_at,
+                        &job.scenes_generated,
+                        &job.total_scenes,
                     ],
                 ).map_err(|err| err.to_string())?;
                 Ok(())
