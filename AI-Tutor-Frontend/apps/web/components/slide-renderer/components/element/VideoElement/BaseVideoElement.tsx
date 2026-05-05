@@ -136,7 +136,7 @@ export function BaseVideoElement({ elementInfo }: BaseVideoElementProps) {
         ) : showError ? (
           <div className="w-full h-full bg-red-50 dark:bg-red-900/20 flex flex-col items-center justify-center gap-1.5 rounded">
             {task?.errorCode === 'CONTENT_SENSITIVE' ? (
-              <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+              <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-teal-600 dark:text-teal-400">
                 <ShieldAlert className="w-3 h-3 shrink-0" />
                 <span>{t('settings.mediaContentSensitive')}</span>
               </div>

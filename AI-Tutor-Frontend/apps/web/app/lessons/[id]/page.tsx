@@ -249,7 +249,7 @@ export default function ClassroomDetailPage() {
                     disabled={exporting}
                     className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/95 px-5 py-3 text-sm font-black shadow-xl backdrop-blur hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-all disabled:opacity-60 text-[#0F172A] dark:text-white uppercase tracking-tight flex items-center gap-2"
                   >
-                    {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4 text-[#F97316]" />}
+                    {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4 text-[#10B981]" />}
                     {exporting ? t('classroom.exportingVideo') : t('classroom.exportVideo')}
                   </button>
                 </div>
@@ -257,7 +257,7 @@ export default function ClassroomDetailPage() {
               {loading ? (
                 <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] dark:bg-neutral-900/50">
                   <div className="text-center">
-                    <Loader2 className="size-10 animate-spin text-[#F97316] mx-auto mb-4 opacity-40" />
+                    <Loader2 className="size-10 animate-spin text-[#10B981] mx-auto mb-4 opacity-40" />
                     <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest">{t('classroom.loading')}</p>
                   </div>
                 </div>

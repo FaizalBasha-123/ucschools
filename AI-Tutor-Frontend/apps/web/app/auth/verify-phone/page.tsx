@@ -171,11 +171,11 @@ function VerifyPhoneContent() {
   }, [otp, confirmationResult, router]);
 
   return (
-    <main className="relative min-h-screen bg-neutral-50 text-neutral-900 flex flex-col items-center justify-center font-sans tracking-tight">
+    <main className="relative min-h-screen bg-background text-foreground flex flex-col items-center justify-center font-sans tracking-tight">
       <button
         type="button"
         onClick={() => router.push('/auth')}
-        className="fixed top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-600 shadow-sm transition-all hover:bg-neutral-50 hover:text-neutral-900 md:top-8 md:left-8"
+        className="fixed top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground shadow-sm transition-all hover:bg-muted hover:text-foreground md:top-8 md:left-8"
       >
         <ArrowLeft className="size-4" />
         Back
@@ -186,21 +186,21 @@ function VerifyPhoneContent() {
 
       {/* Top Header */}
       <div className="mb-6 flex flex-col items-center justify-center">
-        <div className="mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-2xl border-2 border-emerald-400/40 bg-gradient-to-br from-emerald-50 to-white shadow-lg shadow-emerald-500/10">
+        <div className="mb-4 flex h-[52px] w-[52px] items-center justify-center rounded-2xl border-2 border-primary/40 bg-gradient-to-br from-primary/10 to-card shadow-lg shadow-primary/10">
           {step === 'verifying' || step === 'otp' ? (
-            <ShieldCheck className="size-6 text-emerald-600" />
+            <ShieldCheck className="size-6 text-primary" />
           ) : (
-            <Phone className="size-6 text-emerald-600" />
+            <Phone className="size-6 text-primary" />
           )}
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
           {step === 'verifying'
             ? 'Verifying...'
             : step === 'otp'
               ? 'Enter verification code'
               : 'Verify your phone'}
         </h1>
-        <p className="mt-1.5 text-sm text-neutral-500 max-w-xs text-center">
+        <p className="mt-1.5 text-sm text-muted-foreground max-w-xs text-center">
           {step === 'verifying'
             ? 'Securing your account. Please wait.'
             : step === 'otp'
@@ -208,23 +208,23 @@ function VerifyPhoneContent() {
               : 'A one-time phone verification is required to secure your account.'}
         </p>
         {partialEmail.current && step === 'phone' && (
-          <p className="mt-1 text-xs text-neutral-400">
-            Signing in as <span className="font-medium text-neutral-600">{partialEmail.current}</span>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Signing in as <span className="font-medium text-foreground">{partialEmail.current}</span>
           </p>
         )}
       </div>
 
       {/* Card */}
-      <div className="w-full max-w-[420px] rounded-2xl bg-white p-8 shadow-xl border border-neutral-200/60">
+      <div className="w-full max-w-[420px] rounded-2xl bg-card p-8 shadow-xl border border-border/60">
         {step === 'phone' && (
           <div className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-neutral-700 tracking-wide">Phone Number</label>
+              <label className="text-xs font-semibold text-card-foreground tracking-wide">Phone Number</label>
               <div className="flex gap-2">
                 <select
                   value={countryCode}
                   onChange={(e) => setCountryCode(e.target.value)}
-                  className="h-[44px] w-[90px] rounded-md border border-neutral-300 bg-neutral-50 px-2 text-sm text-neutral-700 focus:border-emerald-400/60 focus:outline-none focus:ring-1 focus:ring-emerald-400/40"
+                  className="h-[44px] w-[90px] rounded-md border border-input bg-muted px-2 text-sm text-card-foreground focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-ring/40"
                 >
                   <option value="+91">🇮🇳 +91</option>
                   <option value="+1">🇺🇸 +1</option>
@@ -246,7 +246,7 @@ function VerifyPhoneContent() {
                   onChange={(e) => setPhone(e.target.value)}
                   disabled={loading}
                   autoFocus
-                  className="h-[44px] flex-1 rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-700 transition-colors placeholder:text-neutral-400 focus:border-emerald-400/60 focus:outline-none focus:ring-1 focus:ring-emerald-400/40"
+                  className="h-[44px] flex-1 rounded-md border border-input bg-muted px-3 text-sm text-card-foreground transition-colors placeholder:text-muted-foreground focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-ring/40"
                 />
               </div>
             </div>
@@ -254,7 +254,7 @@ function VerifyPhoneContent() {
             <button
               onClick={handleSendOtp}
               disabled={loading || !phone.trim()}
-              className="flex h-[44px] w-full items-center justify-center rounded-md bg-emerald-500 px-4 text-sm font-semibold text-white transition-all hover:bg-emerald-600 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100"
+              className="flex h-[44px] w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Send verification code'}
             </button>
@@ -277,7 +277,7 @@ function VerifyPhoneContent() {
                   onPaste={i === 0 ? handleOtpPaste : undefined}
                   autoFocus={i === 0}
                   disabled={loading}
-                  className="h-12 w-11 rounded-lg border-2 border-neutral-200 bg-neutral-50 text-center text-lg font-bold text-neutral-800 transition-all focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/30 disabled:opacity-50"
+                  className="h-12 w-11 rounded-lg border-2 border-border bg-muted text-center text-lg font-bold text-foreground transition-all focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
                 />
               ))}
             </div>
@@ -285,7 +285,7 @@ function VerifyPhoneContent() {
             <button
               onClick={handleVerifyOtp}
               disabled={loading || otp.join('').length !== 6}
-              className="flex h-[44px] w-full items-center justify-center rounded-md bg-emerald-500 px-4 text-sm font-semibold text-white transition-all hover:bg-emerald-600 hover:shadow-lg hover:shadow-emerald-500/20 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100"
+              className="flex h-[44px] w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/20 active:scale-[0.98] disabled:opacity-60 disabled:active:scale-100"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verify & continue'}
             </button>
@@ -300,7 +300,7 @@ function VerifyPhoneContent() {
                   setStep('phone');
                 }}
                 disabled={loading}
-                className="text-xs font-medium text-neutral-500 hover:text-neutral-700 transition-colors"
+                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 ← Change phone number
               </button>
@@ -310,19 +310,19 @@ function VerifyPhoneContent() {
 
         {step === 'verifying' && (
           <div className="flex flex-col items-center justify-center py-6 gap-3">
-            <p className="text-sm text-neutral-500">Activating your account...</p>
+            <p className="text-sm text-muted-foreground">Activating your account...</p>
           </div>
         )}
 
         {error && (
-          <div className="mt-5 rounded-md border border-rose-200/60 bg-rose-50 p-3 text-center text-[13px] leading-relaxed text-rose-700">
+          <div className="mt-5 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-center text-[13px] leading-relaxed text-destructive">
             {error}
           </div>
         )}
       </div>
 
       {/* Security note */}
-      <p className="mt-6 max-w-xs text-center text-[11px] text-neutral-400 leading-relaxed">
+      <p className="mt-6 max-w-xs text-center text-[11px] text-muted-foreground leading-relaxed">
         Phone verification is a one-time security step. Your number is used solely for account verification and is never shared.
       </p>
     </main>
@@ -331,7 +331,7 @@ function VerifyPhoneContent() {
 
 export default function VerifyPhonePage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-neutral-50" />}>
+    <Suspense fallback={<main className="min-h-screen bg-background" />}>
       <VerifyPhoneContent />
     </Suspense>
   );

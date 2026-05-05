@@ -112,7 +112,7 @@ export default function AdminPromoPage() {
             </div>
             <button 
               onClick={() => setShowCreate(!showCreate)}
-              className="flex items-center gap-2 bg-[#F97316] text-white px-6 py-3 rounded-xl font-bold hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20"
+              className="flex items-center gap-2 bg-[#10B981] text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
             >
               <Plus className="size-5" />
               {showCreate ? 'Cancel' : 'New Promo Code'}
@@ -136,7 +136,7 @@ export default function AdminPromoPage() {
                 <Ticket size={120} />
               </div>
               <h2 className="text-xl font-bold mb-6 flex items-center gap-2">
-                <Ticket className="size-5 text-[#F97316]" /> Create New Promotion
+                <Ticket className="size-5 text-[#10B981]" /> Create New Promotion
               </h2>
               <form onSubmit={handleCreate} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-end relative z-10">
                 <div className="space-y-2">
@@ -146,7 +146,7 @@ export default function AdminPromoPage() {
                     value={newCode} 
                     onChange={e => setNewCode(e.target.value)}
                     placeholder="E.g. SUMMER2026"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316] uppercase font-mono"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10B981] uppercase font-mono"
                   />
                 </div>
                 <div className="space-y-2">
@@ -156,7 +156,7 @@ export default function AdminPromoPage() {
                     type="number"
                     value={credits} 
                     onChange={e => setCredits(Number(e.target.value))}
-                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10B981]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -166,7 +166,7 @@ export default function AdminPromoPage() {
                     value={maxUsesPerAccount} 
                     onChange={e => setMaxUsesPerAccount(e.target.value)}
                     placeholder="Default: 1"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10B981]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -176,7 +176,7 @@ export default function AdminPromoPage() {
                     value={maxAccounts} 
                     onChange={e => setMaxAccounts(e.target.value)}
                     placeholder="Empty = Unlimited"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10B981]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -186,7 +186,7 @@ export default function AdminPromoPage() {
                     value={maxGlobalUses} 
                     onChange={e => setMaxGlobalUses(e.target.value)}
                     placeholder="Empty = Unlimited"
-                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10B981]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -195,13 +195,13 @@ export default function AdminPromoPage() {
                     type="date"
                     value={expiry} 
                     onChange={e => setExpiry(e.target.value)}
-                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                    className="w-full px-4 py-3 bg-white/10 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#10B981]"
                   />
                 </div>
                 <div className="md:col-span-2 flex justify-end">
                   <button 
                     disabled={createLoading}
-                    className="bg-[#F97316] text-white px-10 py-3 rounded-xl font-bold hover:bg-orange-600 transition-all flex items-center gap-2 h-[46px]"
+                    className="bg-[#10B981] text-white px-10 py-3 rounded-xl font-bold hover:bg-emerald-600 transition-all flex items-center gap-2 h-[46px]"
                   >
                     {createLoading ? <Loader2 className="size-5 animate-spin" /> : "Save Promo Code"}
                   </button>
@@ -219,7 +219,7 @@ export default function AdminPromoPage() {
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Search promo codes..."
-                  className="w-full pl-10 pr-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-800 focus:outline-none focus:ring-2 focus:ring-[#F97316]"
+                  className="w-full pl-10 pr-4 py-2 rounded-xl border border-neutral-200 dark:border-neutral-800 focus:outline-none focus:ring-2 focus:ring-[#10B981]"
                 />
               </div>
               <div className="text-xs font-bold text-neutral-400 uppercase tracking-widest">
@@ -243,7 +243,7 @@ export default function AdminPromoPage() {
                   {loading ? (
                     <tr>
                       <td colSpan={6} className="px-6 py-12 text-center">
-                        <Loader2 className="size-6 animate-spin mx-auto text-[#F97316] mb-2" />
+                        <Loader2 className="size-6 animate-spin mx-auto text-[#10B981] mb-2" />
                         <p className="text-neutral-400">Loading promo codes...</p>
                       </td>
                     </tr>
@@ -264,7 +264,7 @@ export default function AdminPromoPage() {
                         <tr key={p.code} className="hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-colors">
                           <td className="px-6 py-5">
                             <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-600">
+                              <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600">
                                 <Ticket className="size-4" />
                               </div>
                               <span className="font-mono font-black text-lg text-[#0F172A] dark:text-white">{p.code}</span>
@@ -292,7 +292,7 @@ export default function AdminPromoPage() {
                               {p.max_redemptions ? (
                                 <div className="w-full h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
                                   <div 
-                                    className="h-full bg-[#F97316]" 
+                                    className="h-full bg-[#10B981]" 
                                     style={{ width: `${(p.redeemed_by_accounts.length / p.max_redemptions) * 100}%` }} 
                                   />
                                 </div>

@@ -19,7 +19,7 @@ interface SessionListProps {
 
 const sessionBadgeStyles = {
   qa: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  discussion: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  discussion: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300',
   lecture: 'bg-primary/10 text-primary dark:bg-primary/20 dark:text-primary',
 };
 
@@ -59,7 +59,7 @@ export function SessionList({
             ? 'bg-primary'
             : session.type === 'qa'
               ? 'bg-blue-500'
-              : 'bg-amber-500';
+              : 'bg-teal-500';
 
         return (
           <div

@@ -284,7 +284,7 @@ export default function AdminSchoolsPage() {
                     </div>
                     <Badge variant="outline" className={cn(
                       "text-[10px] uppercase tracking-wider font-bold",
-                      school.plan === 'enterprise' ? 'border-amber-400 text-amber-600 bg-amber-50 dark:bg-amber-950/30' :
+                      school.plan === 'enterprise' ? 'border-teal-400 text-teal-600 bg-teal-50 dark:bg-teal-950/30' :
                       school.plan === 'pro' ? 'border-blue-400 text-blue-600 bg-blue-50 dark:bg-blue-950/30' :
                       'border-neutral-300 text-neutral-500 bg-neutral-50 dark:bg-neutral-800'
                     )}>{school.plan}</Badge>
@@ -423,7 +423,7 @@ export default function AdminSchoolsPage() {
                                     <Badge variant="outline" className={cn(
                                       "text-[10px] uppercase",
                                       inv.status === 'paid' ? "border-green-500 text-green-600 bg-green-50" : 
-                                      inv.status === 'pending' ? "border-amber-500 text-amber-600 bg-amber-50" : ""
+                                      inv.status === 'pending' ? "border-teal-500 text-teal-600 bg-teal-50" : ""
                                     )}>{inv.status}</Badge>
                                   </div>
                                   <p className="text-xs text-muted-foreground">Due: {new Date(inv.due_at).toLocaleDateString()}</p>

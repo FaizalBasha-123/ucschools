@@ -38,7 +38,7 @@ const SPOTLIGHT_STYLE =
 const LASER_STYLE =
   'bg-red-50 dark:bg-red-500/15 border-red-300/40 dark:border-red-500/30 text-red-600 dark:text-red-300';
 const DISCUSS_STYLE =
-  'bg-amber-50 dark:bg-amber-500/15 border-amber-300/40 dark:border-amber-500/30 text-amber-700 dark:text-amber-300';
+  'bg-teal-50 dark:bg-teal-500/15 border-teal-300/40 dark:border-teal-500/30 text-teal-700 dark:text-teal-300';
 const DEFAULT_STYLE =
   'bg-gray-50 dark:bg-gray-500/15 border-gray-300/40 dark:border-gray-500/30 text-gray-600 dark:text-gray-300';
 

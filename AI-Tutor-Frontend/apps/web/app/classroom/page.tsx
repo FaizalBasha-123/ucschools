@@ -243,7 +243,7 @@ export default function ClassroomDashboard() {
                     lesson.status === 'ready'
                       ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600'
                       : lesson.status === 'generating'
-                        ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600'
+                        ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-600'
                         : lesson.status === 'failed'
                           ? 'bg-red-50 dark:bg-red-900/20 text-red-600'
                           : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500',
@@ -294,7 +294,7 @@ export default function ClassroomDashboard() {
           className="mb-10"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-orange-500 flex items-center justify-center shadow-lg shadow-primary/20">
+            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-emerald-500 flex items-center justify-center shadow-lg shadow-primary/20">
               <Sparkles className="h-5 w-5 text-white" />
             </div>
             <div>

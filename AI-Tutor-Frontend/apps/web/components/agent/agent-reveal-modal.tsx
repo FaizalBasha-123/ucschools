@@ -132,7 +132,7 @@ export function AgentRevealModal({ agents, open, onClose, onAllRevealed }: Agent
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1, duration: 0.4 }}
           >
-            <Sparkles className="mr-2 inline-block size-6 text-amber-500 dark:text-yellow-400" />
+            <Sparkles className="mr-2 inline-block size-6 text-teal-500 dark:text-yellow-400" />
             {t('generation.agentRevealTitle')}
           </motion.h2>
 

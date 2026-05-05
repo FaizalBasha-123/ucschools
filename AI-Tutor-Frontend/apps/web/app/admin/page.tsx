@@ -25,7 +25,7 @@ function fmt(n: number, currency = 'USD') {
 }
 function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
 
-function StatCard({ icon, label, value, sub, color = 'text-[#F97316]' }: { icon: React.ReactNode; label: string; value: React.ReactNode; sub?: string; color?: string }) {
+function StatCard({ icon, label, value, sub, color = 'text-[#10B981]' }: { icon: React.ReactNode; label: string; value: React.ReactNode; sub?: string; color?: string }) {
   return (
     <div className="rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-sm flex flex-col min-h-[140px] hover:shadow-md transition-all">
       <div className={`flex items-center gap-3 mb-4 ${color}`}>
@@ -109,7 +109,7 @@ export default function AdminPage() {
               <button 
                 onClick={load} 
                 disabled={loading}
-                className="flex items-center gap-2 bg-[#F97316] text-white px-6 py-2.5 rounded-xl font-bold hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20 disabled:opacity-50"
+                className="flex items-center gap-2 bg-[#10B981] text-white px-6 py-2.5 rounded-xl font-bold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
               >
                 <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
                 {loading ? 'Updating…' : 'Refresh Data'}
@@ -140,7 +140,7 @@ export default function AdminPage() {
                 <StatCard icon={<CreditCard className="size-5" />} label="Revenue (30d)" color="text-emerald-500"
                   value={loading ? <Loader2 className="size-5 animate-spin opacity-40" /> : (overview?.subscriptions ? fmt(overview.subscriptions.revenue_rolling_30d, 'INR') : '—')}
                   sub={overview?.subscriptions ? `${fmt(overview.subscriptions.revenue_monthly, 'INR')} this month` : undefined} />
-                <StatCard icon={<DollarSign className="size-5" />} label="API Cost (30d)" color="text-amber-500"
+                <StatCard icon={<DollarSign className="size-5" />} label="API Cost (30d)" color="text-teal-500"
                   value={loading ? <Loader2 className="size-5 animate-spin opacity-40" /> : (apiCosts ? fmt(apiCosts.total_cost_usd_30d ?? 0) : '—')}
                   sub={apiCosts ? `Net margin ≈ ${pct(apiCosts.estimated_margin_30d ?? 0)}` : undefined} />
               </div>
@@ -150,10 +150,10 @@ export default function AdminPage() {
                 <div className="lg:col-span-2 rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-sm overflow-hidden">
                   <div className="p-6 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between bg-neutral-50/50 dark:bg-neutral-900/50">
                     <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Promo Code Performance</h3>
-                    <Link href="/admin/promo" className="text-[10px] font-black uppercase tracking-widest text-[#F97316] hover:underline flex items-center gap-1">Detailed View <ChevronRight className="size-3" /></Link>
+                    <Link href="/admin/promo" className="text-[10px] font-black uppercase tracking-widest text-[#10B981] hover:underline flex items-center gap-1">Detailed View <ChevronRight className="size-3" /></Link>
                   </div>
                   {loading ? (
-                    <div className="p-16 text-center"><Loader2 className="size-6 animate-spin mx-auto text-[#F97316] mb-2" /><p className="text-sm text-neutral-400">Loading data...</p></div>
+                    <div className="p-16 text-center"><Loader2 className="size-6 animate-spin mx-auto text-[#10B981] mb-2" /><p className="text-sm text-neutral-400">Loading data...</p></div>
                   ) : overview?.promo_codes ? (
                     <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-8">
                       {[
@@ -195,7 +195,7 @@ export default function AdminPage() {
                     </div>
                   ) : (
                     <div className="text-sm text-neutral-400 text-center py-12 italic">
-                      {loading ? <Loader2 className="size-5 animate-spin mx-auto text-[#F97316]" /> : 'No real-time data'}
+                      {loading ? <Loader2 className="size-5 animate-spin mx-auto text-[#10B981]" /> : 'No real-time data'}
                     </div>
                   )}
                 </div>
@@ -222,10 +222,10 @@ export default function AdminPage() {
               <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-sm overflow-hidden">
                 <div className="p-6 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between bg-neutral-50/50 dark:bg-neutral-900/50">
                   <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">User Revenue Breakdown</h3>
-                  <Link href="/admin/users" className="text-[10px] font-black uppercase tracking-widest text-[#F97316] hover:underline flex items-center gap-1">All Users <ChevronRight className="size-3" /></Link>
+                  <Link href="/admin/users" className="text-[10px] font-black uppercase tracking-widest text-[#10B981] hover:underline flex items-center gap-1">All Users <ChevronRight className="size-3" /></Link>
                 </div>
                 {loading ? (
-                  <div className="p-16 text-center"><Loader2 className="size-6 animate-spin opacity-40 mx-auto text-[#F97316]" /></div>
+                  <div className="p-16 text-center"><Loader2 className="size-6 animate-spin opacity-40 mx-auto text-[#10B981]" /></div>
                 ) : overview?.top_paying_users?.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
@@ -275,7 +275,7 @@ export default function AdminPage() {
                   <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-1">Token usage × Provider pricing rates</p>
                 </div>
                 {loading ? (
-                  <div className="p-16 text-center"><Loader2 className="size-6 animate-spin opacity-40 mx-auto text-[#F97316]" /></div>
+                  <div className="p-16 text-center"><Loader2 className="size-6 animate-spin opacity-40 mx-auto text-[#10B981]" /></div>
                 ) : apiCosts?.by_component?.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
@@ -360,7 +360,7 @@ export default function AdminPage() {
               </div>
 
               {loading ? (
-                <div className="flex items-center justify-center py-32"><Loader2 className="size-8 animate-spin text-[#F97316]" /></div>
+                <div className="flex items-center justify-center py-32"><Loader2 className="size-8 animate-spin text-[#10B981]" /></div>
               ) : schools.length === 0 ? (
                 <div className="rounded-[3rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-20 text-center shadow-sm">
                   <div className="w-20 h-20 rounded-3xl bg-neutral-50 dark:bg-neutral-900 flex items-center justify-center mx-auto mb-6 border border-neutral-100 dark:border-neutral-800">
@@ -391,7 +391,7 @@ export default function AdminPage() {
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Credits</span>
-                            <span className="text-lg font-black text-[#F97316]">{school.credit_pool?.toFixed(0)}</span>
+                            <span className="text-lg font-black text-[#10B981]">{school.credit_pool?.toFixed(0)}</span>
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Plan</span>
@@ -403,7 +403,7 @@ export default function AdminPage() {
                               <span className={cn(
                                 "inline-flex px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider",
                                 school.latest_invoice.status === 'paid' ? 'bg-emerald-50 text-emerald-600' : 
-                                school.latest_invoice.status === 'overdue' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-600'
+                                school.latest_invoice.status === 'overdue' ? 'bg-rose-50 text-rose-600' : 'bg-teal-50 text-teal-600'
                               )}>
                                 {school.latest_invoice.status}
                               </span>

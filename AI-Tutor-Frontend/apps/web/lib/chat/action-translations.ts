@@ -43,7 +43,7 @@ export function getStatusBadge(t: (key: string) => string, state: string): React
       className: 'size-4 text-red-600',
     }),
     'output-denied': createElement(XCircleIcon, {
-      className: 'size-4 text-orange-600',
+      className: 'size-4 text-emerald-600',
     }),
     running: createElement(ClockIcon, { className: 'size-4 animate-pulse' }),
     result: createElement(CheckCircleIcon, {

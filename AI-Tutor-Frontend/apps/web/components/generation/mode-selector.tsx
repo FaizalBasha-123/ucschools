@@ -29,8 +29,8 @@ const QUALITY_MODES: {
   {
     id: 'premium',
     label: 'Premium',
-    color: 'text-amber-600',
-    bg: 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800',
+    color: 'text-teal-600',
+    bg: 'bg-teal-50 border-teal-200 dark:bg-teal-900/20 dark:border-teal-800',
   },
 ];
 

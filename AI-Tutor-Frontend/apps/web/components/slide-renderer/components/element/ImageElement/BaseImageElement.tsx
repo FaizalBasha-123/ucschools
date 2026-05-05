@@ -81,19 +81,19 @@ export function BaseImageElement({ elementInfo }: BaseImageElementProps) {
                 </div>
               </div>
             ) : showSkeleton ? (
-              <div className="w-full h-full bg-gradient-to-br from-amber-50 via-orange-50/60 to-yellow-50 dark:from-amber-950/40 dark:via-orange-950/30 dark:to-yellow-950/20 flex items-center justify-center">
+              <div className="w-full h-full bg-gradient-to-br from-teal-50 via-emerald-50/60 to-yellow-50 dark:from-teal-950/40 dark:via-emerald-950/30 dark:to-yellow-950/20 flex items-center justify-center">
                 <style>{`
                   @keyframes img-pulse-ring { 0%, 100% { opacity: 0.15; transform: scale(0.85); } 50% { opacity: 0.35; transform: scale(1.1); } }
                 `}</style>
                 <div className="relative w-12 h-12">
                   <div
-                    className="absolute inset-0 rounded-full border-2 border-amber-300/40 dark:border-amber-500/30"
+                    className="absolute inset-0 rounded-full border-2 border-teal-300/40 dark:border-teal-500/30"
                     style={{
                       animation: 'img-pulse-ring 2.4s ease-in-out infinite',
                     }}
                   />
                   <Paintbrush
-                    className="absolute inset-0 m-auto w-5 h-5 text-amber-400/80 dark:text-amber-500/70"
+                    className="absolute inset-0 m-auto w-5 h-5 text-teal-400/80 dark:text-teal-500/70"
                     strokeWidth={1.5}
                   />
                 </div>
@@ -101,7 +101,7 @@ export function BaseImageElement({ elementInfo }: BaseImageElementProps) {
             ) : showError ? (
               <div className="w-full h-full bg-red-50 dark:bg-red-900/20 flex flex-col items-center justify-center gap-1.5">
                 {task?.errorCode === 'CONTENT_SENSITIVE' ? (
-                  <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                  <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-teal-600 dark:text-teal-400">
                     <ShieldAlert className="w-3 h-3 shrink-0" />
                     <span>{t('settings.mediaContentSensitive')}</span>
                   </div>

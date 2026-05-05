@@ -107,11 +107,11 @@ function AuthPageContent() {
   };
 
   return (
-    <main className="relative min-h-screen bg-neutral-50 text-neutral-900 flex flex-col items-center justify-center font-sans tracking-tight">
+    <main className="relative min-h-screen bg-background text-foreground flex flex-col items-center justify-center font-sans tracking-tight">
       <button
         type="button"
         onClick={() => router.push('/')}
-        className="fixed top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-600 shadow-sm transition-all hover:bg-neutral-50 hover:text-neutral-900 md:top-8 md:left-8"
+        className="fixed top-6 left-6 z-50 flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground shadow-sm transition-all hover:bg-muted hover:text-foreground md:top-8 md:left-8"
       >
         <ArrowLeft className="size-4" />
         Back
@@ -119,26 +119,26 @@ function AuthPageContent() {
 
       {/* Top Header */}
       <div className="mb-6 flex flex-col items-center justify-center">
-        <div className="mb-4 flex h-[48px] w-[48px] rotate-45 items-center justify-center rounded-2xl bg-white border-[8px] border-[#1ed760] shadow-[0_0_20px_rgba(30,215,96,0.3)]">
-          <div className="h-4 w-4 rounded-full bg-neutral-900 -rotate-45 ml-1 mb-1" />
+        <div className="mb-4 flex h-[48px] w-[48px] rotate-45 items-center justify-center rounded-2xl bg-card border-[8px] border-primary shadow-[0_0_20px_rgba(249,115,22,0.3)]">
+          <div className="h-4 w-4 rounded-full bg-foreground -rotate-45 ml-1 mb-1" />
         </div>
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">
           {mode === 'signin' ? 'Sign in' : 'Sign up'}
         </h1>
       </div>
 
       {/* Main Card */}
-      <div className="w-full max-w-[420px] rounded-2xl bg-white p-8 shadow-xl border border-neutral-200/60">
+      <div className="w-full max-w-[420px] rounded-2xl bg-card p-8 shadow-xl border border-border/60">
         
         {/* Google Button */}
         <div className="space-y-3">
           <button
             onClick={startGoogleLogin}
             disabled={loadingGoogle || loadingEmail}
-            className="group relative flex h-10 w-full items-center justify-center rounded-md border border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-700 transition-all hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="group relative flex h-10 w-full items-center justify-center rounded-md border border-border bg-card px-4 text-sm font-medium text-card-foreground transition-all hover:bg-muted hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loadingGoogle ? (
-              <Loader2 className="h-4 w-4 animate-spin text-neutral-400" />
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             ) : (
               <>
                 <div className="absolute left-4 opacity-100 transition-opacity">
@@ -158,9 +158,9 @@ function AuthPageContent() {
         {/* Divider */}
         <div className="relative my-7 flex items-center justify-center">
           <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-neutral-200"></div>
+            <div className="w-full border-t border-border"></div>
           </div>
-          <div className="relative bg-white px-3 text-[11px] font-medium tracking-wide text-neutral-400 uppercase">
+          <div className="relative bg-card px-3 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
             OR
           </div>
         </div>
@@ -171,39 +171,39 @@ function AuthPageContent() {
           {mode === 'signup' && (
             <div className="flex gap-3">
               <div className="space-y-1.5 w-full">
-                <label className="text-xs font-semibold text-neutral-700 tracking-wide">First Name</label>
+                <label className="text-xs font-semibold text-card-foreground tracking-wide">First Name</label>
                 <input
                   type="text"
                   placeholder="Enter your first name"
                   value={firstName}
                   onChange={(e) => setFirstName(e.target.value)}
                   disabled={loadingEmail}
-                  className="h-[42px] w-full rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-700 transition-colors placeholder:text-neutral-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
+                  className="h-[42px] w-full rounded-md border border-input bg-muted px-3 text-sm text-card-foreground transition-colors placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-ring/50"
                 />
               </div>
               <div className="space-y-1.5 w-full">
-                <label className="text-xs font-semibold text-neutral-700 tracking-wide">Last Name</label>
+                <label className="text-xs font-semibold text-card-foreground tracking-wide">Last Name</label>
                 <input
                   type="text"
                   placeholder="Enter your Last Name"
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
                   disabled={loadingEmail}
-                  className="h-[42px] w-full rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-700 transition-colors placeholder:text-neutral-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
+                  className="h-[42px] w-full rounded-md border border-input bg-muted px-3 text-sm text-card-foreground transition-colors placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-ring/50"
                 />
               </div>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-neutral-700 tracking-wide">Email</label>
+            <label className="text-xs font-semibold text-card-foreground tracking-wide">Email</label>
             <input
               type="email"
               placeholder="Enter your email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loadingEmail}
-              className="h-[42px] w-full rounded-md border border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-700 transition-colors placeholder:text-neutral-400 focus:border-[#1ed760]/50 focus:outline-none focus:ring-1 focus:ring-[#1ed760]/50"
+              className="h-[42px] w-full rounded-md border border-input bg-muted px-3 text-sm text-card-foreground transition-colors placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-ring/50"
             />
           </div>
 
@@ -215,10 +215,10 @@ function AuthPageContent() {
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}
                 disabled={loadingEmail}
-                className="h-4 w-4 rounded border-neutral-300 text-[#1ed760] focus:ring-[#1ed760]/50"
+                className="h-4 w-4 rounded border-input text-primary focus:ring-ring/50"
               />
-              <label htmlFor="terms" className="text-[13px] text-neutral-500 cursor-pointer">
-                Agree to the <a href="#" className="font-semibold text-neutral-700 hover:underline">Terms of Service</a> and <a href="#" className="font-semibold text-neutral-700 hover:underline">Privacy Policy</a>
+              <label htmlFor="terms" className="text-[13px] text-muted-foreground cursor-pointer">
+                Agree to the <a href="#" className="font-semibold text-foreground hover:underline">Terms of Service</a> and <a href="#" className="font-semibold text-foreground hover:underline">Privacy Policy</a>
               </label>
             </div>
           )}
@@ -226,24 +226,24 @@ function AuthPageContent() {
           <button
             type="submit"
             disabled={loadingEmail || loadingGoogle}
-            className="flex h-[42px] w-full mt-2 items-center justify-center rounded-md bg-[#1ed760] px-4 text-sm font-semibold text-white transition-all hover:bg-[#1fdf64] hover:shadow-[0_0_15px_rgba(30,215,96,0.3)] active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
+            className="flex h-[42px] w-full mt-2 items-center justify-center rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90 hover:shadow-[0_0_15px_rgba(249,115,22,0.3)] active:scale-[0.98] disabled:opacity-70 disabled:active:scale-100"
           >
-            {loadingEmail ? <Loader2 className="h-4 w-4 animate-spin text-white/80" /> : 'Continue'}
+            {loadingEmail ? <Loader2 className="h-4 w-4 animate-spin text-primary-foreground/80" /> : 'Continue'}
           </button>
         </form>
 
         {error ? (
-          <div className="mt-5 rounded-md border border-amber-500/20 bg-amber-50 p-3 text-center text-[13px] leading-relaxed text-amber-700">
+          <div className="mt-5 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-center text-[13px] leading-relaxed text-destructive">
             {error}
           </div>
         ) : null}
 
         {/* Footer Link */}
-        <div className="mt-8 text-center text-[13px] text-neutral-500">
+        <div className="mt-8 text-center text-[13px] text-muted-foreground">
           {mode === 'signin' ? "Don't have an account? " : "Already have an account? "}
           <button
             type="button"
-            className="font-semibold text-neutral-900 transition-colors hover:text-neutral-700"
+            className="font-semibold text-foreground transition-colors hover:text-muted-foreground"
             onClick={() => {
               setMode(mode === 'signin' ? 'signup' : 'signin');
               setError(null); // Clear errors on view switch
@@ -259,7 +259,7 @@ function AuthPageContent() {
 
 export default function AuthPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-neutral-50" />}>
+    <Suspense fallback={<main className="min-h-screen bg-background" />}>
       <AuthPageContent />
     </Suspense>
   );

@@ -365,7 +365,7 @@ function ContentVisualizer() {
           color: 'amber',
           label: 'PBL',
           badge:
-            'bg-amber-100 text-amber-600 border-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-800',
+            'bg-teal-100 text-teal-600 border-teal-200 dark:bg-teal-900/40 dark:text-teal-300 dark:border-teal-800',
         };
       case 3:
         return {
@@ -390,7 +390,7 @@ function ContentVisualizer() {
           'absolute inset-0 blur-3xl rounded-full transition-colors duration-1000',
           theme.color === 'blue' && 'bg-blue-500/10',
           theme.color === 'green' && 'bg-primary/10',
-          theme.color === 'amber' && 'bg-amber-500/10',
+          theme.color === 'amber' && 'bg-teal-500/10',
           theme.color === 'emerald' && 'bg-emerald-500/10',
         )}
         animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }}
@@ -405,7 +405,7 @@ function ContentVisualizer() {
             'absolute border rounded-full transition-colors duration-1000',
             theme.color === 'blue' && 'border-blue-500/10',
             theme.color === 'green' && 'border-primary/20',
-            theme.color === 'amber' && 'border-amber-500/10',
+            theme.color === 'amber' && 'border-teal-500/10',
             theme.color === 'emerald' && 'border-emerald-500/10',
           )}
           style={{
@@ -437,7 +437,7 @@ function ContentVisualizer() {
               'absolute inset-0 bg-card dark:bg-neutral-900 rounded-xl border shadow-xl overflow-hidden flex flex-col p-3 origin-center',
               theme.color === 'blue' && 'border-blue-200 dark:border-blue-900/30',
               theme.color === 'green' && 'border-primary/20 dark:border-primary/40',
-              theme.color === 'amber' && 'border-amber-200 dark:border-amber-900/30',
+              theme.color === 'amber' && 'border-teal-200 dark:border-teal-900/30',
               theme.color === 'emerald' && 'border-emerald-200 dark:border-emerald-900/30',
             )}
           >
@@ -535,11 +535,11 @@ function ContentVisualizer() {
             {index === 2 && (
               <div className="flex flex-col h-full pt-1">
                 <div className="flex items-center gap-2 mb-2">
-                  <Puzzle className="size-3 text-amber-500 shrink-0" />
+                  <Puzzle className="size-3 text-teal-500 shrink-0" />
                   <motion.div
                     initial={{ width: 0 }}
                     animate={{ width: '40%' }}
-                    className="h-2 bg-amber-500/20 rounded-full"
+                    className="h-2 bg-teal-500/20 rounded-full"
                   />
                 </div>
                 <div className="flex-1 flex gap-2 overflow-hidden">
@@ -571,7 +571,7 @@ function ContentVisualizer() {
                 <div className="flex items-center gap-1 mb-2 border-b border-neutral-100 dark:border-neutral-700 pb-1 pr-10">
                   <div className="flex gap-0.5">
                     <div className="size-1.5 rounded-full bg-red-400" />
-                    <div className="size-1.5 rounded-full bg-amber-400" />
+                    <div className="size-1.5 rounded-full bg-teal-400" />
                     <div className="size-1.5 rounded-full bg-green-400" />
                   </div>
                   <div className="h-1.5 flex-1 bg-neutral-100 dark:bg-neutral-700 rounded-full ml-1" />
@@ -639,9 +639,9 @@ function ActionsVisualizer() {
     {
       icon: Focus,
       label: 'Spotlight',
-      color: 'text-amber-500',
-      activeBg: 'bg-amber-500/10',
-      activeBorder: 'border-amber-200 dark:border-amber-800',
+      color: 'text-teal-500',
+      activeBg: 'bg-teal-500/10',
+      activeBorder: 'border-teal-200 dark:border-teal-800',
     },
     {
       icon: MessageSquare,

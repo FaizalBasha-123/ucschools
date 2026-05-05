@@ -135,12 +135,12 @@ export default function AdminHealthPage() {
 
               {/* Alerts */}
               {health.runtime_alerts && health.runtime_alerts.length > 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-900/50 dark:bg-amber-950/20 p-6">
-                  <h3 className="font-semibold flex items-center gap-2 text-amber-900 dark:text-amber-300 mb-4">
+                <div className="rounded-xl border border-teal-200 bg-teal-50 dark:border-teal-900/50 dark:bg-teal-950/20 p-6">
+                  <h3 className="font-semibold flex items-center gap-2 text-teal-900 dark:text-teal-300 mb-4">
                     <AlertCircle className="size-5" />
                     Active Alerts ({health.runtime_alert_level})
                   </h3>
-                  <ul className="list-disc list-inside space-y-1 text-sm text-amber-800 dark:text-amber-400">
+                  <ul className="list-disc list-inside space-y-1 text-sm text-teal-800 dark:text-teal-400">
                     {health.runtime_alerts.map((alert, i) => (
                       <li key={i}>{alert}</li>
                     ))}

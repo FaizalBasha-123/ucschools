@@ -1146,14 +1146,20 @@ export function getModel(config: ModelConfig): ModelWithInfo {
       };
       if (config.proxy) {
         // Dynamic require to avoid bundling undici on the client side
-         
-        const { ProxyAgent, fetch: undiciFetch } = require('undici');
-        const agent = new ProxyAgent(config.proxy);
-        googleOptions.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-          undiciFetch(input as string, {
-            ...(init as Record<string, unknown>),
-            dispatcher: agent,
-          }).then((r: unknown) => r as Response)) as typeof fetch;
+        let ProxyAgent, undiciFetch;
+        if (typeof window === 'undefined') {
+          const undici = eval("require")('undici');
+          ProxyAgent = undici.ProxyAgent;
+          undiciFetch = undici.fetch;
+        }
+        if (ProxyAgent && undiciFetch) {
+          const agent = new ProxyAgent(config.proxy);
+          googleOptions.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+            undiciFetch(input as string, {
+              ...(init as Record<string, unknown>),
+              dispatcher: agent,
+            }).then((r: unknown) => r as Response)) as typeof fetch;
+        }
       }
       const google = createGoogleGenerativeAI(googleOptions);
       model = google.chat(config.modelId);

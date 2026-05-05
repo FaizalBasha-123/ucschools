@@ -114,7 +114,7 @@ export function ClassroomSidebar({ currentStageId }: ClassroomSidebarProps) {
           {!collapsed && <span className="text-[10px] font-black text-sidebar-foreground/40 uppercase tracking-widest">Global Directory</span>}
           <button 
             onClick={() => setIsCreating(true)}
-            className="p-1.5 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90 shadow-lg shadow-orange-500/20 transition-all"
+            className="p-1.5 rounded-lg bg-sidebar-primary text-sidebar-primary-foreground hover:opacity-90 shadow-lg shadow-emerald-500/20 transition-all"
           >
             <Plus size={16} />
           </button>
@@ -133,7 +133,7 @@ export function ClassroomSidebar({ currentStageId }: ClassroomSidebarProps) {
             <div className="flex gap-2 mt-3">
               <button 
                 onClick={handleCreateClassroom}
-                className="flex-1 text-xs font-bold py-2 bg-sidebar-primary text-white rounded-lg hover:bg-orange-600 transition-all"
+                className="flex-1 text-xs font-bold py-2 bg-sidebar-primary text-white rounded-lg hover:bg-emerald-600 transition-all"
               >
                 Launch
               </button>

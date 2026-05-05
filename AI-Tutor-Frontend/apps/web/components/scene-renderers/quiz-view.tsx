@@ -612,9 +612,9 @@ function ScoreBanner({
       text: t('quiz.excellent'),
     },
     amber: {
-      bg: 'from-amber-500 to-yellow-500',
-      shadow: 'shadow-amber-200/50 dark:shadow-amber-900/50',
-      ring: 'bg-amber-400/30',
+      bg: 'from-teal-500 to-yellow-500',
+      shadow: 'shadow-teal-200/50 dark:shadow-teal-900/50',
+      ring: 'bg-teal-400/30',
       text: t('quiz.keepGoing'),
     },
     red: {

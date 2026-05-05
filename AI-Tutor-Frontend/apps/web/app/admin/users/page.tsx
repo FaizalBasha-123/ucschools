@@ -63,7 +63,7 @@ export default function AdminUsersPage() {
   const planColor = (plan: string | null) => {
     if (!plan || plan === 'free') return 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400';
     if (plan === 'pro') return 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400';
-    return 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400';
+    return 'bg-teal-50 text-teal-600 dark:bg-teal-950/30 dark:text-teal-400';
   };
 
   return (
@@ -82,7 +82,7 @@ export default function AdminUsersPage() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
             <div>
               <h1 className="text-3xl font-black tracking-tight text-[#0F172A] dark:text-white uppercase flex items-center gap-3">
-                <div className="p-2 rounded-xl bg-orange-100 dark:bg-orange-900/30 text-[#F97316]">
+                <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 text-[#10B981]">
                   <Users className="size-8" />
                 </div>
                 User Management
@@ -100,7 +100,7 @@ export default function AdminUsersPage() {
                   placeholder="Search by email, ID, or plan..." 
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full h-11 pl-10 pr-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#F97316] text-sm transition-all"
+                  className="w-full h-11 pl-10 pr-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#10B981] text-sm transition-all"
                 />
               </div>
               <div className="text-[10px] font-black text-neutral-400 uppercase tracking-widest ml-auto">
@@ -121,7 +121,7 @@ export default function AdminUsersPage() {
                   {loading ? (
                     <tr>
                       <td colSpan={5} className="px-6 py-16 text-center">
-                        <Loader2 className="size-8 animate-spin mx-auto mb-4 text-[#F97316] opacity-60" />
+                        <Loader2 className="size-8 animate-spin mx-auto mb-4 text-[#10B981] opacity-60" />
                         <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Loading global directory...</p>
                       </td>
                     </tr>
@@ -162,7 +162,7 @@ export default function AdminUsersPage() {
                           </div>
                         </td>
                         <td className="px-6 py-5">
-                          <div className="flex items-center gap-2 font-black text-[#F97316] text-lg leading-none">
+                          <div className="flex items-center gap-2 font-black text-[#10B981] text-lg leading-none">
                             <CreditCard className="size-4 opacity-40" />
                             {user.credits.toFixed(1)}
                           </div>

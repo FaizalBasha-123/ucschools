@@ -384,24 +384,24 @@ function HomePage() {
     toast.custom(
       (id) => (
         <div
-          className="w-[356px] rounded-xl border border-amber-200/60 dark:border-amber-800/40 bg-gradient-to-r from-amber-50 via-white to-amber-50 dark:from-amber-950/60 dark:via-neutral-900 dark:to-amber-950/60 shadow-lg shadow-amber-500/8 dark:shadow-amber-900/20 p-4 flex items-start gap-3 cursor-pointer"
+          className="w-[356px] rounded-xl border border-teal-200/60 dark:border-teal-800/40 bg-gradient-to-r from-teal-50 via-white to-teal-50 dark:from-teal-950/60 dark:via-neutral-900 dark:to-teal-950/60 shadow-lg shadow-teal-500/8 dark:shadow-teal-900/20 p-4 flex items-start gap-3 cursor-pointer"
           onClick={() => {
             toast.dismiss(id);
             setSettingsOpen(true);
           }}
         >
-          <div className="shrink-0 mt-0.5 size-9 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center ring-1 ring-amber-200/50 dark:ring-amber-800/30">
+          <div className="shrink-0 mt-0.5 size-9 rounded-lg bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center ring-1 ring-teal-200/50 dark:ring-teal-800/30">
             {icon}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 leading-tight">
+            <p className="text-sm font-semibold text-teal-900 dark:text-teal-200 leading-tight">
               {title}
             </p>
-            <p className="text-xs text-amber-700/80 dark:text-amber-400/70 mt-0.5 leading-relaxed">
+            <p className="text-xs text-teal-700/80 dark:text-teal-400/70 mt-0.5 leading-relaxed">
               {desc}
             </p>
           </div>
-          <div className="shrink-0 mt-1 text-[10px] font-medium text-amber-500 dark:text-amber-500/70 tracking-wide">
+          <div className="shrink-0 mt-1 text-[10px] font-medium text-teal-500 dark:text-teal-500/70 tracking-wide">
             <Settings className="size-3.5 animate-[spin_3s_linear_infinite]" />
           </div>
         </div>
@@ -804,7 +804,7 @@ function HomePage() {
                           <span className={cn(
                             'shrink-0 rounded-full px-2 py-1 text-[11px] font-medium capitalize',
                             item.status === 'ready' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-                            item.status === 'generating' && 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
+                            item.status === 'generating' && 'bg-teal-500/10 text-teal-700 dark:text-teal-300',
                             item.status === 'failed' && 'bg-rose-500/10 text-rose-700 dark:text-rose-300',
                             item.status === 'archived' && 'bg-neutral-500/10 text-neutral-600 dark:text-neutral-300',
                           )}>
@@ -865,7 +865,7 @@ function HomePage() {
                             <button
                               onClick={() => handleRetryShelfItem(item)}
                               disabled={pendingShelfAction === item.id}
-                              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-500/15 transition-colors disabled:opacity-50"
+                              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2 text-xs font-medium text-teal-700 dark:text-teal-300 hover:bg-teal-500/15 transition-colors disabled:opacity-50"
                             >
                               {t('classroom.shelf.retry')}
                             </button>

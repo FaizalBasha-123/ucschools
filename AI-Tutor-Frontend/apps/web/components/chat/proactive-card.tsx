@@ -163,7 +163,7 @@ export const ProactiveCard = ({
               className={`h-full transition-all duration-[50ms] ease-linear ${
                 isPaused
                   ? 'bg-gray-300 dark:bg-gray-600'
-                  : 'bg-gradient-to-r from-amber-400 to-amber-500 dark:from-amber-500 dark:to-amber-600'
+                  : 'bg-gradient-to-r from-teal-400 to-teal-500 dark:from-teal-500 dark:to-teal-600'
               }`}
               style={{ width: `${progress}%` }}
             />
@@ -215,7 +215,7 @@ export const ProactiveCard = ({
                 e.stopPropagation();
                 onListen();
               }}
-              className="flex-1 py-2 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 dark:from-amber-500 dark:to-amber-600 dark:hover:from-amber-600 dark:hover:to-amber-700 text-white text-[11px] font-black rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-[0.97] shadow-sm shadow-amber-200/50 dark:shadow-amber-800/50"
+              className="flex-1 py-2 bg-gradient-to-r from-teal-400 to-teal-500 hover:from-teal-500 hover:to-teal-600 dark:from-teal-500 dark:to-teal-600 dark:hover:from-teal-600 dark:hover:to-teal-700 text-white text-[11px] font-black rounded-lg flex items-center justify-center gap-1.5 transition-all active:scale-[0.97] shadow-sm shadow-teal-200/50 dark:shadow-teal-800/50"
             >
               <Play className="w-3 h-3 fill-current" /> {t('proactiveCard.join')}
             </button>
@@ -227,7 +227,7 @@ export const ProactiveCard = ({
               }}
               className={`p-2 aspect-square rounded-lg border transition-colors active:scale-90 ${
                 isPaused
-                  ? 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/50'
+                  ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400 border-teal-200 dark:border-teal-700 hover:bg-teal-100 dark:hover:bg-teal-900/50'
                   : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 border-gray-100 dark:border-gray-600'
               }`}
               title={isPaused ? t('proactiveCard.resume') : t('proactiveCard.pause')}

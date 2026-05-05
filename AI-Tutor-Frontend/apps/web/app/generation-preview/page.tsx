@@ -1013,14 +1013,14 @@ function GenerationPreviewContent() {
                               ease: 'easeInOut',
                             }}
                             className="relative size-7 rounded-full flex items-center justify-center cursor-default
-                                       bg-gradient-to-br from-amber-400/15 to-orange-400/10
-                                       border border-amber-400/25 hover:border-amber-400/40
-                                       hover:from-amber-400/20 hover:to-orange-400/15
+                                       bg-gradient-to-br from-teal-400/15 to-emerald-400/10
+                                       border border-teal-400/25 hover:border-teal-400/40
+                                       hover:from-teal-400/20 hover:to-emerald-400/15
                                        transition-colors duration-300
-                                       focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/30"
+                                       focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
                           >
                             <AlertTriangle
-                              className="size-3.5 text-amber-500 dark:text-amber-400"
+                              className="size-3.5 text-teal-500 dark:text-teal-400"
                               strokeWidth={2.5}
                             />
                           </motion.button>

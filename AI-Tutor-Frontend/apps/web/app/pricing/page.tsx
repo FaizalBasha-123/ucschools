@@ -107,14 +107,14 @@ function CreditBreakdownCalculator() {
 
   return (
     <div className="bg-neutral-900 text-white rounded-[3rem] p-10 md:p-16 overflow-hidden relative">
-      <div className="absolute top-0 right-0 w-1/3 h-full bg-orange-600/10 blur-[100px] rounded-full" />
+      <div className="absolute top-0 right-0 w-1/3 h-full bg-emerald-600/10 blur-[100px] rounded-full" />
       <div className="relative z-10 grid lg:grid-cols-2 gap-16 items-start">
         {/* Left: Controls */}
         <div>
           <h2 className="text-3xl md:text-5xl font-black mb-4 tracking-tight">
             Credit Breakdown
             <br />
-            <span className="text-orange-600">Calculator</span>
+            <span className="text-emerald-600">Calculator</span>
           </h2>
           <p className="text-neutral-400 text-base mb-8 leading-relaxed">
             Adjust the options to estimate how many credits a session will cost.
@@ -177,7 +177,7 @@ function CreditBreakdownCalculator() {
               max={30}
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
-              className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-orange-500"
+              className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-emerald-500"
             />
             <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
               <span>1 min</span>
@@ -192,7 +192,7 @@ function CreditBreakdownCalculator() {
               className={cn(
                 'px-4 py-2 rounded-full text-xs font-semibold border transition-all',
                 useVoice
-                  ? 'bg-orange-600/20 border-orange-500/40 text-orange-400'
+                  ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-400'
                   : 'bg-white/5 border-white/10 text-neutral-500 hover:text-white',
               )}
             >
@@ -204,7 +204,7 @@ function CreditBreakdownCalculator() {
               className={cn(
                 'px-4 py-2 rounded-full text-xs font-semibold border transition-all',
                 usePdf
-                  ? 'bg-orange-600/20 border-orange-500/40 text-orange-400'
+                  ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-400'
                   : 'bg-white/5 border-white/10 text-neutral-500 hover:text-white',
               )}
             >
@@ -224,7 +224,7 @@ function CreditBreakdownCalculator() {
                 max={100}
                 value={pdfPages}
                 onChange={(e) => setPdfPages(Number(e.target.value))}
-                className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-orange-500"
+                className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-emerald-500"
               />
               <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
                 <span>1 page</span>
@@ -253,13 +253,13 @@ function CreditBreakdownCalculator() {
                 className="flex justify-between items-center group"
               >
                 <div>
-                  <p className="font-bold text-white group-hover:text-orange-500 transition-colors">
+                  <p className="font-bold text-white group-hover:text-emerald-500 transition-colors">
                     {item.label}
                   </p>
                   <p className="text-xs text-neutral-500">{item.desc}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-mono font-bold text-orange-500">
+                  <p className="font-mono font-bold text-emerald-500">
                     +{item.cost.toFixed(1)}
                   </p>
                   <p className="text-[10px] text-neutral-600 uppercase">credits</p>
@@ -274,7 +274,7 @@ function CreditBreakdownCalculator() {
               <div className="text-right">
                 <motion.p
                   key={totalCost}
-                  initial={{ scale: 1.15, color: '#f97316' }}
+                  initial={{ scale: 1.15, color: '#10B981' }}
                   animate={{ scale: 1, color: '#ffffff' }}
                   className="text-3xl font-black"
                 >
@@ -426,7 +426,7 @@ function PricingContent() {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white dark:bg-neutral-950">
-        <Loader2 className="size-8 animate-spin text-orange-600" />
+        <Loader2 className="size-8 animate-spin text-emerald-600" />
       </div>
     );
   }
@@ -438,7 +438,7 @@ function PricingContent() {
         <p className="text-neutral-600 dark:text-neutral-400 mb-8">{error}</p>
         <button
           onClick={() => window.location.reload()}
-          className="px-6 py-3 bg-orange-600 text-white rounded-xl font-bold"
+          className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold"
         >
           Try Again
         </button>
@@ -447,7 +447,7 @@ function PricingContent() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-neutral-950 selection:bg-orange-100 dark:selection:bg-orange-900/30">
+    <div className="min-h-screen bg-white dark:bg-neutral-950 selection:bg-emerald-100 dark:selection:bg-emerald-900/30">
       <SiteHeader variant="pricing" />
 
       <AnimatePresence>
@@ -463,9 +463,9 @@ function PricingContent() {
               animate={{ scale: 1, y: 0 }}
               className="bg-white dark:bg-neutral-900 p-10 rounded-[2.5rem] shadow-2xl max-w-lg w-full text-center relative overflow-hidden"
             >
-              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-500 to-blue-500" />
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-500 to-blue-500" />
               <div className="mb-6 flex justify-center">
-                <div className="w-20 h-20 rounded-3xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center text-orange-600">
+                <div className="w-20 h-20 rounded-3xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600">
                   <Zap className="size-10" />
                 </div>
               </div>
@@ -477,7 +477,7 @@ function PricingContent() {
               </p>
               <button
                 onClick={() => setShowComingSoon(false)}
-                className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold text-lg hover:bg-orange-700 transition-all"
+                className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-lg hover:bg-emerald-700 transition-all"
               >
                 Got it, thanks!
               </button>
@@ -489,7 +489,7 @@ function PricingContent() {
       <main className="relative pt-20 pb-24 overflow-hidden">
         {/* ── Background Gradients ── */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[600px] pointer-events-none -z-10 overflow-hidden">
-          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-orange-500/5 blur-[120px] rounded-full" />
+          <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/5 blur-[120px] rounded-full" />
           <div className="absolute top-[20%] right-[-10%] w-[30%] h-[50%] bg-blue-500/5 blur-[120px] rounded-full" />
         </div>
 
@@ -502,7 +502,7 @@ function PricingContent() {
               transition={{ duration: 0.5 }}
             >
               <h1 className="text-4xl md:text-6xl font-bold tracking-tight text-neutral-900 dark:text-white mb-6">
-                Simple, transparent pricing for your <span className="text-orange-600">AI Tutor</span>
+                Simple, transparent pricing for your <span className="text-emerald-600">AI Tutor</span>
               </h1>
               <p className="text-lg md:text-xl text-neutral-600 dark:text-neutral-400 leading-relaxed">
                 Learn faster with voice, interactive lessons, and personalized guidance.
@@ -522,12 +522,12 @@ function PricingContent() {
                 className="relative w-12 h-6 rounded-full bg-neutral-200 dark:bg-neutral-800 transition-colors"
               >
                 <div className={cn(
-                  "absolute top-1 left-1 w-4 h-4 rounded-full bg-orange-600 transition-transform duration-200",
+                  "absolute top-1 left-1 w-4 h-4 rounded-full bg-emerald-600 transition-transform duration-200",
                   billingCycle === 'yearly' && "translate-x-6"
                 )} />
               </button>
               <span className={cn("text-sm font-medium", billingCycle === 'yearly' ? "text-neutral-900 dark:text-white" : "text-neutral-500")}>
-                Yearly <span className="text-orange-600 text-xs ml-1 font-bold">(-20%)</span>
+                Yearly <span className="text-emerald-600 text-xs ml-1 font-bold">(-20%)</span>
               </span>
             </motion.div>
           </div>
@@ -549,11 +549,11 @@ function PricingContent() {
                     "relative flex flex-col p-8 rounded-3xl border transition-all duration-300",
                     p.is_highlighted
                       ? "bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 border-neutral-900 dark:border-white shadow-2xl scale-105 z-10"
-                      : "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 hover:border-orange-500/50"
+                      : "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-800 hover:border-emerald-500/50"
                   )}
                 >
                   {p.is_highlighted && (
-                    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-orange-600 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full whitespace-nowrap shadow-xl">
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-emerald-600 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full whitespace-nowrap shadow-xl">
                       Most Popular
                     </div>
                   )}
@@ -565,7 +565,7 @@ function PricingContent() {
                       <span className="text-sm opacity-60">/mo</span>
                     </div>
                     {billingCycle === 'yearly' && p.amount_minor > 0 && (
-                      <div className="text-[10px] font-bold text-orange-600 mt-1">
+                      <div className="text-[10px] font-bold text-emerald-600 mt-1">
                         Billed ₹{Math.round(p.amount_minor / 100)}/year
                       </div>
                     )}
@@ -579,9 +579,9 @@ function PricingContent() {
                       <div key={feat} className="flex items-start gap-3">
                         <div className={cn(
                           "mt-1 shrink-0 rounded-full p-0.5",
-                          p.is_highlighted ? "bg-orange-600" : "bg-orange-100 dark:bg-orange-900/30"
+                          p.is_highlighted ? "bg-emerald-600" : "bg-emerald-100 dark:bg-emerald-900/30"
                         )}>
-                          <Check className={cn("size-3", p.is_highlighted ? "text-white" : "text-orange-600")} />
+                          <Check className={cn("size-3", p.is_highlighted ? "text-white" : "text-emerald-600")} />
                         </div>
                         <span className="text-sm font-medium leading-tight">{feat}</span>
                       </div>
@@ -603,8 +603,8 @@ function PricingContent() {
                     className={cn(
                       "w-full py-4 px-6 rounded-2xl font-bold transition-all flex items-center justify-center gap-2 group",
                       p.is_highlighted
-                        ? "bg-orange-600 text-white hover:bg-orange-700 shadow-lg shadow-orange-600/20"
-                        : "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white hover:bg-orange-600 hover:text-white"
+                        ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/20"
+                        : "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white hover:bg-emerald-600 hover:text-white"
                     )}
                   >
                     {checkoutLoading === p.product_code ? (
@@ -630,7 +630,7 @@ function PricingContent() {
               viewport={{ once: true }}
               className="p-8 rounded-[2.5rem] bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-sm"
             >
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-orange-100 dark:bg-orange-900/30 text-orange-600 mb-6">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 mb-6">
                 <Ticket className="size-6" />
               </div>
               <h3 className="text-xl font-bold mb-2">Have a promo code?</h3>
@@ -642,12 +642,12 @@ function PricingContent() {
                   placeholder="PROMO2026"
                   value={promoCode}
                   onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
-                  className="flex-1 px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-all uppercase font-mono tracking-widest text-sm"
+                  className="flex-1 px-4 py-3 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all uppercase font-mono tracking-widest text-sm"
                 />
                 <button
                   type="submit"
                   disabled={redeemLoading || !promoCode.trim()}
-                  className="px-6 py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-all disabled:opacity-50 flex items-center gap-2 text-sm shadow-lg shadow-orange-600/20"
+                  className="px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all disabled:opacity-50 flex items-center gap-2 text-sm shadow-lg shadow-emerald-600/20"
                 >
                   {redeemLoading ? <Loader2 className="size-4 animate-spin" /> : "Redeem"}
                 </button>
@@ -712,7 +712,7 @@ function PricingContent() {
                       <tr className="border-b border-neutral-100 dark:border-neutral-800">
                         <th className="py-4 font-semibold text-neutral-500">Feature</th>
                         <th className="py-4 font-semibold text-neutral-500">Basic</th>
-                        <th className="py-4 font-bold text-orange-600 bg-orange-50/50 dark:bg-orange-900/10 px-4">Standard</th>
+                        <th className="py-4 font-bold text-emerald-600 bg-emerald-50/50 dark:bg-emerald-900/10 px-4">Standard</th>
                         <th className="py-4 font-semibold text-neutral-500">Premium</th>
                       </tr>
                     </thead>
@@ -727,7 +727,7 @@ function PricingContent() {
                         <tr key={i} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
                           <td className="py-4 pr-4 font-medium text-neutral-900 dark:text-neutral-100">{row.f}</td>
                           <td className="py-4 text-neutral-600 dark:text-neutral-400">{row.b}</td>
-                          <td className="py-4 font-bold text-neutral-900 dark:text-white bg-orange-50/50 dark:bg-orange-900/10 px-4">{row.s}</td>
+                          <td className="py-4 font-bold text-neutral-900 dark:text-white bg-emerald-50/50 dark:bg-emerald-900/10 px-4">{row.s}</td>
                           <td className="py-4 text-neutral-600 dark:text-neutral-400">{row.p}</td>
                         </tr>
                       ))}
@@ -802,7 +802,7 @@ function PricingContent() {
             {/* ── Media & Footnote ── */}
             <div className="mt-8 flex flex-col md:flex-row items-center justify-between gap-6 p-6 bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800">
               <div className="flex items-center gap-4">
-                <div className="p-2 bg-orange-100 dark:bg-orange-900/30 rounded-lg text-orange-600">
+                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg text-emerald-600">
                   <Sparkles className="size-5" />
                 </div>
                 <div>
@@ -824,7 +824,7 @@ function PricingContent() {
           {/* ── Section: FAQ ── */}
           <section className="max-w-3xl mx-auto mb-32">
             <h2 className="text-3xl font-bold mb-12 text-center text-neutral-900 dark:text-white flex items-center justify-center gap-3">
-              <HelpCircle className="size-8 text-orange-600" /> Frequently Asked Questions
+              <HelpCircle className="size-8 text-emerald-600" /> Frequently Asked Questions
             </h2>
             <div className="space-y-4">
               {FAQ_ITEMS.map((item, i) => (
@@ -839,7 +839,7 @@ function PricingContent() {
           {/* ── Final CTA ── */}
           <section className="relative p-12 md:p-20 rounded-[3rem] bg-neutral-900 dark:bg-white text-center overflow-hidden">
             <div className="absolute inset-0 opacity-20 pointer-events-none">
-              <div className="absolute top-[-50%] left-[-50%] w-[100%] h-[100%] bg-orange-600 blur-[150px] rounded-full" />
+              <div className="absolute top-[-50%] left-[-50%] w-[100%] h-[100%] bg-emerald-600 blur-[150px] rounded-full" />
               <div className="absolute bottom-[-50%] right-[-50%] w-[100%] h-[100%] bg-blue-600 blur-[150px] rounded-full" />
             </div>
 
@@ -853,7 +853,7 @@ function PricingContent() {
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
                 <button
                   onClick={() => router.push('/')}
-                  className="px-10 py-5 bg-orange-600 text-white rounded-2xl font-bold text-lg hover:bg-orange-700 transition-all shadow-xl hover:shadow-orange-600/20"
+                  className="px-10 py-5 bg-emerald-600 text-white rounded-2xl font-bold text-lg hover:bg-emerald-700 transition-all shadow-xl hover:shadow-emerald-600/20"
                 >
                   Start for free today
                 </button>

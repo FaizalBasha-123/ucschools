@@ -218,8 +218,8 @@ export function SceneSidebar({
                       />
                     ) : scene.type === 'quiz' ? (
                       /* Quiz: question bar + 2x2 option grid */
-                      <div className="w-full h-full bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950/30 dark:to-amber-950/20 p-2 flex flex-col">
-                        <div className="h-1.5 w-4/5 bg-orange-200/70 dark:bg-orange-700/30 rounded-full mb-1.5" />
+                      <div className="w-full h-full bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/20 p-2 flex flex-col">
+                        <div className="h-1.5 w-4/5 bg-emerald-200/70 dark:bg-emerald-700/30 rounded-full mb-1.5" />
                         <div className="flex-1 grid grid-cols-2 gap-1">
                           {[0, 1, 2, 3].map((i) => (
                             <div
@@ -227,24 +227,24 @@ export function SceneSidebar({
                               className={cn(
                                 'rounded flex items-center gap-1 px-1',
                                 i === 1
-                                  ? 'bg-orange-400/20 dark:bg-orange-500/20 border border-orange-300/50 dark:border-orange-600/30'
-                                  : 'bg-white/60 dark:bg-white/5 border border-orange-100/60 dark:border-orange-800/20',
+                                  ? 'bg-emerald-400/20 dark:bg-emerald-500/20 border border-emerald-300/50 dark:border-emerald-600/30'
+                                  : 'bg-white/60 dark:bg-white/5 border border-emerald-100/60 dark:border-emerald-800/20',
                               )}
                             >
                               <div
                                 className={cn(
                                   'w-1.5 h-1.5 rounded-full shrink-0',
                                   i === 1
-                                    ? 'bg-orange-400 dark:bg-orange-500'
-                                    : 'bg-orange-200 dark:bg-orange-700/50',
+                                    ? 'bg-emerald-400 dark:bg-emerald-500'
+                                    : 'bg-emerald-200 dark:bg-emerald-700/50',
                                 )}
                               />
                               <div
                                 className={cn(
                                   'h-1 rounded-full flex-1',
                                   i === 1
-                                    ? 'bg-orange-300/60 dark:bg-orange-600/40'
-                                    : 'bg-orange-100/80 dark:bg-orange-800/30',
+                                    ? 'bg-emerald-300/60 dark:bg-emerald-600/40'
+                                    : 'bg-emerald-100/80 dark:bg-emerald-800/30',
                                 )}
                               />
                             </div>
@@ -257,7 +257,7 @@ export function SceneSidebar({
                         <div className="flex items-center gap-1 mb-1 pb-1 border-b border-emerald-200/40 dark:border-emerald-700/20">
                           <div className="flex gap-0.5">
                             <div className="w-1 h-1 rounded-full bg-red-300 dark:bg-red-500/60" />
-                            <div className="w-1 h-1 rounded-full bg-amber-300 dark:bg-amber-500/60" />
+                            <div className="w-1 h-1 rounded-full bg-teal-300 dark:bg-teal-500/60" />
                             <div className="w-1 h-1 rounded-full bg-green-300 dark:bg-green-500/60" />
                           </div>
                           <div className="h-1.5 flex-1 bg-emerald-200/40 dark:bg-emerald-700/30 rounded-full ml-0.5" />
@@ -295,7 +295,7 @@ export function SceneSidebar({
                                   col === 0
                                     ? 'bg-blue-300/70'
                                     : col === 1
-                                      ? 'bg-amber-300/70'
+                                      ? 'bg-teal-300/70'
                                       : 'bg-emerald-300/70',
                                 )}
                               />

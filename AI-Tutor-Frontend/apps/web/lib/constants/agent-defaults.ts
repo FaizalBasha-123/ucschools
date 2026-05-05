@@ -13,7 +13,7 @@ export const AGENT_COLOR_PALETTE = [
   '#ec4899',
   '#06b6d4',
   '#8b5cf6',
-  '#f97316',
+  '#10B981',
   '#14b8a6',
   '#e11d48',
   '#6366f1',

@@ -154,10 +154,10 @@ export function LectureNotesView({ notes, currentSceneId }: LectureNotesViewProp
                     return (
                       <div
                         key={i}
-                        className="my-1.5 flex items-start gap-1.5 rounded-md border border-amber-200/60 dark:border-amber-700/30 bg-amber-50/60 dark:bg-amber-900/10 px-2 py-1.5"
+                        className="my-1.5 flex items-start gap-1.5 rounded-md border border-teal-200/60 dark:border-teal-700/30 bg-teal-50/60 dark:bg-teal-900/10 px-2 py-1.5"
                       >
-                        <MessageSquare className="w-3 h-3 text-amber-500 dark:text-amber-400 shrink-0 mt-0.5" />
-                        <span className="text-[11px] leading-snug text-amber-800 dark:text-amber-300">
+                        <MessageSquare className="w-3 h-3 text-teal-500 dark:text-teal-400 shrink-0 mt-0.5" />
+                        <span className="text-[11px] leading-snug text-teal-800 dark:text-teal-300">
                           {row.label}
                         </span>
                       </div>

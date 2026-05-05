@@ -49,7 +49,7 @@ export function EnterpriseSidebar({ onSignOut, variant = 'user' }: EnterpriseSid
     <aside className="w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground h-[100dvh] flex flex-col justify-between shadow-xl">
       <div className="p-4">
         <div className="flex items-center gap-3 px-3 py-4 mb-6">
-          <div className="size-8 rounded-xl bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground shadow-lg shadow-orange-500/20">
+          <div className="size-8 rounded-xl bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground shadow-lg shadow-emerald-500/20">
             <BookOpen className="size-4" />
           </div>
           <span className="text-xl font-bold tracking-tight">

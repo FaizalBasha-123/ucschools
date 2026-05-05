@@ -117,16 +117,16 @@ export default function BillingPage() {
             <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3 text-muted-foreground">
-                  <Zap className="size-5 text-amber-500" />
+                  <Zap className="size-5 text-teal-500" />
                   <h3 className="font-medium text-sm text-foreground">Generation Credits</h3>
                 </div>
-                <Link href="/pricing" className="text-xs font-bold bg-amber-100 text-amber-700 hover:bg-amber-200 px-2 py-1 rounded transition-colors">
+                <Link href="/pricing" className="text-xs font-bold bg-teal-100 text-teal-700 hover:bg-teal-200 px-2 py-1 rounded transition-colors">
                   Buy More
                 </Link>
               </div>
               <div className="flex-1 flex flex-col justify-center">
                 {dataLoading ? (
-                  <Loader2 className="size-5 animate-spin mx-auto text-amber-500" />
+                  <Loader2 className="size-5 animate-spin mx-auto text-teal-500" />
                 ) : (
                   <p className="text-4xl font-extrabold text-foreground">{entitlement?.credit_balance ?? 0}</p>
                 )}

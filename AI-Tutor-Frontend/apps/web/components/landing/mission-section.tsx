@@ -52,8 +52,8 @@ export function MissionSection() {
             transition={{ duration: 0.5, delay: 0.4 }}
             className="p-6 rounded-3xl bg-white/60 dark:bg-neutral-900/60 backdrop-blur-sm border border-neutral-200/50 dark:border-border/50 shadow-sm relative z-10 sm:tranneutral-y-8"
           >
-            <div className="size-12 rounded-2xl bg-amber-100 dark:bg-amber-500/10 flex items-center justify-center mb-6">
-              <Infinity className="size-6 text-amber-600 dark:text-amber-400" />
+            <div className="size-12 rounded-2xl bg-teal-100 dark:bg-teal-500/10 flex items-center justify-center mb-6">
+              <Infinity className="size-6 text-teal-600 dark:text-teal-400" />
             </div>
             <h3 className="text-xl font-bold mb-3 text-neutral-900 dark:text-white">Infinite Patience</h3>
             <p className="text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
