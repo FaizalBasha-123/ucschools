@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
       ? undefined
       : 'standalone',
   transpilePackages: ['mathml2omml', 'pptxgenjs'],
-  serverExternalPackages: [],
+  serverExternalPackages: ['nodemailer'],
   experimental: {
     proxyClientMaxBodySize: '200mb',
   },
