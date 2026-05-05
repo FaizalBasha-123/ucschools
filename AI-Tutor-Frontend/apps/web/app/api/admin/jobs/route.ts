@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     const apiBaseUrl = backendUrl();
     const cookieStore = await cookies();
-    const sessionId = cookieStore.get('ai_tutor_operator_session');
+    const sessionId = cookieStore.get('ai_tutor_ops_session');
     
     if (!sessionId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
     const res = await fetch(`${apiBaseUrl}/api/admin/jobs`, {
       method: 'GET',
       headers: {
-        'Cookie': `ai_tutor_operator_session=${sessionId.value}`,
+        'Cookie': `ai_tutor_ops_session=${sessionId.value}`,
       },
       cache: 'no-store'
     });

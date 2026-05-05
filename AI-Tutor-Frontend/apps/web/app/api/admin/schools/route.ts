@@ -6,11 +6,11 @@ export async function GET(request: NextRequest) {
   try {
     const apiBaseUrl = backendUrl();
     const cookieStore = await cookies();
-    const sessionId = cookieStore.get('ai_tutor_operator_session');
+    const sessionId = cookieStore.get('ai_tutor_ops_session');
     if (!sessionId) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     const res = await fetch(`${apiBaseUrl}/api/admin/schools`, {
       method: 'GET',
-      headers: { 'Cookie': `ai_tutor_operator_session=${sessionId.value}` },
+      headers: { 'Cookie': `ai_tutor_ops_session=${sessionId.value}` },
       cache: 'no-store'
     });
     if (!res.ok) return NextResponse.json({ success: false, error: `Backend: ${res.status}` }, { status: res.status });
@@ -25,12 +25,12 @@ export async function POST(request: NextRequest) {
   try {
     const apiBaseUrl = backendUrl();
     const cookieStore = await cookies();
-    const sessionId = cookieStore.get('ai_tutor_operator_session');
+    const sessionId = cookieStore.get('ai_tutor_ops_session');
     if (!sessionId) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     const body = await request.json();
     const res = await fetch(`${apiBaseUrl}/api/admin/schools`, {
       method: 'POST',
-      headers: { 'Cookie': `ai_tutor_operator_session=${sessionId.value}`, 'Content-Type': 'application/json' },
+      headers: { 'Cookie': `ai_tutor_ops_session=${sessionId.value}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!res.ok) return NextResponse.json({ success: false, error: `Backend: ${res.status}` }, { status: res.status });
