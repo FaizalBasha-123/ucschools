@@ -4095,6 +4095,9 @@ impl SubscriptionRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let renewal_cutoff_rfc3339 = renewal_cutoff_rfc3339.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<Subscription>, String> {
+                let cutoff_dt = renewal_cutoff_rfc3339
+                    .parse::<chrono::DateTime<chrono::Utc>>()
+                    .map_err(|err| err.to_string())?;
                 let mut client =
                     Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
                 Self::run_postgres_migrations(&mut client)
@@ -4114,12 +4117,12 @@ impl SubscriptionRepository for FileStorage {
                                updated_at
                         FROM subscriptions
                         WHERE next_renewal_at IS NOT NULL
-                          AND next_renewal_at <= $1::timestamptz
+                          AND next_renewal_at <= $1
                           AND status IN ('active', 'past_due')
                         ORDER BY next_renewal_at ASC
                         LIMIT $2
                         ",
-                        &[&renewal_cutoff_rfc3339, &(limit as i64)],
+                        &[&cutoff_dt, &(limit as i64)],
                     )
                     .map_err(|err| err.to_string())?;
                 rows.into_iter()
@@ -4821,6 +4824,9 @@ impl PaymentIntentRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let now_rfc3339 = now_rfc3339.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<PaymentIntent>, String> {
+                let now_dt = now_rfc3339
+                    .parse::<chrono::DateTime<chrono::Utc>>()
+                    .map_err(|err| err.to_string())?;
                 let mut client =
                     Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
@@ -4840,10 +4846,10 @@ impl PaymentIntentRepository for FileStorage {
                         FROM payment_intents
                         WHERE status IN ('pending', 'failed')
                           AND next_retry_at IS NOT NULL
-                          AND next_retry_at <= $1::timestamptz
+                          AND next_retry_at <= $1
                         ORDER BY next_retry_at ASC
                         ",
-                        &[&now_rfc3339],
+                        &[&now_dt],
                     )
                     .map_err(|err| err.to_string())?;
                 rows.into_iter()

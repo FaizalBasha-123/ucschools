@@ -408,6 +408,16 @@ impl NotificationService for SmtpNotificationService {
 }
 
 pub fn notification_service_from_env(base_url: String) -> Arc<dyn NotificationService> {
+    let webhook_url = std::env::var("AI_TUTOR_WEBHOOK_URL").ok().unwrap_or_default();
+    if !webhook_url.trim().is_empty() {
+        let secret = std::env::var("AI_TUTOR_INTERNAL_SECRET").ok().unwrap_or_else(|| "uc-school-internal-fallback-secret-2026".to_string());
+        return Arc::new(WebhookNotificationService {
+            webhook_url: webhook_url.trim().to_string(),
+            secret: secret.trim().to_string(),
+            billing_base_url: base_url,
+        });
+    }
+
     let enabled = env_flag("AI_TUTOR_SMTP_ENABLED");
     if !enabled {
         return Arc::new(NoopNotificationService);
@@ -419,6 +429,160 @@ pub fn notification_service_from_env(base_url: String) -> Arc<dyn NotificationSe
             warn!(error = %err, "SMTP enabled but initialization failed, falling back to noop notifications");
             Arc::new(NoopNotificationService)
         }
+    }
+}
+
+pub struct WebhookNotificationService {
+    webhook_url: String,
+    secret: String,
+    billing_base_url: String,
+}
+
+impl WebhookNotificationService {
+    async fn send_webhook(
+        &self,
+        to_email: &str,
+        subject: &str,
+        html: String,
+        text_fallback: String,
+    ) -> Result<()> {
+        let payload = serde_json::json!({
+            "to_email": to_email,
+            "subject": subject,
+            "html": html,
+            "text_fallback": text_fallback,
+        });
+
+        let client = reqwest::Client::new();
+        let res = client.post(&self.webhook_url)
+            .header("x-internal-secret", &self.secret)
+            .json(&payload)
+            .send()
+            .await?;
+
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Webhook failed with status {}: {}", status, body));
+        }
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl NotificationService for WebhookNotificationService {
+    async fn send_payment_success_notification(&self, payload: PaymentSuccessNotification) -> Result<()> {
+        let amount = format_minor_amount(payload.amount_minor, &payload.currency);
+        let html = render_template(
+            include_str!("../templates/payment_success.html"),
+            &[
+                ("customer_name", payload.account_name.as_str()),
+                ("amount", amount.as_str()),
+                ("order_id", payload.order_id.as_str()),
+                ("billing_url", self.billing_base_url.as_str()),
+            ],
+        );
+        let text = format!(
+            "Payment of {} was successful for order {}. Receipt available at {}",
+            amount, payload.order_id, self.billing_base_url
+        );
+        self.send_webhook(&payload.account_email, "Payment Successful", html, text).await
+    }
+
+    async fn send_payment_failed_notification(&self, payload: PaymentFailedNotification) -> Result<()> {
+        let amount = format_minor_amount(payload.amount_minor, &payload.currency);
+        let html = render_template(
+            include_str!("../templates/payment_failed.html"),
+            &[
+                ("customer_name", payload.account_name.as_str()),
+                ("amount", amount.as_str()),
+                ("reason", payload.reason.as_str()),
+                ("billing_url", self.billing_base_url.as_str()),
+            ],
+        );
+        let text = format!(
+            "Payment of {} failed: {}. Please update your payment details at {}",
+            amount, payload.reason, self.billing_base_url
+        );
+        self.send_webhook(&payload.account_email, "Payment Action Required", html, text).await
+    }
+
+    async fn send_grace_period_warning(&self, payload: GracePeriodWarningNotification) -> Result<()> {
+        let grace_end = payload.grace_end_at.format("%Y-%m-%d %H:%M UTC").to_string();
+        let html = render_template(
+            include_str!("../templates/grace_period_warning.html"),
+            &[
+                ("customer_name", payload.account_name.as_str()),
+                ("grace_end", grace_end.as_str()),
+                ("billing_url", self.billing_base_url.as_str()),
+            ],
+        );
+        let text = format!(
+            "Grace period ends at {}. Update payment details to avoid service restrictions.",
+            grace_end
+        );
+        self.send_webhook(&payload.account_email, "Grace period ending soon", html, text).await
+    }
+
+    async fn send_service_restricted_alert(&self, payload: ServiceRestrictedNotification) -> Result<()> {
+        let html = render_template(
+            include_str!("../templates/service_restricted.html"),
+            &[
+                ("customer_name", payload.account_name.as_str()),
+                ("reason", payload.reason.as_str()),
+                ("billing_url", self.billing_base_url.as_str()),
+            ],
+        );
+        let text = format!(
+            "Service restricted due to billing issue: {}. Visit {}",
+            payload.reason, self.billing_base_url
+        );
+        self.send_webhook(&payload.account_email, "Service restricted", html, text).await
+    }
+
+    async fn send_operator_otp(&self, payload: OperatorOtpNotification) -> Result<()> {
+        let expires = payload.expires_in_minutes.max(1);
+        let expires_str = expires.to_string();
+        let html = render_template(
+            include_str!("../templates/operator_otp.html"),
+            &[
+                ("operator_name", payload.operator_name.as_str()),
+                ("otp_code", payload.otp_code.as_str()),
+                ("expires_in_minutes", expires_str.as_str()),
+            ],
+        );
+        let text = format!(
+            "Your operator login code is {}. It expires in {} minutes.",
+            payload.otp_code, expires
+        );
+        self.send_webhook(&payload.operator_email, "Your AI-Tutor operator login code", html, text).await
+    }
+
+    async fn send_enterprise_contact(&self, payload: EnterpriseContactNotification) -> Result<()> {
+        let phone = payload.contact_phone.unwrap_or_else(|| "Not provided".to_string());
+        let html = format!(
+            r#"
+            <h2>New Enterprise Contact Request</h2>
+            <p><strong>School Name:</strong> {}</p>
+            <p><strong>Contact Name:</strong> {}</p>
+            <p><strong>Email:</strong> {}</p>
+            <p><strong>Phone:</strong> {}</p>
+            <h3>Message</h3>
+            <p>{}</p>
+            "#,
+            payload.school_name,
+            payload.contact_name,
+            payload.contact_email,
+            phone,
+            payload.message.replace("\n", "<br>")
+        );
+        let text = format!(
+            "New Enterprise Contact Request\n\nSchool Name: {}\nContact Name: {}\nEmail: {}\nPhone: {}\n\nMessage:\n{}",
+            payload.school_name, payload.contact_name, payload.contact_email, phone, payload.message
+        );
+        let dst_email = std::env::var("AI_TUTOR_SMTP_USER").ok().unwrap_or_else(|| "faizalbashafaizalbasha07@gmail.com".to_string());
+        self.send_webhook(&dst_email, "New Enterprise Lead - AI Tutor", html, text).await
     }
 }
 
