@@ -100,6 +100,7 @@ async fn run_startup_readiness_checks(
         }
     }
 
+    let webhook_enabled = is_configured_secret(std::env::var("AI_TUTOR_WEBHOOK_URL").ok());
     let smtp_enabled = matches!(
         std::env::var("AI_TUTOR_SMTP_ENABLED")
             .unwrap_or_default()
@@ -108,7 +109,7 @@ async fn run_startup_readiness_checks(
             .as_str(),
         "1" | "true" | "yes" | "on"
     );
-    if smtp_enabled {
+    if smtp_enabled && !webhook_enabled {
         let use_sendmail = matches!(
             std::env::var("AI_TUTOR_SMTP_USE_SENDMAIL")
                 .unwrap_or_default()
