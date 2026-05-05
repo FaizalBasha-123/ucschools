@@ -8,6 +8,7 @@ pub mod lesson_adaptive;
 pub mod lesson_shelf;
 pub mod lesson;
 pub mod provider;
+pub mod routing;
 pub mod runtime;
 pub mod scene;
 pub mod school;

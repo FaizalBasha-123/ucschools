@@ -265,6 +265,7 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
     }
     if path == "/api/auth/google/login"
         || path == "/api/auth/google/callback"
+        || path == "/api/auth/google/onetap"
         || path == "/api/auth/bind-phone"
         || path == "/api/operator/auth/request-otp"
         || path == "/api/operator/auth/verify-otp"
@@ -583,6 +584,11 @@ pub struct GoogleAuthCallbackQuery {
     pub code: Option<String>,
     pub state: Option<String>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GoogleOneTapRequest {
+    pub credential: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1348,7 +1354,7 @@ struct GoogleTokenResponse {
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
-struct GoogleIdTokenClaims {
+pub struct GoogleIdTokenClaims {
     sub: String,
     email: String,
     email_verified: bool,
@@ -1427,6 +1433,8 @@ struct GenerationModelPolicy {
 pub trait LessonAppService: Send + Sync {
     async fn google_login(&self) -> Result<GoogleAuthLoginResponse>;
     async fn google_callback(&self, query: GoogleAuthCallbackQuery) -> Result<AuthSessionResponse>;
+    async fn google_onetap(&self, payload: GoogleOneTapRequest) -> Result<AuthSessionResponse>;
+    async fn handle_google_account_auth(&self, claims: GoogleIdTokenClaims) -> Result<AuthSessionResponse>;
     async fn bind_phone(&self, payload: BindPhoneRequest) -> Result<AuthSessionResponse>;
     async fn get_billing_catalog(&self) -> Result<BillingCatalogResponse>;
     async fn create_checkout(
@@ -4403,15 +4411,26 @@ impl LessonAppService for LiveLessonAppService {
             .verify_google_id_token(&token_response.id_token)
             .await?;
 
-        tracing::info!(email = %claims.email, sub = %claims.sub, "Auth Callback: Upserting Google account");
+        self.handle_google_account_auth(claims).await
+    }
+
+    async fn google_onetap(&self, payload: GoogleOneTapRequest) -> Result<AuthSessionResponse> {
+        ensure_auth_enabled("AI_TUTOR_GOOGLE_OAUTH_ENABLED")?;
+        tracing::info!("Google One Tap: Verifying ID token");
+        let claims = self.verify_google_id_token(&payload.credential).await?;
+        self.handle_google_account_auth(claims).await
+    }
+
+    async fn handle_google_account_auth(&self, claims: GoogleIdTokenClaims) -> Result<AuthSessionResponse> {
+        tracing::info!(email = %claims.email, sub = %claims.sub, "Auth: Upserting Google account");
         let account = self.upsert_google_account(&claims).await?;
 
-        tracing::info!(status = ?account.status, "Auth Callback: Account resolved, checking verification status");
+        tracing::info!(status = ?account.status, "Auth: Account resolved, checking verification status");
         let phone_auth_required = env_flag("AI_TUTOR_FIREBASE_PHONE_AUTH_ENABLED");
         let phone_ok = !phone_auth_required || account.phone_verified;
         if matches!(account.status, TutorAccountStatus::Active) && phone_ok {
             let session_token = issue_session_token(&account)?;
-            tracing::info!("Auth Callback: Login successful, issuing session");
+            tracing::info!("Auth: Login successful, issuing session");
             return Ok(AuthSessionResponse {
                 account_id: account.id,
                 status: "active".to_string(),
@@ -4425,7 +4444,7 @@ impl LessonAppService for LiveLessonAppService {
         // Account status is PartialAuth or phone verification is required but missing
         if !matches!(account.status, TutorAccountStatus::Active) && !phone_auth_required {
             // Phone auth is disabled – auto-activate the account so Google-only login works
-            tracing::info!("Auth Callback: Phone auth disabled, auto-activating account");
+            tracing::info!("Auth: Phone auth disabled, auto-activating account");
             let activated = self.activate_account_without_phone(&account.id).await?;
             let session_token = issue_session_token(&activated)?;
             return Ok(AuthSessionResponse {
@@ -4439,7 +4458,7 @@ impl LessonAppService for LiveLessonAppService {
             });
         }
 
-        tracing::info!("Auth Callback: Partial auth required (phone verification)");
+        tracing::info!("Auth: Partial auth required (phone verification)");
         let partial_auth_token = issue_partial_auth_token(&account)?;
         Ok(AuthSessionResponse {
             account_id: account.id,
@@ -7384,6 +7403,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/tools/parse-pdf", post(crate::tools::parse_pdf))
         .route("/api/auth/google/login", get(google_login))
         .route("/api/auth/google/callback", get(google_callback))
+        .route("/api/auth/google/onetap", post(google_onetap))
         .route("/api/auth/bind-phone", post(bind_phone))
         .route("/api/operator/auth/request-otp", post(request_operator_otp))
         .route("/api/operator/auth/verify-otp", post(verify_operator_otp))
@@ -7533,6 +7553,21 @@ async fn google_callback(
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "google oauth callback failed");
+            ApiError::internal(e)
+        })?;
+    Ok(auth_response_to_http(response))
+}
+
+async fn google_onetap(
+    State(state): State<AppState>,
+    Json(payload): Json<GoogleOneTapRequest>,
+) -> Result<Response, ApiError> {
+    let response = state
+        .service
+        .google_onetap(payload)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "google one tap auth failed");
             ApiError::internal(e)
         })?;
     Ok(auth_response_to_http(response))
@@ -11181,6 +11216,17 @@ mod tests {
                 .unwrap()
                 .clone()
                 .ok_or_else(|| anyhow!("missing auth session response"))
+        }
+
+        async fn google_onetap(
+            &self,
+            _payload: GoogleOneTapRequest,
+        ) -> Result<AuthSessionResponse> {
+            self.auth_session_response
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or_else(|| anyhow!("missing google onetap response"))
         }
 
         async fn bind_phone(&self, _payload: BindPhoneRequest) -> Result<AuthSessionResponse> {

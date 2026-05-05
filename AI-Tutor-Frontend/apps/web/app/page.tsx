@@ -64,6 +64,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useDraftCache } from '@/lib/hooks/use-draft-cache';
 import { SpeechButton } from '@/components/audio/speech-button';
 import { authHeaders, clearAuthSession, getAuthSession, hasAuthSessionHint, verifyAuthSession } from '@/lib/auth/session';
+import { GoogleOneTap } from '@/components/auth/google-one-tap';
 
 const log = createLogger('Home');
 
@@ -565,6 +566,20 @@ function HomePage() {
         }}
         initialSection={settingsSection}
       />
+
+      {/* ═══ Google One Tap — show only for unauthenticated visitors ═══ */}
+      {!authChecking && !isAuthenticated && (
+        <GoogleOneTap
+          onSuccess={(session) => {
+            setIsAuthenticated(true);
+            setAccountEmail(session.email);
+            loadLessonShelf();
+          }}
+          onError={(err) => {
+            log.error('Google One Tap failed:', err);
+          }}
+        />
+      )}
 
       {/* ═══ Background Decor ═══ */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
