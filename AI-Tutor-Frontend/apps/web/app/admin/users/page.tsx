@@ -14,6 +14,7 @@ const log = createLogger('AdminUsers');
 interface AdminUser {
   account_id: string;
   email: string | null;
+  phone_number: string | null;
   created_at_unix: number;
   plan: string | null;
   credits: number;
@@ -57,7 +58,8 @@ export default function AdminUsersPage() {
     search === '' || 
     user.email?.toLowerCase().includes(search.toLowerCase()) ||
     user.account_id.toLowerCase().includes(search.toLowerCase()) ||
-    (user.plan || '').toLowerCase().includes(search.toLowerCase())
+    (user.plan || '').toLowerCase().includes(search.toLowerCase()) ||
+    (user.phone_number || '').toLowerCase().includes(search.toLowerCase())
   );
 
   const planColor = (plan: string | null) => {
@@ -71,7 +73,7 @@ export default function AdminUsersPage() {
       <EnterpriseSidebar 
         variant="admin"
         onSignOut={async () => {
-          try { await fetch('/api/operator/auth/logout', { method: 'POST' }); } catch (e) {}
+          try { await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } }); } catch (e) {}
           router.push('/operator');
         }} 
       />
@@ -112,7 +114,7 @@ export default function AdminUsersPage() {
               <table className="w-full text-sm text-left">
                 <thead className="bg-[#F8FAFC] dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800">
                   <tr>
-                    {['Account / Email','Billing Plan','Credit Balance','Joined Date','Enterprise'].map(h => (
+                    {['Account / Email','Phone','Billing Plan','Credit Balance','Joined Date','Enterprise'].map(h => (
                       <th key={h} className="px-6 py-4 font-black text-neutral-400 uppercase text-[10px] tracking-widest">{h}</th>
                     ))}
                   </tr>
@@ -120,21 +122,21 @@ export default function AdminUsersPage() {
                 <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800">
                   {loading ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-16 text-center">
+                      <td colSpan={6} className="px-6 py-16 text-center">
                         <Loader2 className="size-8 animate-spin mx-auto mb-4 text-[#10B981] opacity-60" />
                         <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Loading global directory...</p>
                       </td>
                     </tr>
                   ) : error ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-16 text-center">
+                      <td colSpan={6} className="px-6 py-16 text-center">
                         <div className="p-3 bg-rose-50 text-rose-600 rounded-xl inline-block border border-rose-100 font-bold text-xs uppercase mb-2">Sync Error</div>
                         <p className="text-sm text-neutral-500">{error}</p>
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-16 text-center text-neutral-400 italic">
+                      <td colSpan={6} className="px-6 py-16 text-center text-neutral-400 italic">
                         No accounts match your criteria.
                       </td>
                     </tr>
@@ -146,7 +148,11 @@ export default function AdminUsersPage() {
                           <div className="font-mono text-[9px] text-neutral-400 mt-1 uppercase tracking-tighter">{user.account_id}</div>
                         </td>
                         <td className="px-6 py-5">
-                          <div className="flex flex-col items-start gap-2">
+                          <div className="font-bold text-neutral-600 dark:text-neutral-400">
+                            {user.phone_number || <span className="text-neutral-300 italic font-normal text-xs uppercase tracking-widest">Unlinked</span>}
+                          </div>
+                        </td>
+                        <td className="px-6 py-5">
                             <Badge variant="outline" className={cn("px-2.5 py-1 text-[10px] font-black uppercase tracking-wider border-0 shadow-sm", planColor(user.plan))}>
                               {user.plan || 'Free'}
                             </Badge>

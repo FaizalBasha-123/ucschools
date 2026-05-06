@@ -322,9 +322,14 @@ function VerifyPhoneContent() {
       </div>
 
       {/* Security note */}
-      <p className="mt-6 max-w-xs text-center text-[11px] text-muted-foreground leading-relaxed">
-        Phone verification is a one-time security step. Your number is used solely for account verification and is never shared.
-      </p>
+      <div className="mt-8 max-w-[320px] text-center space-y-2">
+        <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest leading-relaxed">
+          Security Protocol
+        </p>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          Verification is a one-time step to protect your identity. We will never contact you to ask for this code. If you receive a code you didn't request, please secure your account immediately.
+        </p>
+      </div>
     </main>
   );
 }

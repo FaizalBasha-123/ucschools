@@ -72,7 +72,7 @@ export default function AdminHealthPage() {
         variant="admin"
         onSignOut={async () => {
           try {
-            await fetch('/api/operator/auth/logout', { method: 'POST' });
+            await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } });
           } catch (e) {
             log.error('Failed to logout operator', e);
           }

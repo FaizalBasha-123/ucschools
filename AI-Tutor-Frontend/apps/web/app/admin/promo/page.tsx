@@ -41,7 +41,9 @@ export default function AdminPromoPage() {
 
   const headers = (): HeadersInit => {
     const tok = sessionStorage.getItem('adminBearerToken');
-    return tok ? { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` } : { 'Content-Type': 'application/json' };
+    const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
+    if (tok) h['Authorization'] = `Bearer ${tok}`;
+    return h;
   };
 
   const fetchPromos = async () => {

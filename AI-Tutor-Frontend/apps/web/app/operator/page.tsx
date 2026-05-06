@@ -40,7 +40,10 @@ export default function OperatorLoginPage() {
     try {
       const response = await fetch('/api/operator/auth/request-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Operator-Header': 'true'
+        },
         body: JSON.stringify({ email }),
         cache: 'no-store',
       });
@@ -80,7 +83,10 @@ export default function OperatorLoginPage() {
     try {
       const response = await fetch('/api/operator/auth/verify-otp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Operator-Header': 'true'
+        },
         body: JSON.stringify({ email, otp_code: otp }),
         cache: 'no-store',
       });
