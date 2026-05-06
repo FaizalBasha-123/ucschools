@@ -12,8 +12,9 @@
  */
 export function backendUrl(): string {
   return (
-    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
+    process.env.AI_TUTOR_BACKEND_INTERNAL_URL ||
     process.env.AI_TUTOR_API_BASE_URL ||
-    'http://127.0.0.1:8099'
+    process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
+    'http://127.0.0.1:4041'
   );
 }

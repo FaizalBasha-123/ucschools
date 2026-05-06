@@ -368,7 +368,7 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             CREATE TABLE IF NOT EXISTS schools (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                admin_email TEXT NOT NULL,
+                operator_email TEXT NOT NULL,
                 plan TEXT NOT NULL DEFAULT 'free',
                 credit_pool DOUBLE PRECISION NOT NULL DEFAULT 0.0,
                 created_at TIMESTAMPTZ NOT NULL,
@@ -607,7 +607,7 @@ impl FileStorage {
         Ok(ai_tutor_domain::school::School {
             id: row.get("id"),
             name: row.get("name"),
-            admin_email: row.get("admin_email"),
+            operator_email: row.get("operator_email"),
             plan: row.get("plan"),
             credit_pool: row.get("credit_pool"),
             created_at: row.get("created_at"),
@@ -5439,15 +5439,15 @@ impl SchoolRepository for FileStorage {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 client.execute(
-                    "INSERT INTO schools (id, name, admin_email, plan, credit_pool, created_at, updated_at)
+                    "INSERT INTO schools (id, name, operator_email, plan, credit_pool, created_at, updated_at)
                      VALUES ($1, $2, $3, $4, $5, $6, $7)
                      ON CONFLICT (id) DO UPDATE SET
                          name = EXCLUDED.name,
-                         admin_email = EXCLUDED.admin_email,
+                         operator_email = EXCLUDED.operator_email,
                          plan = EXCLUDED.plan,
                          credit_pool = EXCLUDED.credit_pool,
                          updated_at = EXCLUDED.updated_at",
-                    &[&school.id, &school.name, &school.admin_email, &school.plan,
+                    &[&school.id, &school.name, &school.operator_email, &school.plan,
                       &school.credit_pool, &school.created_at, &school.updated_at],
                 ).map_err(|e| e.to_string())?;
                 Ok(())
@@ -5467,7 +5467,7 @@ impl SchoolRepository for FileStorage {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 let row = client.query_opt(
-                    "SELECT id, name, admin_email, plan, credit_pool, created_at, updated_at FROM schools WHERE id = $1",
+                    "SELECT id, name, operator_email, plan, credit_pool, created_at, updated_at FROM schools WHERE id = $1",
                     &[&id],
                 ).map_err(|e| e.to_string())?;
                 row.map(Self::postgres_row_to_school).transpose()
@@ -5487,7 +5487,7 @@ impl SchoolRepository for FileStorage {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 let rows = client.query(
-                    "SELECT id, name, admin_email, plan, credit_pool, created_at, updated_at FROM schools ORDER BY created_at DESC LIMIT $1",
+                    "SELECT id, name, operator_email, plan, credit_pool, created_at, updated_at FROM schools ORDER BY created_at DESC LIMIT $1",
                     &[&sql_limit],
                 ).map_err(|e| e.to_string())?;
                 rows.into_iter().map(Self::postgres_row_to_school).collect()

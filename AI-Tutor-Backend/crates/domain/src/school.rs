@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct School {
     pub id: String,
     pub name: String,
-    pub admin_email: String,
+    pub operator_email: String,
     /// Plan code, e.g. "free", "pro", "enterprise"
     pub plan: String,
     /// Shared credit pool for all school members

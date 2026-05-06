@@ -125,7 +125,7 @@ struct AuthenticatedAccountContext {
 enum ApiRole {
     Reader,
     Writer,
-    Admin,
+    Operator,
 }
 
 #[derive(Clone, Debug)]
@@ -143,7 +143,7 @@ impl ApiAuthConfig {
         if let Ok(secret) = std::env::var("AI_TUTOR_API_SECRET") {
             let trimmed = secret.trim();
             if !trimmed.is_empty() {
-                tokens.insert(trimmed.to_string(), ApiRole::Admin);
+                tokens.insert(trimmed.to_string(), ApiRole::Operator);
             }
         }
         if let Ok(configured) = std::env::var("AI_TUTOR_API_TOKENS") {
@@ -208,7 +208,7 @@ fn parse_api_role(value: &str) -> Option<ApiRole> {
     match value.trim().to_ascii_lowercase().as_str() {
         "reader" | "read" => Some(ApiRole::Reader),
         "writer" | "write" => Some(ApiRole::Writer),
-        "admin" => Some(ApiRole::Admin),
+        "operator" => Some(ApiRole::Operator),
         _ => None,
     }
 }
@@ -241,7 +241,7 @@ fn build_cors_layer() -> CorsLayer {
 }
 
 /// Returns true for routes that require a valid user session (JWT) but NOT
-/// an admin/operator role. These endpoints extract the account from the JWT
+/// an operator/operator role. These endpoints extract the account from the JWT
 /// session token. The middleware will return 401 if the session is missing.
 fn session_auth_required(path: &str) -> bool {
     path == "/api/credits/me"
@@ -281,40 +281,40 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
     {
         return None;
     }
-    // Session-authenticated routes bypass admin role checks but
+    // Session-authenticated routes bypass operator role checks but
     // still require a valid session (enforced separately in middleware).
     if session_auth_required(path) {
         return None;
     }
     if path == "/api/system/status" {
-        return Some(ApiRole::Admin);
+        return Some(ApiRole::Operator);
     }
     if path == "/api/system/ops-gate" {
-        return Some(ApiRole::Admin);
+        return Some(ApiRole::Operator);
     }
-    if path == "/api/admin/overview" {
-        return Some(ApiRole::Admin);
+    if path == "/api/operator/overview" {
+        return Some(ApiRole::Operator);
     }
-    if path == "/api/admin/promo-codes" {
-        return Some(ApiRole::Admin);
+    if path == "/api/operator/promo-codes" {
+        return Some(ApiRole::Operator);
     }
     if path == "/api/billing/report" {
-        return Some(ApiRole::Admin);
+        return Some(ApiRole::Operator);
     }
-    if path == "/api/admin/stats/users"
-        || path == "/api/admin/stats/subscriptions"
-        || path == "/api/admin/stats/payments"
-        || path == "/api/admin/stats/promo-codes"
-        || path == "/api/admin/users"
-        || path == "/api/admin/settings"
-        || path == "/api/admin/jobs"
-        || path == "/api/admin/audit-logs"
-        || path == "/api/admin/api-costs"
-        || path == "/api/admin/system/toggle-maintenance"
-        || path == "/api/admin/schools"
-        || path.starts_with("/api/admin/schools/")
+    if path == "/api/operator/stats/users"
+        || path == "/api/operator/stats/subscriptions"
+        || path == "/api/operator/stats/payments"
+        || path == "/api/operator/stats/promo-codes"
+        || path == "/api/operator/users"
+        || path == "/api/operator/settings"
+        || path == "/api/operator/jobs"
+        || path == "/api/operator/audit-logs"
+        || path == "/api/operator/api-costs"
+        || path == "/api/operator/system/toggle-maintenance"
+        || path == "/api/operator/schools"
+        || path.starts_with("/api/operator/schools/")
     {
-        return Some(ApiRole::Admin);
+        return Some(ApiRole::Operator);
     }
     if method == &Method::POST {
         if path == "/api/lessons/generate"
@@ -334,10 +334,10 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
             return Some(ApiRole::Writer);
         }
         if path.starts_with("/api/lessons/jobs/") && path.ends_with("/cancel") {
-            return Some(ApiRole::Admin);
+            return Some(ApiRole::Operator);
         }
         if path.starts_with("/api/lessons/jobs/") && path.ends_with("/resume") {
-            return Some(ApiRole::Admin);
+            return Some(ApiRole::Operator);
         }
     }
     if method == &Method::GET
@@ -504,7 +504,7 @@ async fn auth_middleware(
         });
     }
 
-    if path.starts_with("/api/admin/")
+    if path.starts_with("/api/operator/")
         || path.starts_with("/api/system/")
         || path == "/api/billing/report"
     {
@@ -620,7 +620,7 @@ pub struct SystemConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminUser {
+pub struct OperatorUser {
     pub account_id: String,
     pub email: Option<String>,
     pub phone_number: Option<String>,
@@ -632,23 +632,23 @@ pub struct AdminUser {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminUsersListResponse {
-    pub users: Vec<AdminUser>,
+pub struct OperatorUsersListResponse {
+    pub users: Vec<OperatorUser>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminSettingsResponse {
+pub struct OperatorSettingsResponse {
     pub operator_roles: String,
     pub api_base_url: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminJobsListResponse {
+pub struct OperatorJobsListResponse {
     pub jobs: Vec<ai_tutor_domain::job::LessonGenerationJob>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminAuditLogsResponse {
+pub struct OperatorAuditLogsResponse {
     pub logs: Vec<ai_tutor_domain::billing::FinancialAuditLog>,
 }
 
@@ -662,7 +662,7 @@ pub struct ToggleMaintenanceResponse {
 pub struct SchoolResponse {
     pub id: String,
     pub name: String,
-    pub admin_email: String,
+    pub operator_email: String,
     pub plan: String,
     pub credit_pool: f64,
     pub member_count: usize,
@@ -677,7 +677,7 @@ pub struct SchoolsListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSchoolRequest {
     pub name: String,
-    pub admin_email: String,
+    pub operator_email: String,
     pub plan: Option<String>,
 }
 
@@ -1009,9 +1009,9 @@ pub struct CancelSubscriptionResponse {
     pub cancelled_at: String,
 }
 
-/// Admin console response types
+/// Operator console response types
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminUserStatsResponse {
+pub struct OperatorUserStatsResponse {
     pub total_users: usize,
     pub active_users_today: usize,
     pub active_users_week: usize,
@@ -1021,7 +1021,7 @@ pub struct AdminUserStatsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminSubscriptionStatsResponse {
+pub struct OperatorSubscriptionStatsResponse {
     pub total_subscriptions: usize,
     pub active_subscriptions: usize,
     pub cancelled_subscriptions: usize,
@@ -1031,7 +1031,7 @@ pub struct AdminSubscriptionStatsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminPaymentStatsResponse {
+pub struct OperatorPaymentStatsResponse {
     pub total_payments: usize,
     pub successful_payments: usize,
     pub failed_payments: usize,
@@ -1041,7 +1041,7 @@ pub struct AdminPaymentStatsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminPromoCodeStatsResponse {
+pub struct OperatorPromoCodeStatsResponse {
     pub total_promo_codes: usize,
     pub active_promo_codes: usize,
     pub total_redemptions: usize,
@@ -1050,11 +1050,11 @@ pub struct AdminPromoCodeStatsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminOverviewResponse {
-    pub users: AdminUserStatsResponse,
-    pub subscriptions: AdminSubscriptionStatsResponse,
-    pub payments: AdminPaymentStatsResponse,
-    pub promo_codes: AdminPromoCodeStatsResponse,
+pub struct OperatorOverviewResponse {
+    pub users: OperatorUserStatsResponse,
+    pub subscriptions: OperatorSubscriptionStatsResponse,
+    pub payments: OperatorPaymentStatsResponse,
+    pub promo_codes: OperatorPromoCodeStatsResponse,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1068,7 +1068,7 @@ pub struct CreatePromoCodeRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminPromoCodeListResponse {
+pub struct OperatorPromoCodeListResponse {
     pub promo_codes: Vec<ai_tutor_domain::credits::PromoCode>,
 }
 
@@ -1094,7 +1094,7 @@ pub struct ApiCostPerUser {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdminApiCostsResponse {
+pub struct OperatorApiCostsResponse {
     pub total_cost_usd_30d: f64,
     pub openrouter_cost_usd: f64,
     pub groq_cost_usd: f64,
@@ -1524,19 +1524,19 @@ pub trait LessonAppService: Send + Sync {
         subscription_id: &str,
         payload: CancelSubscriptionRequest,
     ) -> Result<CancelSubscriptionResponse>;
-    async fn get_admin_user_stats(&self) -> Result<AdminUserStatsResponse>;
-    async fn get_admin_subscription_stats(&self) -> Result<AdminSubscriptionStatsResponse>;
-    async fn get_admin_payment_stats(&self) -> Result<AdminPaymentStatsResponse>;
-    async fn get_admin_promo_code_stats(&self) -> Result<AdminPromoCodeStatsResponse>;
-    async fn get_admin_users(&self) -> Result<AdminUsersListResponse>;
-    async fn get_admin_settings(&self) -> Result<AdminSettingsResponse>;
-    async fn get_admin_jobs(&self) -> Result<AdminJobsListResponse>;
-    async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse>;
+    async fn get_operator_user_stats(&self) -> Result<OperatorUserStatsResponse>;
+    async fn get_operator_subscription_stats(&self) -> Result<OperatorSubscriptionStatsResponse>;
+    async fn get_operator_payment_stats(&self) -> Result<OperatorPaymentStatsResponse>;
+    async fn get_operator_promo_code_stats(&self) -> Result<OperatorPromoCodeStatsResponse>;
+    async fn get_operator_users(&self) -> Result<OperatorUsersListResponse>;
+    async fn get_operator_settings(&self) -> Result<OperatorSettingsResponse>;
+    async fn get_operator_jobs(&self) -> Result<OperatorJobsListResponse>;
+    async fn get_operator_audit_logs(&self) -> Result<OperatorAuditLogsResponse>;
     async fn create_promo_code(&self, payload: CreatePromoCodeRequest) -> Result<()>;
-    async fn list_all_promo_codes(&self, limit: usize) -> Result<AdminPromoCodeListResponse>;
+    async fn list_all_promo_codes(&self, limit: usize) -> Result<OperatorPromoCodeListResponse>;
     /// Returns aggregated API cost data for the operator console.
     /// Returns zeroes gracefully when api_usage_records table is empty.
-    async fn get_api_usage_costs(&self) -> Result<AdminApiCostsResponse>;
+    async fn get_api_usage_costs(&self) -> Result<OperatorApiCostsResponse>;
     async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse>;
     async fn list_schools(&self) -> Result<SchoolsListResponse>;
     async fn create_school(&self, payload: CreateSchoolRequest) -> Result<SchoolResponse>;
@@ -4285,7 +4285,7 @@ impl LiveLessonAppService {
 
     async fn system_status(&self) -> Result<SystemStatusResponse> {
         let current_model = std::env::var("BALANCED_MODE_AI_TUTOR_MODEL").ok();
-        let generation_model_policy = resolve_generation_model_policy(
+        let generation_model_policy_result = resolve_generation_model_policy(
             current_model.as_deref(),
             std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")
                 .ok()
@@ -4297,7 +4297,18 @@ impl LiveLessonAppService {
                 .ok()
                 .as_deref(),
             None,
-        )?;
+        );
+
+        let generation_model_policy = match generation_model_policy_result {
+            Ok(policy) => policy,
+            Err(_) => GenerationModelPolicy {
+                outlines_model: "openai:gpt-4o-mini".to_string(),
+                scene_content_model: "openai:gpt-4o-mini".to_string(),
+                scene_actions_model: "openai:gpt-4o-mini".to_string(),
+                scene_actions_fallback_model: None,
+            },
+        };
+
         let selected_model_profile = current_model
             .as_deref()
             .and_then(|model| selected_model_profile(&self.provider_config, Some(model)).ok());
@@ -5199,7 +5210,7 @@ impl LessonAppService for LiveLessonAppService {
             })
     }
 
-    async fn get_admin_user_stats(&self) -> Result<AdminUserStatsResponse> {
+    async fn get_operator_user_stats(&self) -> Result<OperatorUserStatsResponse> {
         let accounts = self
             .storage
             .list_all_tutor_accounts(100_000)
@@ -5210,7 +5221,7 @@ impl LessonAppService for LiveLessonAppService {
         let week = now - chrono::Duration::days(7);
         let month = now - chrono::Duration::days(30);
 
-        Ok(AdminUserStatsResponse {
+        Ok(OperatorUserStatsResponse {
             total_users: accounts.len(),
             active_users_today: accounts.iter().filter(|a| a.updated_at >= today).count(),
             active_users_week: accounts.iter().filter(|a| a.updated_at >= week).count(),
@@ -5220,7 +5231,7 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
-    async fn get_admin_users(&self) -> Result<AdminUsersListResponse> {
+    async fn get_operator_users(&self) -> Result<OperatorUsersListResponse> {
         let accounts = self.storage.list_all_tutor_accounts(100_000).await.map_err(|e| anyhow!(e))?;
         let subscriptions = self.storage.list_all_subscriptions(100_000).await.map_err(|e| anyhow!(e))?;
         let promo_codes = self.storage.list_all_promo_codes(10_000).await.map_err(|e| anyhow!(e))?;
@@ -5252,7 +5263,7 @@ impl LessonAppService for LiveLessonAppService {
                 .ok()
                 .map(|b| b.balance)
                 .unwrap_or(0.0);
-            users.push(AdminUser {
+            users.push(OperatorUser {
                 account_id: a.id,
                 email: Some(a.email),
                 phone_number: a.phone_number,
@@ -5264,7 +5275,7 @@ impl LessonAppService for LiveLessonAppService {
             });
         }
 
-        Ok(AdminUsersListResponse { users })
+        Ok(OperatorUsersListResponse { users })
     }
 
     async fn create_promo_code(&self, payload: CreatePromoCodeRequest) -> Result<()> {
@@ -5284,31 +5295,31 @@ impl LessonAppService for LiveLessonAppService {
         Ok(())
     }
 
-    async fn list_all_promo_codes(&self, limit: usize) -> Result<AdminPromoCodeListResponse> {
+    async fn list_all_promo_codes(&self, limit: usize) -> Result<OperatorPromoCodeListResponse> {
         let codes = self.storage.list_all_promo_codes(limit).await.map_err(|e| anyhow!(e))?;
-        Ok(AdminPromoCodeListResponse { promo_codes: codes })
+        Ok(OperatorPromoCodeListResponse { promo_codes: codes })
     }
 
-    async fn get_admin_settings(&self) -> Result<AdminSettingsResponse> {
+    async fn get_operator_settings(&self) -> Result<OperatorSettingsResponse> {
         let operator_roles = read_optional_env("AI_TUTOR_OPERATOR_EMAIL_ROLES")
             .unwrap_or_default();
         let api_base_url = read_optional_env("AI_TUTOR_API_BASE_URL")
             .unwrap_or_else(|| "http://localhost:8099".to_string());
         
-        Ok(AdminSettingsResponse {
+        Ok(OperatorSettingsResponse {
             operator_roles,
             api_base_url,
         })
     }
 
-    async fn get_admin_jobs(&self) -> Result<AdminJobsListResponse> {
+    async fn get_operator_jobs(&self) -> Result<OperatorJobsListResponse> {
         let jobs = self.storage.list_all_jobs(500).await.map_err(|e| anyhow!(e))?;
-        Ok(AdminJobsListResponse { jobs })
+        Ok(OperatorJobsListResponse { jobs })
     }
 
-    async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse> {
+    async fn get_operator_audit_logs(&self) -> Result<OperatorAuditLogsResponse> {
         let logs = self.storage.list_all_audit_logs(500).await.map_err(|e| anyhow!(e))?;
-        Ok(AdminAuditLogsResponse { logs })
+        Ok(OperatorAuditLogsResponse { logs })
     }
 
     async fn run_worker_loop(&self) -> Result<()> {
@@ -5358,7 +5369,7 @@ impl LessonAppService for LiveLessonAppService {
         Ok(())
     }
 
-    async fn get_api_usage_costs(&self) -> Result<AdminApiCostsResponse> {
+    async fn get_api_usage_costs(&self) -> Result<OperatorApiCostsResponse> {
         let window = chrono::Utc::now() - chrono::Duration::days(30);
 
         // ── Revenue from payment orders (INR) ──────────────────────────────
@@ -5459,7 +5470,7 @@ impl LessonAppService for LiveLessonAppService {
         let revenue_usd: f64 = per_user.iter().map(|u| u.revenue_inr / 84.0).sum();
         let margin = if revenue_usd > 0.0 { (revenue_usd - total) / revenue_usd } else { 0.0 };
 
-        Ok(AdminApiCostsResponse {
+        Ok(OperatorApiCostsResponse {
             total_cost_usd_30d: total,
             openrouter_cost_usd: openrouter_cost,
             groq_cost_usd: groq_cost,
@@ -5493,7 +5504,7 @@ impl LessonAppService for LiveLessonAppService {
             responses.push(SchoolResponse {
                 id: s.id,
                 name: s.name,
-                admin_email: s.admin_email,
+                operator_email: s.operator_email,
                 plan: s.plan,
                 credit_pool: s.credit_pool,
                 member_count: members.len(),
@@ -5508,7 +5519,7 @@ impl LessonAppService for LiveLessonAppService {
         let school = ai_tutor_domain::school::School {
             id: uuid::Uuid::new_v4().to_string(),
             name: payload.name,
-            admin_email: payload.admin_email,
+            operator_email: payload.operator_email,
             plan: payload.plan.unwrap_or_else(|| "free".to_string()),
             credit_pool: 0.0,
             created_at: now,
@@ -5518,7 +5529,7 @@ impl LessonAppService for LiveLessonAppService {
         Ok(SchoolResponse {
             id: school.id,
             name: school.name,
-            admin_email: school.admin_email,
+            operator_email: school.operator_email,
             plan: school.plan,
             credit_pool: school.credit_pool,
             member_count: 0,
@@ -5717,7 +5728,7 @@ impl LessonAppService for LiveLessonAppService {
             paid_at: i.paid_at.map(|d| d.to_rfc3339()),
         }).collect())
     }
-    async fn get_admin_subscription_stats(&self) -> Result<AdminSubscriptionStatsResponse> {
+    async fn get_operator_subscription_stats(&self) -> Result<OperatorSubscriptionStatsResponse> {
         let subscriptions = self
             .storage
             .list_all_subscriptions(100_000)
@@ -5758,7 +5769,7 @@ impl LessonAppService for LiveLessonAppService {
             .map(|order| order.amount_minor)
             .sum();
 
-        Ok(AdminSubscriptionStatsResponse {
+        Ok(OperatorSubscriptionStatsResponse {
             total_subscriptions: subscriptions.len(),
             active_subscriptions: subscriptions
                 .iter()
@@ -5782,7 +5793,7 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
-    async fn get_admin_payment_stats(&self) -> Result<AdminPaymentStatsResponse> {
+    async fn get_operator_payment_stats(&self) -> Result<OperatorPaymentStatsResponse> {
         let orders = self
             .storage
             .list_all_payment_orders(100_000)
@@ -5813,7 +5824,7 @@ impl LessonAppService for LiveLessonAppService {
             (total_revenue_minor as f64 / 100.0) / successful_payments as f64
         };
 
-        Ok(AdminPaymentStatsResponse {
+        Ok(OperatorPaymentStatsResponse {
             total_payments: orders.len(),
             successful_payments,
             failed_payments,
@@ -5823,7 +5834,7 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
-    async fn get_admin_promo_code_stats(&self) -> Result<AdminPromoCodeStatsResponse> {
+    async fn get_operator_promo_code_stats(&self) -> Result<OperatorPromoCodeStatsResponse> {
         let codes = self
             .storage
             .list_all_promo_codes(10_000)
@@ -5861,7 +5872,7 @@ impl LessonAppService for LiveLessonAppService {
             utilization_sum / codes.len() as f64
         };
 
-        Ok(AdminPromoCodeStatsResponse {
+        Ok(OperatorPromoCodeStatsResponse {
             total_promo_codes: codes.len(),
             active_promo_codes: codes
                 .iter()
@@ -7526,23 +7537,23 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/credits/me", get(get_credit_balance))
         .route("/api/credits/ledger", get(get_credit_ledger))
         .route("/api/credits/redeem", post(redeem_promo_code))
-        .route("/api/admin/overview", get(get_admin_overview))
-        .route("/api/admin/stats/users", get(get_admin_user_stats))
-        .route("/api/admin/stats/subscriptions", get(get_admin_subscription_stats))
-        .route("/api/admin/stats/payments", get(get_admin_payment_stats))
-        .route("/api/admin/stats/promo-codes", get(get_admin_promo_code_stats))
-        .route("/api/admin/promo-codes", get(get_admin_promo_codes).post(create_admin_promo_code))
-        .route("/api/admin/users", get(get_admin_users))
-        .route("/api/admin/settings", get(get_admin_settings))
-        .route("/api/admin/jobs", get(get_admin_jobs))
-        .route("/api/admin/audit-logs", get(get_admin_audit_logs))
-        .route("/api/admin/api-costs", get(get_admin_api_costs))
-        .route("/api/admin/system/toggle-maintenance", post(toggle_maintenance))
-        .route("/api/admin/schools", get(list_schools).post(create_school_handler))
-        .route("/api/admin/schools/{id}/members", get(get_school_members))
-        .route("/api/admin/schools/members/bulk", post(bulk_provision_members_handler))
-        .route("/api/admin/schools/{id}/invoices", get(list_school_invoices_handler).post(generate_school_invoice_handler))
-        .route("/api/admin/schools/assign-user", post(assign_user_school_handler))
+        .route("/api/operator/overview", get(get_operator_overview))
+        .route("/api/operator/stats/users", get(get_operator_user_stats))
+        .route("/api/operator/stats/subscriptions", get(get_operator_subscription_stats))
+        .route("/api/operator/stats/payments", get(get_operator_payment_stats))
+        .route("/api/operator/stats/promo-codes", get(get_operator_promo_code_stats))
+        .route("/api/operator/promo-codes", get(get_operator_promo_codes).post(create_operator_promo_code))
+        .route("/api/operator/users", get(get_operator_users))
+        .route("/api/operator/settings", get(get_operator_settings))
+        .route("/api/operator/jobs", get(get_operator_jobs))
+        .route("/api/operator/audit-logs", get(get_operator_audit_logs))
+        .route("/api/operator/api-costs", get(get_operator_api_costs))
+        .route("/api/operator/system/toggle-maintenance", post(toggle_maintenance))
+        .route("/api/operator/schools", get(list_schools).post(create_school_handler))
+        .route("/api/operator/schools/{id}/members", get(get_school_members))
+        .route("/api/operator/schools/members/bulk", post(bulk_provision_members_handler))
+        .route("/api/operator/schools/{id}/invoices", get(list_school_invoices_handler).post(generate_school_invoice_handler))
+        .route("/api/operator/schools/assign-user", post(assign_user_school_handler))
             .route("/api/subscriptions/create", post(create_subscription))
             .route("/api/subscriptions/me", get(get_subscription))
             .route("/api/subscriptions/{id}/cancel", post(cancel_subscription))
@@ -7587,14 +7598,14 @@ async fn health(
 ) -> Json<HealthResponse> {
     let mut status = "ok";
     
-    // Perform dependency checks if admin token is provided
+    // Perform dependency checks if operator token is provided
     if let Some(auth) = headers.get(header::AUTHORIZATION) {
         if let Ok(auth_str) = auth.to_str() {
             let token = auth_str.strip_prefix("Bearer ").unwrap_or(auth_str);
-            let is_admin = std::env::var("AI_TUTOR_API_KEY")
+            let is_operator = std::env::var("AI_TUTOR_API_KEY")
                 .map(|key| !key.is_empty() && key == token)
                 .unwrap_or(false);
-            if is_admin {
+            if is_operator {
                 if let Ok(readiness) = state.service.get_system_status().await {
                     if readiness.runtime_alert_level == "degraded" {
                         status = "degraded";
@@ -7607,10 +7618,10 @@ async fn health(
     Json(HealthResponse { status })
 }
 
-async fn get_admin_promo_codes(
+async fn get_operator_promo_codes(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminPromoCodeListResponse>, ApiError> {
+) -> Result<Json<OperatorPromoCodeListResponse>, ApiError> {
     state
         .service
         .list_all_promo_codes(1000)
@@ -7619,7 +7630,7 @@ async fn get_admin_promo_codes(
         .map_err(ApiError::internal)
 }
 
-async fn create_admin_promo_code(
+async fn create_operator_promo_code(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
     Json(payload): Json<CreatePromoCodeRequest>,
@@ -7849,17 +7860,17 @@ async fn verify_operator_otp(
     delete_operator_otp_challenge(&email).await?;
 
     let role = resolve_operator_role_for_email(&email);
-    if role != "admin" {
+    if role != "operator" {
         warn!(
             event = "operator_risk_signal",
-            signal = "operator_role_not_admin",
+            signal = "operator_role_not_operator",
             email = %email,
             resolved_role = %role,
-            "operator otp verification blocked because role is not admin"
+            "operator otp verification blocked because role is not operator"
         );
         return Err(ApiError {
             status: StatusCode::FORBIDDEN,
-            message: "operator email is not mapped to an admin role".to_string(),
+            message: "operator email is not mapped to an operator role".to_string(),
         });
     }
 
@@ -8114,44 +8125,44 @@ async fn redeem_promo_code(
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_user_stats(
+async fn get_operator_user_stats(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminUserStatsResponse>, ApiError> {
+) -> Result<Json<OperatorUserStatsResponse>, ApiError> {
     state
         .service
-        .get_admin_user_stats()
+        .get_operator_user_stats()
         .await
         .map(Json)
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_overview(
+async fn get_operator_overview(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminOverviewResponse>, ApiError> {
+) -> Result<Json<OperatorOverviewResponse>, ApiError> {
     let users = state
         .service
-        .get_admin_user_stats()
+        .get_operator_user_stats()
         .await
         .map_err(ApiError::internal)?;
     let subscriptions = state
         .service
-        .get_admin_subscription_stats()
+        .get_operator_subscription_stats()
         .await
         .map_err(ApiError::internal)?;
     let payments = state
         .service
-        .get_admin_payment_stats()
+        .get_operator_payment_stats()
         .await
         .map_err(ApiError::internal)?;
     let promo_codes = state
         .service
-        .get_admin_promo_code_stats()
+        .get_operator_promo_code_stats()
         .await
         .map_err(ApiError::internal)?;
 
-    Ok(Json(AdminOverviewResponse {
+    Ok(Json(OperatorOverviewResponse {
         users,
         subscriptions,
         payments,
@@ -8159,46 +8170,46 @@ async fn get_admin_overview(
     }))
 }
 
-async fn get_admin_subscription_stats(
+async fn get_operator_subscription_stats(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminSubscriptionStatsResponse>, ApiError> {
+) -> Result<Json<OperatorSubscriptionStatsResponse>, ApiError> {
     state
         .service
-        .get_admin_subscription_stats()
+        .get_operator_subscription_stats()
         .await
         .map(Json)
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_payment_stats(
+async fn get_operator_payment_stats(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminPaymentStatsResponse>, ApiError> {
+) -> Result<Json<OperatorPaymentStatsResponse>, ApiError> {
     state
         .service
-        .get_admin_payment_stats()
+        .get_operator_payment_stats()
         .await
         .map(Json)
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_promo_code_stats(
+async fn get_operator_promo_code_stats(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminPromoCodeStatsResponse>, ApiError> {
+) -> Result<Json<OperatorPromoCodeStatsResponse>, ApiError> {
     state
         .service
-        .get_admin_promo_code_stats()
+        .get_operator_promo_code_stats()
         .await
         .map(Json)
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_api_costs(
+async fn get_operator_api_costs(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminApiCostsResponse>, ApiError> {
+) -> Result<Json<OperatorApiCostsResponse>, ApiError> {
     state
         .service
         .get_api_usage_costs()
@@ -8207,49 +8218,49 @@ async fn get_admin_api_costs(
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_users(
+async fn get_operator_users(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminUsersListResponse>, ApiError> {
+) -> Result<Json<OperatorUsersListResponse>, ApiError> {
     state
         .service
-        .get_admin_users()
+        .get_operator_users()
         .await
         .map(Json)
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_settings(
+async fn get_operator_settings(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminSettingsResponse>, ApiError> {
+) -> Result<Json<OperatorSettingsResponse>, ApiError> {
     state
         .service
-        .get_admin_settings()
+        .get_operator_settings()
         .await
         .map(Json)
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_jobs(
+async fn get_operator_jobs(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminJobsListResponse>, ApiError> {
+) -> Result<Json<OperatorJobsListResponse>, ApiError> {
     state
         .service
-        .get_admin_jobs()
+        .get_operator_jobs()
         .await
         .map(Json)
         .map_err(ApiError::internal)
 }
 
-async fn get_admin_audit_logs(
+async fn get_operator_audit_logs(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
-) -> Result<Json<AdminAuditLogsResponse>, ApiError> {
+) -> Result<Json<OperatorAuditLogsResponse>, ApiError> {
     state
         .service
-        .get_admin_audit_logs()
+        .get_operator_audit_logs()
         .await
         .map(Json)
         .map_err(ApiError::internal)
@@ -10527,17 +10538,17 @@ fn resolve_operator_role_for_email(email: &str) -> &'static str {
             }
             let mut pair = item.splitn(2, '=');
             let entry_email = pair.next().unwrap_or_default().trim().to_ascii_lowercase();
-            let role_raw = pair.next().unwrap_or("admin").trim();
+            let role_raw = pair.next().unwrap_or("operator").trim();
             if entry_email == email {
-                return match parse_api_role(role_raw).unwrap_or(ApiRole::Admin) {
-                    ApiRole::Admin => "admin",
+                return match parse_api_role(role_raw).unwrap_or(ApiRole::Operator) {
+                    ApiRole::Operator => "operator",
                     ApiRole::Writer => "writer",
                     ApiRole::Reader => "reader",
                 };
             }
         }
     }
-    "admin"
+    "operator"
 }
 
 async fn enforce_otp_request_rate_limit(email: &str) -> Result<(), ApiError> {
@@ -11850,8 +11861,8 @@ mod tests {
                 })
             }
 
-            async fn get_admin_user_stats(&self) -> Result<AdminUserStatsResponse> {
-                Ok(AdminUserStatsResponse {
+            async fn get_operator_user_stats(&self) -> Result<OperatorUserStatsResponse> {
+                Ok(OperatorUserStatsResponse {
                     total_users: 1250,
                     active_users_today: 145,
                     active_users_week: 680,
@@ -11861,8 +11872,8 @@ mod tests {
                 })
             }
 
-            async fn get_admin_subscription_stats(&self) -> Result<AdminSubscriptionStatsResponse> {
-                Ok(AdminSubscriptionStatsResponse {
+            async fn get_operator_subscription_stats(&self) -> Result<OperatorSubscriptionStatsResponse> {
+                Ok(OperatorSubscriptionStatsResponse {
                     total_subscriptions: 320,
                     active_subscriptions: 285,
                     cancelled_subscriptions: 35,
@@ -11872,8 +11883,8 @@ mod tests {
                 })
             }
 
-            async fn get_admin_payment_stats(&self) -> Result<AdminPaymentStatsResponse> {
-                Ok(AdminPaymentStatsResponse {
+            async fn get_operator_payment_stats(&self) -> Result<OperatorPaymentStatsResponse> {
+                Ok(OperatorPaymentStatsResponse {
                     total_payments: 450,
                     successful_payments: 425,
                     failed_payments: 25,
@@ -11883,8 +11894,8 @@ mod tests {
                 })
             }
 
-            async fn get_admin_promo_code_stats(&self) -> Result<AdminPromoCodeStatsResponse> {
-                Ok(AdminPromoCodeStatsResponse {
+            async fn get_operator_promo_code_stats(&self) -> Result<OperatorPromoCodeStatsResponse> {
+                Ok(OperatorPromoCodeStatsResponse {
                     total_promo_codes: 15,
                     active_promo_codes: 8,
                     total_redemptions: 342,
@@ -11893,35 +11904,35 @@ mod tests {
                 })
             }
 
-            async fn get_admin_users(&self) -> Result<AdminUsersListResponse> {
-                Ok(AdminUsersListResponse { users: vec![] })
+            async fn get_operator_users(&self) -> Result<OperatorUsersListResponse> {
+                Ok(OperatorUsersListResponse { users: vec![] })
             }
 
             async fn create_promo_code(&self, _payload: CreatePromoCodeRequest) -> Result<()> {
                 Ok(())
             }
 
-            async fn list_all_promo_codes(&self, _limit: usize) -> Result<AdminPromoCodeListResponse> {
-                Ok(AdminPromoCodeListResponse { promo_codes: vec![] })
+            async fn list_all_promo_codes(&self, _limit: usize) -> Result<OperatorPromoCodeListResponse> {
+                Ok(OperatorPromoCodeListResponse { promo_codes: vec![] })
             }
 
-            async fn get_admin_settings(&self) -> Result<AdminSettingsResponse> {
-                Ok(AdminSettingsResponse {
-                    operator_roles: "mock@ai-tutor.local=admin".to_string(),
+            async fn get_operator_settings(&self) -> Result<OperatorSettingsResponse> {
+                Ok(OperatorSettingsResponse {
+                    operator_roles: "mock@ai-tutor.local=operator".to_string(),
                     api_base_url: "http://localhost:8099".to_string(),
                 })
             }
 
-            async fn get_admin_jobs(&self) -> Result<AdminJobsListResponse> {
-                Ok(AdminJobsListResponse { jobs: vec![] })
+            async fn get_operator_jobs(&self) -> Result<OperatorJobsListResponse> {
+                Ok(OperatorJobsListResponse { jobs: vec![] })
             }
 
-            async fn get_admin_audit_logs(&self) -> Result<AdminAuditLogsResponse> {
-                Ok(AdminAuditLogsResponse { logs: vec![] })
+            async fn get_operator_audit_logs(&self) -> Result<OperatorAuditLogsResponse> {
+                Ok(OperatorAuditLogsResponse { logs: vec![] })
             }
 
-            async fn get_api_usage_costs(&self) -> Result<AdminApiCostsResponse> {
-                Ok(AdminApiCostsResponse {
+            async fn get_api_usage_costs(&self) -> Result<OperatorApiCostsResponse> {
+                Ok(OperatorApiCostsResponse {
                     total_cost_usd_30d: 0.0,
                     openrouter_cost_usd: 0.0,
                     groq_cost_usd: 0.0,
@@ -11944,7 +11955,7 @@ mod tests {
                 Ok(SchoolResponse {
                     id: "mock-school".to_string(),
                     name: payload.name,
-                    admin_email: payload.admin_email,
+                    operator_email: payload.operator_email,
                     plan: payload.plan.unwrap_or_else(|| "free".to_string()),
                     credit_pool: 0.0,
                     member_count: 0,
@@ -14960,7 +14971,7 @@ mod tests {
             }),
             ApiAuthConfig {
                 enabled: true,
-                tokens: HashMap::from([("ops-token".to_string(), ApiRole::Admin)]),
+                tokens: HashMap::from([("ops-token".to_string(), ApiRole::Operator)]),
                 require_https: false,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),
@@ -15194,7 +15205,7 @@ mod tests {
             }),
             ApiAuthConfig {
                 enabled: true,
-                tokens: HashMap::from([("ops-token".to_string(), ApiRole::Admin)]),
+                tokens: HashMap::from([("ops-token".to_string(), ApiRole::Operator)]),
                 require_https: false,
                 operator_otp_enabled: false,
                 operator_session_cookie_name: "ai_tutor_ops_session".to_string(),

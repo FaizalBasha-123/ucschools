@@ -202,7 +202,7 @@ export function ClassroomSidebar({ currentStageId }: ClassroomSidebarProps) {
           className="flex items-center gap-3 px-3 py-2 rounded-xl text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-all"
         >
           <Settings size={18} className="opacity-70" />
-          {!collapsed && <span className="text-sm font-medium">Administration</span>}
+          {!collapsed && <span className="text-sm font-medium">Operatoristration</span>}
         </Link>
         <button 
           onClick={handleSignOut}

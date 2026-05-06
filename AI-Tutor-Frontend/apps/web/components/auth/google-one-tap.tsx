@@ -131,6 +131,7 @@ export function GoogleOneTap({ onSuccess, onError }: GoogleOneTapProps) {
         auto_select: true,
         cancel_on_tap_outside: false,
         itp_support: true,
+        use_fedcm_for_prompt: true,
       });
 
       window.google.accounts.id.prompt((notification) => {

@@ -921,12 +921,12 @@
     "recentInvoices": "சமீபத்திய விலைப்பட்டியல்கள்",
     "invoicesEmpty": "விலைப்பட்டியல்கள் இல்லை."
   },
-  "admin": {
+  "operator": {
     "title": "நிர்வாக கணக்காயர்",
     "subtitle": "பயனர் செயல்பாடு, சந்தா, கட்டணம் மற்றும் சலுகை குறியீடு மீட்டெடுப்பு போன்ற முக்கிய அளவீடுகளை கண்காணிக்கவும்.",
     "backToClassroom": "வகுப்பறைக்கு திரும்பு",
     "authTitle": "அடையாள சரிபார்ப்பு",
-    "authDescription": "நிர்வாக கணக்காயரை அணுக Admin பாத்திரம் கொண்ட Bearer Token வழங்கவும்.",
+    "authDescription": "நிர்வாக கணக்காயரை அணுக Operator பாத்திரம் கொண்ட Bearer Token வழங்கவும்.",
     "tokenPlaceholder": "நிர்வாக Bearer Token",
     "saveToken": "Token சேமி",
     "clearToken": "Token அழி",

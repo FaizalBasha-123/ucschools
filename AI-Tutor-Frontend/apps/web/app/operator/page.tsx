@@ -1,334 +1,432 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Mail, Lock, ArrowLeft, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { toast } from 'sonner';
+import {
+  Users, Activity, CreditCard, TrendingUp, Settings, Database,
+  Loader2, DollarSign, BarChart3, AlertTriangle, CheckCircle2,
+  School, Receipt, Zap, ChevronRight, RefreshCw,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
+import { createLogger } from '@/lib/logger';
+import { cn } from '@/lib/utils';
 
-type OperatorAuthStep = 'email' | 'otp' | 'success';
+const log = createLogger('OperatorConsole');
 
-export default function OperatorLoginPage() {
+type Tab = 'overview' | 'revenue' | 'expenses' | 'schools';
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+function fmt(n: number, currency = 'USD') {
+  return currency === 'INR'
+    ? `₹${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+    : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+function pct(n: number) { return `${(n * 100).toFixed(1)}%`; }
+
+function StatCard({ icon, label, value, sub, color = 'text-[#10B981]' }: { icon: React.ReactNode; label: string; value: React.ReactNode; sub?: string; color?: string }) {
+  return (
+    <div className="rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-sm flex flex-col min-h-[140px] hover:shadow-md transition-all">
+      <div className={`flex items-center gap-3 mb-4 ${color}`}>
+        <div className="p-2 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-100 dark:border-neutral-800">
+          {icon}
+        </div>
+        <h3 className="font-bold text-xs uppercase tracking-wider text-neutral-500">{label}</h3>
+      </div>
+      <div className="text-3xl font-black text-[#0F172A] dark:text-white">{value}</div>
+      {sub && <p className="text-[10px] font-bold text-neutral-400 mt-2 uppercase tracking-tight">{sub}</p>}
+    </div>
+  );
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export default function OperatorPage() {
   const router = useRouter();
-  const [step, setStep] = useState<OperatorAuthStep>('email');
-  const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<Tab>('overview');
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [resendCooldown, setResendCooldown] = useState(0);
 
-  // Handle resend cooldown timer
-  useEffect(() => {
-    if (resendCooldown > 0) {
-      const timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [resendCooldown]);
+  // Data slices
+  const [overview, setOverview] = useState<any>(null);
+  const [apiCosts, setApiCosts] = useState<any>(null);
+  const [schools, setSchools] = useState<any[]>([]);
 
-  // Step 1: Request OTP via email
-  const handleRequestOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
+  const headers = (): HeadersInit => {
+    const tok = sessionStorage.getItem('operatorBearerToken');
+    const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
+    if (tok) h['Authorization'] = `Bearer ${tok}`;
+    return h;
+  };
 
-    if (!email.trim()) {
-      setError('Email address is required');
-      setLoading(false);
-      return;
-    }
-
+  const load = async () => {
+    setLoading(true); setError(null);
     try {
-      const response = await fetch('/api/operator/auth/request-otp', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Operator-Header': 'true'
-        },
-        body: JSON.stringify({ email }),
-        cache: 'no-store',
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to request OTP');
+      const [ovRes, costsRes, schoolsRes] = await Promise.all([
+        fetch('/api/operator/overview', { headers: headers(), cache: 'no-store' }),
+        fetch('/api/operator/api-costs', { headers: headers(), cache: 'no-store' }),
+        fetch('/api/operator/schools', { headers: headers(), cache: 'no-store' }),
+      ]);
+      if (ovRes.status === 401) { router.push('/operator'); return; }
+      if (ovRes.ok) setOverview(await ovRes.json());
+      if (costsRes.ok) setApiCosts(await costsRes.json());
+      if (schoolsRes.ok) {
+        const d = await schoolsRes.json();
+        setSchools(d.schools ?? []);
       }
-
-      setStep('otp');
-      setResendCooldown(60);
-      toast.success('OTP sent to your email', {
-        description: `Check ${email} for the 6-digit code`,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to request OTP';
-      setError(message);
-      toast.error('OTP request failed', { description: message });
+    } catch (e: any) {
+      setError(e.message || 'Failed to load operator data');
     } finally {
       setLoading(false);
     }
   };
 
-  // Step 2: Verify OTP code
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
+  useEffect(() => { load(); }, []);
 
-    if (!otp.trim() || otp.length !== 6) {
-      setError('Please enter a valid 6-digit code');
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/operator/auth/verify-otp', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Operator-Header': 'true'
-        },
-        body: JSON.stringify({ email, otp_code: otp }),
-        cache: 'no-store',
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Invalid OTP code');
-      }
-
-      // Session cookie is automatically set by the API
-      setStep('success');
-      toast.success('Successfully authenticated', {
-        description: 'Redirecting to admin panel...',
-      });
-
-      // Redirect after a brief delay
-      setTimeout(() => {
-        router.push('/admin');
-      }, 1500);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to verify OTP';
-      setError(message);
-      toast.error('Verification failed', { description: message });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'overview', label: 'Overview', icon: <BarChart3 className="size-4" /> },
+    { id: 'revenue', label: 'Revenue', icon: <TrendingUp className="size-4" /> },
+    { id: 'expenses', label: 'API Costs', icon: <DollarSign className="size-4" /> },
+    { id: 'schools', label: 'Enterprise', icon: <School className="size-4" /> },
+  ];
 
   return (
-    <div className="min-h-[100dvh] flex flex-col items-center justify-center px-4 py-8 bg-gradient-to-br from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900 relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-primary/5 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-emerald-500/5 rounded-full blur-3xl" />
-      </div>
+    <div className="flex w-full min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
+      <EnterpriseSidebar variant="operator" onSignOut={async () => {
+        try { await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } }); } catch {}
+        router.push('/operator');
+      }} />
 
-      {/* Back button */}
-      <Link
-        href="/"
-        className="absolute top-4 left-4 md:top-6 md:left-6 z-20 flex items-center gap-2 px-3 py-2 md:px-4 md:py-2.5 rounded-xl bg-white/80 dark:bg-neutral-800/80 backdrop-blur border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 hover:border-neutral-300 dark:hover:border-neutral-600 transition-all"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        <span className="text-xs md:text-sm font-semibold">Back</span>
-      </Link>
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-7xl mx-auto p-6 pt-10">
 
-      {/* Main content */}
-      <div className="w-full max-w-md relative z-10">
-        {step === 'success' ? (
-          // Success Screen
-          <div className="text-center space-y-6 animate-in fade-in duration-300">
-            <div className="flex justify-center">
-              <div className="rounded-full bg-emerald-100 dark:bg-emerald-900/30 p-3 animate-pulse">
-                <CheckCircle2 className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
-              </div>
-            </div>
+          {/* Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
             <div>
-              <h1 className="text-3xl font-bold text-neutral-900 dark:text-white mb-2">
-                Authentication Complete
-              </h1>
-              <p className="text-neutral-600 dark:text-neutral-400">
-                Welcome back! Redirecting to the admin panel...
-              </p>
+              <h1 className="text-3xl font-black tracking-tight text-[#0F172A] dark:text-white uppercase">Operator Console</h1>
+              <p className="text-sm text-neutral-500 mt-1">Platform metrics, revenue, API costs, and enterprise management.</p>
             </div>
-            <div className="flex justify-center">
-              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+            <div className="flex items-center gap-3">
+              {error && <span className="text-sm text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-xl font-medium">{error}</span>}
+              <button 
+                onClick={load} 
+                disabled={loading}
+                className="flex items-center gap-2 bg-[#10B981] text-white px-6 py-2.5 rounded-xl font-bold hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20 disabled:opacity-50"
+              >
+                <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
+                {loading ? 'Updating…' : 'Refresh Data'}
+              </button>
             </div>
           </div>
-        ) : (
-          // Email or OTP input form
-          <div className="space-y-6 animate-in fade-in duration-300">
-            {/* Header */}
-            <div className="text-center space-y-2">
-              <div className="flex justify-center mb-4">
-                <div className="rounded-2xl bg-primary/10 p-3">
-                  <Lock className="w-6 h-6 text-primary" />
+
+          {/* Tab bar */}
+          <div className="flex gap-1 mb-10 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-1.5 w-fit shadow-sm">
+            {tabs.map(t => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${tab === t.id ? 'bg-[#0F172A] text-white shadow-lg shadow-blue-900/20' : 'text-neutral-500 hover:text-[#0F172A] hover:bg-neutral-50 dark:hover:bg-neutral-900'}`}>
+                {t.icon}{t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── TAB: OVERVIEW ─────────────────────────────────────── */}
+          {tab === 'overview' && (
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatCard icon={<Users className="size-5" />} label="Total Users" color="text-primary"
+                  value={loading ? <Loader2 className="size-5 animate-spin opacity-40" /> : (overview?.users?.total_users ?? '—')}
+                  sub={overview?.users ? `${overview.users.new_users_today} new today · ${overview.users.active_users_week} active this week` : undefined} />
+                <StatCard icon={<Activity className="size-5" />} label="Active Subscriptions" color="text-blue-500"
+                  value={loading ? <Loader2 className="size-5 animate-spin opacity-40" /> : (overview?.subscriptions?.active_subscriptions ?? '—')}
+                  sub={overview?.subscriptions ? `${overview.subscriptions.churned_users_month} churned this month` : undefined} />
+                <StatCard icon={<CreditCard className="size-5" />} label="Revenue (30d)" color="text-emerald-500"
+                  value={loading ? <Loader2 className="size-5 animate-spin opacity-40" /> : (overview?.subscriptions ? fmt(overview.subscriptions.revenue_rolling_30d, 'INR') : '—')}
+                  sub={overview?.subscriptions ? `${fmt(overview.subscriptions.revenue_monthly, 'INR')} this month` : undefined} />
+                <StatCard icon={<DollarSign className="size-5" />} label="API Cost (30d)" color="text-teal-500"
+                  value={loading ? <Loader2 className="size-5 animate-spin opacity-40" /> : (apiCosts ? fmt(apiCosts.total_cost_usd_30d ?? 0) : '—')}
+                  sub={apiCosts ? `Net margin ≈ ${pct(apiCosts.estimated_margin_30d ?? 0)}` : undefined} />
+              </div>
+
+              {/* Promo stats */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between bg-neutral-50/50 dark:bg-neutral-900/50">
+                    <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Promo Code Performance</h3>
+                    <Link href="/operator/promo" className="text-[10px] font-black uppercase tracking-widest text-[#10B981] hover:underline flex items-center gap-1">Detailed View <ChevronRight className="size-3" /></Link>
+                  </div>
+                  {loading ? (
+                    <div className="p-16 text-center"><Loader2 className="size-6 animate-spin mx-auto text-[#10B981] mb-2" /><p className="text-sm text-neutral-400">Loading data...</p></div>
+                  ) : overview?.promo_codes ? (
+                    <div className="p-8 grid grid-cols-2 md:grid-cols-4 gap-8">
+                      {[
+                        ['Active Codes', `${overview.promo_codes.active_promo_codes}/${overview.promo_codes.total_promo_codes}`],
+                        ['Total Redemptions', overview.promo_codes.total_redemptions],
+                        ['Credits Granted', Math.round(overview.promo_codes.total_credits_granted)],
+                        ['Avg Utilization', pct(overview.promo_codes.average_redemption_rate)],
+                      ].map(([l, v]) => (
+                        <div key={String(l)}>
+                          <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-1">{l}</p>
+                          <p className="text-2xl font-black text-[#0F172A] dark:text-white">{v}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <div className="p-16 text-center text-sm text-neutral-400">No promotion data available</div>}
+                </div>
+
+                <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-8 shadow-sm">
+                  <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white mb-6">System Health</h3>
+                  {overview?.users && overview?.subscriptions ? (
+                    <div className="space-y-4">
+                      {[
+                        ['Active Users (7d)', overview.users.active_users_week],
+                        ['Successful Payments', overview.payments?.successful_payments ?? '—'],
+                        ['Payment Success Rate', overview.payments ? pct(overview.payments.success_rate) : '—'],
+                      ].map(([l, v]) => (
+                        <div key={String(l)} className="flex items-center justify-between pb-3 border-b border-neutral-50 dark:border-neutral-900 last:border-0">
+                          <span className="text-sm font-medium text-neutral-500">{l}</span>
+                          <span className="text-sm font-black text-[#0F172A] dark:text-white">{v}</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between pt-4">
+                        <span className="text-xs font-bold text-neutral-400 uppercase tracking-widest">Global Status</span>
+                        <div className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase flex items-center gap-1.5 border border-emerald-100">
+                          <div className="size-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                          Operational
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-neutral-400 text-center py-12 italic">
+                      {loading ? <Loader2 className="size-5 animate-spin mx-auto text-[#10B981]" /> : 'No real-time data'}
+                    </div>
+                  )}
                 </div>
               </div>
-              <h1 className="text-2xl md:text-3xl font-bold text-neutral-900 dark:text-white">
-                {step === 'email' ? 'Operator Login' : 'Verify Code'}
-              </h1>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">
-                {step === 'email'
-                  ? 'Enter your email to receive a one-time authentication code'
-                  : `We sent a 6-digit code to ${email}`}
-              </p>
             </div>
+          )}
 
-            {/* Form Card */}
-            <div className="rounded-2xl border border-neutral-200/60 dark:border-neutral-700/60 bg-white dark:bg-neutral-800 p-6 md:p-8 shadow-sm">
-              {/* Error message */}
-              {error && (
-                <div className="mb-6 flex items-start gap-3 rounded-lg bg-red-50 dark:bg-red-950/30 p-4">
-                  <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-red-900 dark:text-red-300">{error}</p>
+          {/* ── TAB: REVENUE ─────────────────────────────────────── */}
+          {tab === 'revenue' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard icon={<CreditCard className="size-5" />} label="Total Revenue (INR)" color="text-emerald-500"
+                  value={loading ? '…' : (overview?.payments ? fmt(overview.payments.total_revenue_inr ?? overview.payments.total_revenue, 'INR') : '—')}
+                  sub="From Easebuzz (India)" />
+                <StatCard icon={<DollarSign className="size-5" />} label="Total Revenue (USD)" color="text-blue-500"
+                  value={loading ? '…' : (overview?.payments ? fmt(overview.payments.total_revenue_usd ?? 0) : '—')}
+                  sub="From Stripe (international)" />
+                <StatCard icon={<TrendingUp className="size-5" />} label="Payment Success Rate" color="text-purple-500"
+                  value={loading ? '…' : (overview?.payments ? pct(overview.payments.success_rate) : '—')}
+                  sub={overview?.payments ? `${overview.payments.successful_payments} of ${overview.payments.total_payments} payments` : undefined} />
+              </div>
+
+              {/* Per-user revenue table */}
+              <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between bg-neutral-50/50 dark:bg-neutral-900/50">
+                  <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">User Revenue Breakdown</h3>
+                  <Link href="/operator/users" className="text-[10px] font-black uppercase tracking-widest text-[#10B981] hover:underline flex items-center gap-1">All Users <ChevronRight className="size-3" /></Link>
+                </div>
+                {loading ? (
+                  <div className="p-16 text-center"><Loader2 className="size-6 animate-spin opacity-40 mx-auto text-[#10B981]" /></div>
+                ) : overview?.top_paying_users?.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-[#F8FAFC] dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800">
+                        <tr>{['Email','Plan','Credits Used','Revenue Paid','API Cost','Margin'].map(h => <th key={h} className="px-6 py-4 font-black text-neutral-400 uppercase text-[10px] tracking-widest">{h}</th>)}</tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800">
+                        {(overview.top_paying_users as any[]).map((u: any, i: number) => (
+                          <tr key={i} className="hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors">
+                            <td className="px-6 py-4 font-bold text-[#0F172A] dark:text-white">{u.email ?? u.account_id}</td>
+                            <td className="px-6 py-4"><span className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider">{u.plan ?? 'free'}</span></td>
+                            <td className="px-6 py-4 font-mono text-xs">{u.credits_used ?? 0}</td>
+                            <td className="px-6 py-4 text-emerald-600 font-black">{fmt(u.revenue_inr ?? 0, 'INR')}</td>
+                            <td className="px-6 py-4 text-rose-500 font-medium">{fmt(u.api_cost_usd ?? 0)}</td>
+                            <td className="px-6 py-4 font-black text-[#0F172A] dark:text-white">{u.margin_pct !== undefined ? pct(u.margin_pct) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
+                ) : (
+                  <div className="p-16 text-center text-sm text-neutral-400 italic">No revenue data captured yet</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── TAB: API COSTS ───────────────────────────────────── */}
+          {tab === 'expenses' && (
+            <div className="space-y-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <StatCard icon={<DollarSign className="size-5" />} label="Total API Cost (30d)" color="text-rose-600"
+                  value={loading ? '…' : (apiCosts ? fmt(apiCosts.total_cost_usd_30d ?? 0) : '—')}
+                  sub="Combined Infrastructure Spend" />
+                <StatCard icon={<Zap className="size-5" />} label="Llm + Images" color="text-blue-600"
+                  value={loading ? '…' : (apiCosts ? fmt(apiCosts.openrouter_cost_usd ?? 0) : '—')}
+                  sub="Reasoning & Visual Assets" />
+                <StatCard icon={<Activity className="size-5" />} label="Voice + Audio" color="text-purple-600"
+                  value={loading ? '…' : (apiCosts ? fmt((apiCosts.groq_cost_usd ?? 0) + (apiCosts.tts_cost_usd ?? 0)) : '—')}
+                  sub="Processing & Speech Synthesis" />
+              </div>
+
+              {/* Cost by component */}
+              <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50">
+                  <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Infrastructure Breakdown</h3>
+                  <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mt-1">Token usage × Provider pricing rates</p>
+                </div>
+                {loading ? (
+                  <div className="p-16 text-center"><Loader2 className="size-6 animate-spin opacity-40 mx-auto text-[#10B981]" /></div>
+                ) : apiCosts?.by_component?.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-[#F8FAFC] dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800">
+                        <tr>{['Component','Provider','Model','Requests','I/O Tokens','Cost (USD)'].map(h => (
+                          <th key={h} className="px-6 py-4 font-black text-neutral-400 uppercase text-[10px] tracking-widest">{h}</th>
+                        ))}</tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800">
+                        {(apiCosts.by_component as any[]).map((c: any, i: number) => (
+                          <tr key={i} className="hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors">
+                            <td className="px-6 py-4 font-bold text-[#0F172A] dark:text-white capitalize">{c.component}</td>
+                            <td className="px-6 py-4 text-neutral-500 font-medium">{c.provider}</td>
+                            <td className="px-6 py-4 text-[10px] text-neutral-400 font-mono tracking-tighter">{c.model_id}</td>
+                            <td className="px-6 py-4 font-mono text-xs">{c.request_count?.toLocaleString()}</td>
+                            <td className="px-6 py-4 text-[11px] text-neutral-500">
+                              <span className="text-[#0F172A] dark:text-white font-bold">{c.input_tokens?.toLocaleString()}</span> / {c.output_tokens?.toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4 font-black text-rose-500">{fmt(c.cost_usd ?? 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-16 text-center text-sm text-neutral-400 italic">
+                    {loading ? '' : 'Waiting for system utilization data...'}
+                  </div>
+                )}
+              </div>
+
+              {/* Per-user cost table */}
+              <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50">
+                  <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Resource Consumption per User</h3>
+                </div>
+                {apiCosts?.per_user?.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-[#F8FAFC] dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800">
+                        <tr>{['User','Plan','Revenue','API Cost','Ratio','Status'].map(h => (
+                          <th key={h} className="px-6 py-4 font-black text-neutral-400 uppercase text-[10px] tracking-widest">{h}</th>
+                        ))}</tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800">
+                        {(apiCosts.per_user as any[]).map((u: any, i: number) => {
+                          const ratio = u.revenue_inr > 0 ? (u.api_cost_usd * 84) / u.revenue_inr : 0;
+                          const risky = ratio > 0.7;
+                          return (
+                            <tr key={i} className="hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors">
+                              <td className="px-6 py-4 font-bold text-[#0F172A] dark:text-white">{u.email ?? u.account_id}</td>
+                              <td className="px-6 py-4"><span className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider">{u.plan ?? 'free'}</span></td>
+                              <td className="px-6 py-4 text-emerald-600 font-black">{fmt(u.revenue_inr ?? 0, 'INR')}</td>
+                              <td className="px-6 py-4 text-rose-500 font-medium">{fmt(u.api_cost_usd ?? 0)}</td>
+                              <td className="px-6 py-4 font-black">{ratio > 0 ? `${(ratio * 100).toFixed(0)}%` : '—'}</td>
+                              <td className="px-6 py-4">
+                                {risky
+                                  ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 text-[10px] font-black uppercase border border-rose-100"><AlertTriangle className="size-3" /> High Spend</span>
+                                  : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase border border-emerald-100"><CheckCircle2 className="size-3" /> Healthy</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-16 text-center text-sm text-neutral-400 italic">Analytical data pending usage patterns</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── TAB: ENTERPRISE SCHOOLS ─────────────────────────── */}
+          {tab === 'schools' && (
+            <div className="space-y-8">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Institution Registry</h2>
+                <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black uppercase border border-blue-100">
+                  {schools.length} total
+                </span>
+              </div>
+
+              {loading ? (
+                <div className="flex items-center justify-center py-32"><Loader2 className="size-8 animate-spin text-[#10B981]" /></div>
+              ) : schools.length === 0 ? (
+                <div className="rounded-[3rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-20 text-center shadow-sm">
+                  <div className="w-20 h-20 rounded-3xl bg-neutral-50 dark:bg-neutral-900 flex items-center justify-center mx-auto mb-6 border border-neutral-100 dark:border-neutral-800">
+                    <School className="size-8 text-neutral-300" />
+                  </div>
+                  <h3 className="text-lg font-bold text-[#0F172A] dark:text-white mb-2">No Active Partnerships</h3>
+                  <p className="text-sm text-neutral-400 max-w-sm mx-auto">Schools appear here once they integrate with the enterprise API or submit the contact form.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6">
+                  {schools.map((school: any) => (
+                    <div key={school.id} className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-8 shadow-sm hover:shadow-md transition-all">
+                      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8">
+                        <div className="flex items-center gap-5">
+                          <div className="h-14 w-14 rounded-2xl bg-[#0F172A] flex items-center justify-center shadow-lg shadow-blue-900/20 shrink-0">
+                            <School className="size-7 text-white" />
+                          </div>
+                          <div>
+                            <h3 className="font-black text-xl text-[#0F172A] dark:text-white leading-tight">{school.name}</h3>
+                            <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mt-1">{school.operator_email}</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:flex lg:items-center gap-8">
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Seats</span>
+                            <span className="text-lg font-black text-[#0F172A] dark:text-white">{school.member_count}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Credits</span>
+                            <span className="text-lg font-black text-[#10B981]">{school.credit_pool?.toFixed(0)}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Plan</span>
+                            <span className="inline-flex px-2.5 py-1 rounded-lg bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 text-[10px] font-black uppercase tracking-wider">{school.plan ?? 'custom'}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Payment</span>
+                            {school.latest_invoice ? (
+                              <span className={cn(
+                                "inline-flex px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider",
+                                school.latest_invoice.status === 'paid' ? 'bg-emerald-50 text-emerald-600' : 
+                                school.latest_invoice.status === 'overdue' ? 'bg-rose-50 text-rose-600' : 'bg-teal-50 text-teal-600'
+                              )}>
+                                {school.latest_invoice.status}
+                              </span>
+                            ) : <span className="text-[10px] font-bold text-neutral-300 italic">No Data</span>}
+                          </div>
+                        </div>
+
+                        <Link href={`/operator/schools/${school.id}`}
+                          className="flex items-center justify-center gap-2 rounded-xl bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 px-6 py-3 text-sm font-black text-[#0F172A] dark:text-white hover:bg-[#0F172A] hover:text-white transition-all group shrink-0">
+                          Configure <ChevronRight className="size-4 group-hover:translate-x-0.5 transition-transform" />
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-
-              {step === 'email' ? (
-                // Email input form
-                <form onSubmit={handleRequestOtp} className="space-y-5">
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="email"
-                      className="block text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-2"
-                    >
-                      <Mail className="h-4 w-4" />
-                      Email Address
-                    </label>
-                    <input
-                      id="email"
-                      type="email"
-                      placeholder="operator@company.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      disabled={loading}
-                      className="w-full h-11 px-4 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 text-neutral-900 dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full h-11 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition-all flex items-center justify-center gap-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Sending code...
-                      </>
-                    ) : (
-                      'Send Authentication Code'
-                    )}
-                  </button>
-                </form>
-              ) : (
-                // OTP input form
-                <form onSubmit={handleVerifyOtp} className="space-y-5">
-                  <div className="space-y-2">
-                    <label
-                      htmlFor="otp"
-                      className="block text-sm font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-2"
-                    >
-                      <Lock className="h-4 w-4" />
-                      Verification Code
-                    </label>
-                    <input
-                      id="otp"
-                      type="text"
-                      placeholder="000000"
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      disabled={loading}
-                      maxLength={6}
-                      className="w-full h-11 px-4 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-700 text-neutral-900 dark:text-white placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50 text-center text-lg font-mono tracking-widest"
-                    />
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                      Check your email for the 6-digit code
-                    </p>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading || otp.length !== 6}
-                    className="w-full h-11 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold transition-all flex items-center justify-center gap-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Verifying...
-                      </>
-                    ) : (
-                      'Verify & Login'
-                    )}
-                  </button>
-
-                  {/* Resend button */}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setResendCooldown(60);
-                      try {
-                        const response = await fetch('/api/operator/auth/request-otp', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ email }),
-                          cache: 'no-store',
-                        });
-
-                        if (!response.ok) {
-                          throw new Error('Failed to resend code');
-                        }
-
-                        toast.success('Code resent', {
-                          description: `New code sent to ${email}`,
-                        });
-                      } catch (err) {
-                        toast.error('Failed to resend code');
-                      }
-                    }}
-                    disabled={resendCooldown > 0 || loading}
-                    className="w-full text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {resendCooldown > 0
-                      ? `Resend code in ${resendCooldown}s`
-                      : "Didn't receive the code? Resend"}
-                  </button>
-
-                  {/* Back to email */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStep('email');
-                      setOtp('');
-                      setError(null);
-                      setResendCooldown(0);
-                    }}
-                    disabled={loading}
-                    className="w-full text-sm text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 disabled:opacity-50 transition-colors"
-                  >
-                    Use a different email address
-                  </button>
-                </form>
-              )}
             </div>
+          )}
 
-            {/* Footer */}
-            <p className="text-center text-xs text-neutral-500 dark:text-neutral-400">
-              By logging in, you agree to our{' '}
-              <Link href="#" className="underline hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors">
-                Terms of Service
-              </Link>
-              {' '}and{' '}
-              <Link href="#" className="underline hover:text-neutral-700 dark:hover:text-neutral-300 transition-colors">
-                Privacy Policy
-              </Link>
-            </p>
-          </div>
-        )}
-      </div>
+        </div>
+      </main>
     </div>
   );
 }
