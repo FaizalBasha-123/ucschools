@@ -50,7 +50,7 @@ export default function OperatorPromoPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/operator/promo-codes', { headers: headers(), cache: 'no-store' });
-      if (res.status === 401) { router.push('/operator'); return; }
+      if (res.status === 401) { router.push('/operator/login'); return; }
       if (!res.ok) throw new Error('Failed to fetch promo codes');
       const data = await res.json();
       setPromoCodes(data.promo_codes || []);
@@ -102,7 +102,7 @@ export default function OperatorPromoPage() {
 
   return (
     <div className="flex w-full min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
-      <EnterpriseSidebar variant="operator" onSignOut={() => router.push('/operator')} />
+      <EnterpriseSidebar variant="operator" onSignOut={() => router.push('/operator/login')} />
 
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-6 pt-10">

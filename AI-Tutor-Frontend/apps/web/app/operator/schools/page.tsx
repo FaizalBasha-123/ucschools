@@ -72,7 +72,7 @@ export default function OperatorSchoolsPage() {
     setError(null);
     try {
       const res = await fetch('/api/operator/schools', { cache: 'no-store' });
-      if (res.status === 401) { router.push('/operator'); return; }
+      if (res.status === 401) { router.push('/operator/login'); return; }
       if (!res.ok) throw new Error('Failed to fetch schools');
       const data = await res.json();
       if (data.success && data.schools) setSchools(data.schools);
@@ -212,7 +212,7 @@ export default function OperatorSchoolsPage() {
         variant="operator"
         onSignOut={async () => {
           try { await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } }); } catch (e) {}
-          router.push('/operator');
+          router.push('/operator/login');
         }}
       />
 

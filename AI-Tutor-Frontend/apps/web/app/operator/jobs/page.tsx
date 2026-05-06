@@ -37,7 +37,7 @@ export default function OperatorJobsPage() {
       const res = await fetch('/api/operator/jobs', { cache: 'no-store' });
       
       if (res.status === 401) {
-        router.push('/operator');
+        router.push('/operator/login');
         return;
       }
       
@@ -99,7 +99,7 @@ export default function OperatorJobsPage() {
           try {
             await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } });
           } catch (e) {}
-          router.push('/operator');
+          router.push('/operator/login');
         }} 
       />
       

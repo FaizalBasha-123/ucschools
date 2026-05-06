@@ -40,7 +40,7 @@ export default function OperatorHealthPage() {
       const res = await fetch('/api/operator/health', { cache: 'no-store' });
       
       if (res.status === 401) {
-        router.push('/operator');
+        router.push('/operator/login');
         return;
       }
       
@@ -76,7 +76,7 @@ export default function OperatorHealthPage() {
           } catch (e) {
             log.error('Failed to logout operator', e);
           }
-          router.push('/operator');
+          router.push('/operator/login');
         }} 
       />
       

@@ -28,7 +28,7 @@ export default function OperatorSettingsPage() {
         const res = await fetch('/api/operator/settings', { cache: 'no-store' });
         
         if (res.status === 401) {
-          router.push('/operator');
+          router.push('/operator/login');
           return;
         }
         
@@ -62,7 +62,7 @@ export default function OperatorSettingsPage() {
           } catch (e) {
             log.error('Failed to logout operator', e);
           }
-          router.push('/operator');
+          router.push('/operator/login');
         }} 
       />
       

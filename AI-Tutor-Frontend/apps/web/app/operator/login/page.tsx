@@ -105,7 +105,7 @@ export default function OperatorLoginPage() {
 
       // Redirect after a brief delay
       setTimeout(() => {
-        router.push('/operator');
+        router.push('/operator/login');
       }, 1500);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to verify OTP';
