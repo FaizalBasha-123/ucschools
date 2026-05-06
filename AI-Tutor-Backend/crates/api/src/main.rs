@@ -294,7 +294,6 @@ async fn main() {
         .await
         .expect("startup readiness checks");
 
-    tokio::spawn(run_cleanup_loop(cleanup_root, cleanup_cfg));
     let asset_store = Arc::new(LocalFileAssetStore::new(
         storage.root_dir(),
         &base_url,
@@ -317,6 +316,10 @@ async fn main() {
         telemetry,
         base_url,
     ));
+    
+    let cleanup_service = Arc::clone(&service) as Arc<dyn LessonAppService>;
+    tokio::spawn(run_cleanup_loop(cleanup_root, cleanup_cfg, cleanup_service));
+    
     let billing_service = Arc::clone(&service);
     tokio::spawn(async move {
         loop {

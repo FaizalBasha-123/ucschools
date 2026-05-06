@@ -235,9 +235,6 @@ function HomePage() {
         ]);
         
         if (!ok) {
-          // If 401 was returned but we preserved local session in verifyAuthSession, ok is still true.
-          // If it really failed (e.g. explicitly deleted on server), we clear.
-          // Note: with my earlier fix, verifyAuthSession returns true on 401.
           setIsAuthenticated(true);
           setAccountEmail(session?.email || null);
         } else {

@@ -3,11 +3,15 @@ import { createLogger } from '@/lib/logger';
 const log = createLogger('AuthSession');
 
 const SESSION_TOKEN_KEY = 'aiTutorSessionToken';
+const REFRESH_TOKEN_KEY = 'aiTutorRefreshToken';
+const TOKEN_EXPIRES_AT_KEY = 'aiTutorTokenExpiresAt';
 const ACCOUNT_EMAIL_KEY = 'aiTutorAccountEmail';
 const ACCOUNT_ID_KEY = 'aiTutorAccountId';
 
 export type AuthSession = {
   token?: string;
+  refreshToken?: string;
+  expiresIn?: number;
   accountId?: string;
   email?: string;
 };
@@ -31,8 +35,16 @@ export function getAuthSession(): AuthSession | null {
   const token = getSessionToken();
   if (!token) return null;
   try {
+    const expiresStr = localStorage.getItem(TOKEN_EXPIRES_AT_KEY);
+    let expiresIn: number | undefined;
+    if (expiresStr) {
+      const expiresAt = parseInt(expiresStr, 10);
+      expiresIn = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+    }
     return {
       token,
+      refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || undefined,
+      expiresIn,
       accountId: localStorage.getItem(ACCOUNT_ID_KEY) || undefined,
       email: localStorage.getItem(ACCOUNT_EMAIL_KEY) || undefined,
     };
@@ -49,6 +61,20 @@ export function setAuthSession(session: AuthSession): void {
     } else {
       localStorage.removeItem(SESSION_TOKEN_KEY);
     }
+
+    if (session.refreshToken) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
+    } else {
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
+    }
+
+    if (session.expiresIn) {
+      const expiresAt = Date.now() + session.expiresIn * 1000;
+      localStorage.setItem(TOKEN_EXPIRES_AT_KEY, expiresAt.toString());
+    } else {
+      localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
+    }
+
     if (session.accountId) localStorage.setItem(ACCOUNT_ID_KEY, session.accountId);
     if (session.email) localStorage.setItem(ACCOUNT_EMAIL_KEY, session.email);
   } catch {
@@ -60,6 +86,8 @@ export function clearAuthSession(): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.removeItem(SESSION_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRES_AT_KEY);
     localStorage.removeItem(ACCOUNT_ID_KEY);
     localStorage.removeItem(ACCOUNT_EMAIL_KEY);
   } catch {
@@ -87,23 +115,104 @@ export function authHeaders(extra?: HeadersInit): HeadersInit {
   return headers;
 }
 
+let isRefreshing = false;
+let refreshPromise: Promise<boolean> | null = null;
+
+async function executeTokenRefresh(): Promise<boolean> {
+  const refreshToken = typeof window !== 'undefined' ? localStorage.getItem(REFRESH_TOKEN_KEY) : null;
+  if (!refreshToken) return false;
+
+  try {
+    const res = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    if (!res.ok) {
+      log.warn('Failed to refresh token, clearing session');
+      clearAuthSession();
+      return false;
+    }
+
+    const data = await res.json();
+    if (data.access_token) {
+      log.info('Successfully refreshed access token');
+      setAuthSession({
+        token: data.access_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in,
+        accountId: typeof window !== 'undefined' ? localStorage.getItem(ACCOUNT_ID_KEY) || undefined : undefined,
+        email: typeof window !== 'undefined' ? localStorage.getItem(ACCOUNT_EMAIL_KEY) || undefined : undefined,
+      });
+      return true;
+    }
+    return false;
+  } catch (err) {
+    log.error('Network error during token refresh', err);
+    return false;
+  }
+}
+
 /**
  * Enterprise-grade fetch utility that uses Next.js proxying by default.
  * Direct backend bypass is disabled to avoid CORS issues when the 
  * frontend is on a different domain than the backend.
+ * Now includes silent token refresh logic.
  */
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  // Always use local path to trigger Next.js proxy (API routes)
-  // This avoids CORS issues because the browser talks to Vercel, 
-  // and Vercel talks to Render (server-to-server).
   const url = path.startsWith('/') ? path : `/${path}`;
 
-  const mergedOptions: RequestInit = {
+  // Check expiration proactively if possible
+  if (typeof window !== 'undefined') {
+    const expiresStr = localStorage.getItem(TOKEN_EXPIRES_AT_KEY);
+    if (expiresStr) {
+      const expiresAt = parseInt(expiresStr, 10);
+      // Refresh if expiring within the next 30 seconds
+      if (Date.now() + 30000 > expiresAt) {
+        if (!isRefreshing) {
+          isRefreshing = true;
+          refreshPromise = executeTokenRefresh().finally(() => {
+            isRefreshing = false;
+            refreshPromise = null;
+          });
+        }
+        if (refreshPromise) {
+          await refreshPromise;
+        }
+      }
+    }
+  }
+
+  let mergedOptions: RequestInit = {
     ...options,
     headers: authHeaders(options.headers),
   };
 
-  return fetch(url, mergedOptions);
+  let response = await fetch(url, mergedOptions);
+
+  // If we still got a 401, it might have expired exactly during the request
+  if (response.status === 401 && typeof window !== 'undefined' && localStorage.getItem(REFRESH_TOKEN_KEY)) {
+    log.warn('Got 401 on API call, attempting silent refresh');
+    if (!isRefreshing) {
+      isRefreshing = true;
+      refreshPromise = executeTokenRefresh().finally(() => {
+        isRefreshing = false;
+        refreshPromise = null;
+      });
+    }
+    const success = await refreshPromise;
+    if (success) {
+      // Retry request with new token
+      mergedOptions = {
+        ...options,
+        headers: authHeaders(options.headers),
+      };
+      response = await fetch(url, mergedOptions);
+    }
+  }
+
+  return response;
 }
 
 export async function verifyAuthSession(): Promise<boolean> {
@@ -119,13 +228,13 @@ export async function verifyAuthSession(): Promise<boolean> {
     } as any);
 
     if (response.status === 401) {
-      log.warn('Session might be expired (401), but preserving local session as per user request');
-      return true;
+      log.warn('Session is definitively expired (401) and refresh failed. User must log in again.');
+      clearAuthSession();
+      return false;
     }
     
     // If the server is down (5xx) or we have a network error, 
     // we assume the session is still valid locally to avoid frustrating the user.
-    // Enterprises call this "Offline-first" or "Stale-While-Revalidate" auth.
     if (!response.ok && response.status >= 500) {
       log.warn(`Backend error (${response.status}), preserving local session`);
       return true;
@@ -133,8 +242,6 @@ export async function verifyAuthSession(): Promise<boolean> {
 
     return response.ok;
   } catch (err) {
-    // If it's a network error (failed to fetch), don't sign the user out.
-    // Only return false if we are sure the token is invalid.
     log.error('Network error during auth verification, preserving local session');
     return true; 
   }

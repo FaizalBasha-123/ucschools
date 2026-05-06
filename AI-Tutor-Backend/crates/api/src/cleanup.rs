@@ -56,19 +56,34 @@ struct CleanupStats {
     deleted_dirs: usize,
 }
 
-pub async fn run_cleanup_loop(storage_root: PathBuf, cfg: CleanupConfig) {
+pub async fn run_cleanup_loop(
+    storage_root: PathBuf,
+    cfg: CleanupConfig,
+    service: std::sync::Arc<dyn ai_tutor_api::app::LessonAppService>,
+) {
     info!(
         storage_root = %storage_root.display(),
         asset_ttl_hours = cfg.asset_ttl_hours,
         job_ttl_hours = cfg.job_ttl_hours,
         temp_ttl_minutes = cfg.temp_ttl_minutes,
-        "storage cleanup scheduler enabled"
+        "storage and database cleanup scheduler enabled"
     );
 
     loop {
         if let Err(err) = run_cleanup_once(storage_root.clone(), cfg).await {
             error!(error = %err, "storage cleanup run failed");
         }
+        
+        match service.cleanup_expired_refresh_tokens().await {
+            Ok(count) if count > 0 => {
+                info!(deleted_refresh_tokens = count, "database cleanup run finished");
+            }
+            Ok(_) => {} // No tokens expired
+            Err(err) => {
+                error!(error = %err, "database cleanup run failed");
+            }
+        }
+        
         tokio::time::sleep(cfg.interval()).await;
     }
 }

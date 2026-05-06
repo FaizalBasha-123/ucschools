@@ -45,6 +45,74 @@ use crate::repositories::{
 
 const STALE_JOB_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
+use std::sync::OnceLock;
+
+#[derive(Clone)]
+pub enum PgPool {
+    Tls(r2d2::Pool<r2d2_postgres::PostgresConnectionManager<postgres_native_tls::MakeTlsConnector>>),
+    NoTls(r2d2::Pool<r2d2_postgres::PostgresConnectionManager<postgres::NoTls>>),
+}
+
+pub enum PooledPgConnection {
+    Tls(r2d2::PooledConnection<r2d2_postgres::PostgresConnectionManager<postgres_native_tls::MakeTlsConnector>>),
+    NoTls(r2d2::PooledConnection<r2d2_postgres::PostgresConnectionManager<postgres::NoTls>>),
+}
+
+impl std::ops::Deref for PooledPgConnection {
+    type Target = postgres::Client;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Tls(conn) => &**conn,
+            Self::NoTls(conn) => &**conn,
+        }
+    }
+}
+
+impl std::ops::DerefMut for PooledPgConnection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Tls(conn) => &mut **conn,
+            Self::NoTls(conn) => &mut **conn,
+        }
+    }
+}
+
+static PG_POOL: OnceLock<PgPool> = OnceLock::new();
+
+fn get_pg_client(url: &str) -> AnyResult<PooledPgConnection> {
+    let pool = PG_POOL.get_or_init(|| {
+        let pool = if url.contains("sslmode=require") || url.contains("sslmode=verify-full") {
+            let tls = native_tls::TlsConnector::builder().build().unwrap();
+            let connector = postgres_native_tls::MakeTlsConnector::new(tls);
+            let manager = r2d2_postgres::PostgresConnectionManager::new(
+                url.parse().unwrap(),
+                connector
+            );
+            PgPool::Tls(r2d2::Pool::builder().max_size(15).build(manager).unwrap())
+        } else {
+            let manager = r2d2_postgres::PostgresConnectionManager::new(
+                url.parse().unwrap(),
+                postgres::NoTls
+            );
+            PgPool::NoTls(r2d2::Pool::builder().max_size(15).build(manager).unwrap())
+        };
+
+        // Run migrations once on startup
+        let mut client = match &pool {
+            PgPool::Tls(p) => PooledPgConnection::Tls(p.get().unwrap()),
+            PgPool::NoTls(p) => PooledPgConnection::NoTls(p.get().unwrap()),
+        };
+        FileStorage::run_postgres_migrations(&mut client).expect("failed to run postgres migrations");
+
+        pool
+    });
+
+    match pool {
+        PgPool::Tls(p) => Ok(PooledPgConnection::Tls(p.get()?)),
+        PgPool::NoTls(p) => Ok(PooledPgConnection::NoTls(p.get()?)),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FileStorage {
     root: PathBuf,
@@ -456,6 +524,25 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             ALTER TABLE lesson_jobs ADD COLUMN IF NOT EXISTS total_scenes INTEGER;
         "#,
     },
+    PostgresMigration {
+        version: 13,
+        name: "refresh_tokens",
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                id TEXT PRIMARY KEY,
+                token_hash TEXT NOT NULL UNIQUE,
+                account_id TEXT NOT NULL REFERENCES tutor_accounts(id) ON DELETE CASCADE,
+                family_id TEXT NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                revoked_at TIMESTAMPTZ
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_refresh_tokens_account ON refresh_tokens (account_id);
+            CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens (family_id);
+            CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens (token_hash);
+        "#,
+    },
 ];
 
 impl FileStorage {
@@ -560,14 +647,8 @@ impl FileStorage {
         })
     }
 
-    fn connect_postgres(url: &str) -> AnyResult<Client> {
-        if url.contains("sslmode=require") || url.contains("sslmode=verify-full") {
-            let tls = TlsConnector::builder().build()?;
-            let connector = MakeTlsConnector::new(tls);
-            return Client::connect(url, connector).map_err(Into::into);
-        }
-
-        Client::connect(url, NoTls).map_err(Into::into)
+    fn connect_postgres(_url: &str) -> AnyResult<Client> {
+        unreachable!("use get_pg_client instead")
     }
 
     fn run_postgres_migrations(client: &mut Client) -> AnyResult<()> {
@@ -710,8 +791,7 @@ impl FileStorage {
             return Ok(());
         }
 
-        let mut client = Self::connect_postgres(postgres_url).map_err(|err| err.to_string())?;
-        Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+        let mut client = get_pg_client(postgres_url).map_err(|err| err.to_string())?;
         postgres_ready.store(true, Ordering::Release);
         Ok(())
     }
@@ -2148,8 +2228,7 @@ impl LessonRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let lesson = lesson.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let data_json = serde_json::to_string(&lesson).map_err(|err| err.to_string())?;
                 client.execute(
                     "INSERT INTO lessons (id, account_id, school_id, title, language, description, data_json, created_at, updated_at)
@@ -2192,8 +2271,7 @@ impl LessonRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let lesson_id = lesson_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<Lesson>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client.query_opt(
                     "SELECT data_json FROM lessons WHERE id = $1",
                     &[&lesson_id],
@@ -2226,8 +2304,7 @@ impl LessonAdaptiveRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let state = state.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let state_json = serde_json::to_string(&state).map_err(|err| err.to_string())?;
                 client.execute(
                     "INSERT INTO lesson_adaptive_states (lesson_id, account_id, state_json, updated_at)
@@ -2448,8 +2525,7 @@ impl LessonJobRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let job = job.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
                 let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
                 let result_json = job.result.as_ref().map(|r| serde_json::to_string(r)).transpose().map_err(|err| err.to_string())?;
@@ -2514,8 +2590,7 @@ impl LessonJobRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let job = job.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
                 let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
                 let result_json = job.result.as_ref().map(|r| serde_json::to_string(r)).transpose().map_err(|err| err.to_string())?;
@@ -2574,8 +2649,7 @@ impl LessonJobRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let job_id = job_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<LessonGenerationJob>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client.query_opt(
                     "SELECT id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, created_at, started_at, completed_at, updated_at, scenes_generated, total_scenes
                      FROM lesson_jobs WHERE id = $1",
@@ -2676,8 +2750,7 @@ impl LessonJobRepository for FileStorage {
     async fn list_all_jobs(&self, limit: usize) -> Result<Vec<LessonGenerationJob>, String> {
         if let Some(postgres_url) = self.postgres_url.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<LessonGenerationJob>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client.query(
                     "SELECT id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, created_at, started_at, completed_at, updated_at, scenes_generated, total_scenes
                      FROM lesson_jobs ORDER BY created_at DESC LIMIT $1",
@@ -2761,8 +2834,7 @@ impl RuntimeSessionRepository for FileStorage {
             let session_id = session_id.to_string();
             let director_state = director_state.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let state_json = serde_json::to_string(&director_state).map_err(|err| err.to_string())?;
                 client.execute(
                     "INSERT INTO runtime_sessions (id, director_state_json, updated_at)
@@ -2816,8 +2888,7 @@ impl RuntimeActionExecutionRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let record = record.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let record_json = serde_json::to_string(&record).map_err(|err| err.to_string())?;
                 client.execute(
                     "INSERT INTO runtime_action_executions (id, session_id, record_json, created_at)
@@ -2855,8 +2926,7 @@ impl RuntimeActionExecutionRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let execution_id = execution_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<RuntimeActionExecutionRecord>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client.query_opt(
                     "SELECT record_json FROM runtime_action_executions WHERE id = $1",
                     &[&execution_id],
@@ -2889,8 +2959,7 @@ impl RuntimeActionExecutionRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let session_id = session_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<RuntimeActionExecutionRecord>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client.query(
                     "SELECT record_json FROM runtime_action_executions WHERE session_id = $1 ORDER BY created_at ASC",
                     &[&session_id],
@@ -2934,14 +3003,121 @@ impl RuntimeActionExecutionRepository for FileStorage {
 }
 
 #[async_trait]
+impl crate::repositories::RefreshTokenRepository for FileStorage {
+    async fn save_refresh_token(&self, token: &ai_tutor_domain::auth::RefreshToken) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone().ok_or("Postgres URL not configured")?;
+        let token = token.clone();
+        
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            
+            client.execute(
+                "INSERT INTO refresh_tokens (id, token_hash, account_id, family_id, expires_at, created_at, revoked_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT (token_hash) DO UPDATE SET
+                     revoked_at = EXCLUDED.revoked_at",
+                &[
+                    &token.id,
+                    &token.token_hash,
+                    &token.account_id,
+                    &token.family_id,
+                    &token.expires_at,
+                    &token.created_at,
+                    &token.revoked_at,
+                ],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|err| err.to_string())?
+    }
+
+    async fn get_refresh_token_by_hash(&self, token_hash: &str) -> Result<Option<ai_tutor_domain::auth::RefreshToken>, String> {
+        let postgres_url = self.postgres_url.clone().ok_or("Postgres URL not configured")?;
+        let hash = token_hash.to_string();
+        
+        tokio::task::spawn_blocking(move || -> Result<Option<ai_tutor_domain::auth::RefreshToken>, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            
+            let row_opt = client.query_opt(
+                "SELECT id, token_hash, account_id, family_id, expires_at, created_at, revoked_at 
+                 FROM refresh_tokens WHERE token_hash = $1",
+                &[&hash],
+            ).map_err(|err| err.to_string())?;
+            
+            Ok(row_opt.map(|row| ai_tutor_domain::auth::RefreshToken {
+                id: row.get("id"),
+                token_hash: row.get("token_hash"),
+                account_id: row.get("account_id"),
+                family_id: row.get("family_id"),
+                expires_at: row.get("expires_at"),
+                created_at: row.get("created_at"),
+                revoked_at: row.get("revoked_at"),
+            }))
+        })
+        .await
+        .map_err(|err| err.to_string())?
+    }
+
+    async fn revoke_refresh_token(&self, token_id: &str) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone().ok_or("Postgres URL not configured")?;
+        let id = token_id.to_string();
+        
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            
+            client.execute(
+                "UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL",
+                &[&id],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|err| err.to_string())?
+    }
+
+    async fn revoke_refresh_family(&self, family_id: &str) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone().ok_or("Postgres URL not configured")?;
+        let family = family_id.to_string();
+        
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            
+            client.execute(
+                "UPDATE refresh_tokens SET revoked_at = NOW() WHERE family_id = $1 AND revoked_at IS NULL",
+                &[&family],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|err| err.to_string())?
+    }
+    async fn cleanup_expired_refresh_tokens(&self) -> Result<usize, String> {
+        let postgres_url = self.postgres_url.clone().ok_or("Postgres URL not configured")?;
+        
+        tokio::task::spawn_blocking(move || -> Result<usize, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            
+            // Delete tokens that expired more than 7 days ago (grace period)
+            let deleted = client.execute(
+                "DELETE FROM refresh_tokens WHERE expires_at < NOW() - INTERVAL '7 days'",
+                &[],
+            ).map_err(|err| err.to_string())?;
+            
+            Ok(deleted as usize)
+        })
+        .await
+        .map_err(|err| err.to_string())?
+    }
+}
+
+#[async_trait]
 impl TutorAccountRepository for FileStorage {
     async fn save_tutor_account(&self, account: &TutorAccount) -> Result<(), String> {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let account = account.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute(
                         "
@@ -3030,9 +3206,7 @@ impl TutorAccountRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
@@ -3060,7 +3234,7 @@ impl TutorAccountRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let google_id = google_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| {
+                let mut client = get_pg_client(&postgres_url).map_err(|err| {
                     format!("connect_postgres failed: {}", err)
                 })?;
 
@@ -3096,9 +3270,7 @@ impl TutorAccountRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let phone_number = phone_number.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
@@ -3127,9 +3299,7 @@ impl TutorAccountRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let email = email.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
@@ -3155,8 +3325,7 @@ impl TutorAccountRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<TutorAccount>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
@@ -3190,9 +3359,7 @@ impl CreditLedgerRepository for FileStorage {
             let entry = entry.clone();
             return tokio::task::spawn_blocking(move || -> Result<CreditBalance, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
 
                 let mut transaction = client.transaction().map_err(|err| err.to_string())?;
                 transaction
@@ -3312,9 +3479,7 @@ impl CreditLedgerRepository for FileStorage {
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<CreditBalance, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -3370,9 +3535,7 @@ impl CreditLedgerRepository for FileStorage {
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<CreditLedgerEntry>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -3419,9 +3582,7 @@ impl CreditLedgerRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<CreditLedgerEntry>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -3531,9 +3692,7 @@ impl PaymentOrderRepository for FileStorage {
             let order = order.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute(
                         "
@@ -3621,9 +3780,7 @@ impl PaymentOrderRepository for FileStorage {
             let order_id = order_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<PaymentOrder>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -3658,9 +3815,7 @@ impl PaymentOrderRepository for FileStorage {
             let gateway_txn_id = gateway_txn_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<PaymentOrder>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -3697,9 +3852,7 @@ impl PaymentOrderRepository for FileStorage {
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<PaymentOrder>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -3740,9 +3893,7 @@ impl PaymentOrderRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<PaymentOrder>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -3781,9 +3932,7 @@ impl SubscriptionRepository for FileStorage {
             let subscription = subscription.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 if subscription.gateway_subscription_id.is_some() {
                     client
                         .execute(
@@ -3942,9 +4091,7 @@ impl SubscriptionRepository for FileStorage {
             let subscription_id = subscription_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<Subscription>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -3983,9 +4130,7 @@ impl SubscriptionRepository for FileStorage {
             let gateway_subscription_id = gateway_subscription_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<Subscription>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -4026,9 +4171,7 @@ impl SubscriptionRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<Subscription>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -4072,9 +4215,7 @@ impl SubscriptionRepository for FileStorage {
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<Subscription>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -4127,9 +4268,7 @@ impl SubscriptionRepository for FileStorage {
                     .parse::<chrono::DateTime<chrono::Utc>>()
                     .map_err(|err| err.to_string())?;
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client)
-                    .map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -4190,8 +4329,7 @@ impl InvoiceRepository for FileStorage {
             let invoice = invoice.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute(
                         "
@@ -4251,8 +4389,7 @@ impl InvoiceRepository for FileStorage {
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<Invoice>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -4287,8 +4424,7 @@ impl InvoiceRepository for FileStorage {
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<Invoice>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -4325,8 +4461,7 @@ impl InvoiceRepository for FileStorage {
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<Invoice>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -4372,8 +4507,7 @@ impl InvoiceRepository for FileStorage {
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<Invoice>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -4420,8 +4554,7 @@ impl InvoiceRepository for FileStorage {
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let updated_at = Utc::now();
                 client
                     .execute(
@@ -4461,8 +4594,7 @@ impl InvoiceRepository for FileStorage {
             let due_at_rfc3339 = due_at_rfc3339.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let now = Utc::now();
                 client
                     .execute(
@@ -4510,8 +4642,7 @@ impl InvoiceLineRepository for FileStorage {
             let line = line.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute(
                         "
@@ -4569,8 +4700,7 @@ impl InvoiceLineRepository for FileStorage {
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<InvoiceLine>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -4610,8 +4740,7 @@ impl InvoiceLineRepository for FileStorage {
             let line_id = line_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute("DELETE FROM invoice_lines WHERE id = $1", &[&line_id])
                     .map_err(|err| err.to_string())?;
@@ -4635,8 +4764,7 @@ impl InvoiceLineRepository for FileStorage {
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<i64, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_one(
                         "
@@ -4671,8 +4799,7 @@ impl PaymentIntentRepository for FileStorage {
             let pi = pi.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client.execute(
                     "
                     INSERT INTO payment_intents (
@@ -4737,8 +4864,7 @@ impl PaymentIntentRepository for FileStorage {
             let pi_id = pi_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<PaymentIntent>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -4777,8 +4903,7 @@ impl PaymentIntentRepository for FileStorage {
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<PaymentIntent>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -4820,8 +4945,7 @@ impl PaymentIntentRepository for FileStorage {
             let pi_id = pi_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute(
                         "UPDATE payment_intents SET status = $2, updated_at = $3::timestamptz WHERE id = $1",
@@ -4856,8 +4980,7 @@ impl PaymentIntentRepository for FileStorage {
                     .parse::<chrono::DateTime<chrono::Utc>>()
                     .map_err(|err| err.to_string())?;
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -4914,8 +5037,7 @@ impl DunningCaseRepository for FileStorage {
             let dc = dc.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let attempt_schedule_json =
                     serde_json::to_string(&dc.attempt_schedule).map_err(|err| err.to_string())?;
                 client.execute(
@@ -4968,8 +5090,7 @@ impl DunningCaseRepository for FileStorage {
             let dc_id = dc_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<DunningCase>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -5004,8 +5125,7 @@ impl DunningCaseRepository for FileStorage {
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<DunningCase>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -5038,8 +5158,7 @@ impl DunningCaseRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<DunningCase>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -5081,8 +5200,7 @@ impl DunningCaseRepository for FileStorage {
             let dc_id = dc_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute(
                         "UPDATE dunning_cases SET status = $2, updated_at = $3::timestamptz WHERE id = $1",
@@ -5128,8 +5246,7 @@ impl WebhookEventRepository for FileStorage {
             let event = event.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute(
                         "
@@ -5169,8 +5286,7 @@ impl WebhookEventRepository for FileStorage {
             let event_identifier = event_identifier.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<WebhookEvent>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let row = client
                     .query_opt(
                         "
@@ -5203,8 +5319,7 @@ impl FinancialAuditRepository for FileStorage {
             let audit = audit.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 client
                     .execute(
                         "
@@ -5251,8 +5366,7 @@ impl FinancialAuditRepository for FileStorage {
             let sql_limit = i64::try_from(limit).map_err(|_| "limit exceeds i64".to_string())?;
             return tokio::task::spawn_blocking(move || -> Result<Vec<FinancialAuditLog>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -5291,8 +5405,7 @@ impl FinancialAuditRepository for FileStorage {
             let sql_limit = i64::try_from(limit).map_err(|_| "limit exceeds i64".to_string())?;
             return tokio::task::spawn_blocking(move || -> Result<Vec<FinancialAuditLog>, String> {
                 let mut client =
-                    Self::connect_postgres(&postgres_url).map_err(|err| err.to_string())?;
-                Self::run_postgres_migrations(&mut client).map_err(|err| err.to_string())?;
+                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client
                     .query(
                         "
@@ -5327,7 +5440,7 @@ impl SchoolRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let school = school.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 client.execute(
                     "INSERT INTO schools (id, name, admin_email, plan, credit_pool, created_at, updated_at)
@@ -5355,7 +5468,7 @@ impl SchoolRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let id = id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<ai_tutor_domain::school::School>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 let row = client.query_opt(
                     "SELECT id, name, admin_email, plan, credit_pool, created_at, updated_at FROM schools WHERE id = $1",
@@ -5375,7 +5488,7 @@ impl SchoolRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let sql_limit = i64::try_from(limit).map_err(|_| "limit overflow".to_string())?;
             return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::school::School>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 let rows = client.query(
                     "SELECT id, name, admin_email, plan, credit_pool, created_at, updated_at FROM schools ORDER BY created_at DESC LIMIT $1",
@@ -5403,7 +5516,7 @@ impl SchoolRepository for FileStorage {
             let account_id = account_id.to_string();
             let school_id = school_id.map(|s| s.to_string());
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 client.execute(
                     "UPDATE tutor_accounts SET school_id = $1, updated_at = NOW() WHERE id = $2",
@@ -5427,7 +5540,7 @@ impl SchoolRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let school_id = school_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::auth::TutorAccount>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 let rows = client.query(
                     "SELECT id, email, google_id, phone_number, phone_verified, status, school_id, created_at, updated_at
@@ -5446,7 +5559,7 @@ impl SchoolRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let invoice = invoice.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 let status_str = match invoice.status {
                     ai_tutor_domain::school::SchoolInvoiceStatus::Pending => "pending",
@@ -5477,7 +5590,7 @@ impl SchoolRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let id = id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<ai_tutor_domain::school::SchoolInvoice>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 let row = client.query_opt(
                     "SELECT id, school_id, amount_cents, payment_link, status, due_at, created_at, paid_at FROM school_invoices WHERE id = $1",
@@ -5497,7 +5610,7 @@ impl SchoolRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let school_id = school_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::school::SchoolInvoice>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
                 let rows = client.query(
                     "SELECT id, school_id, amount_cents, payment_link, status, due_at, created_at, paid_at
@@ -5532,7 +5645,7 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
         if let Some(postgres_url) = self.postgres_url.clone() {
             let record = record.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 // CREATE TABLE IF NOT EXISTS — avoids requiring a migration on existing deployments.
                 client.execute(
                     "CREATE TABLE IF NOT EXISTS api_usage_records (
@@ -5585,7 +5698,7 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
     ) -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String> {
         if let Some(postgres_url) = self.postgres_url.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String> {
-                let mut client = Self::connect_postgres(&postgres_url).map_err(|e| e.to_string())?;
+                let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 // Return empty if table doesn't exist yet
                 let table_exists: bool = client.query_one(
                     "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'api_usage_records')",

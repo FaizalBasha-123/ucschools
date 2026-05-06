@@ -103,6 +103,15 @@ pub trait TutorAccountRepository: Send + Sync {
 }
 
 #[async_trait]
+pub trait RefreshTokenRepository: Send + Sync {
+    async fn save_refresh_token(&self, token: &ai_tutor_domain::auth::RefreshToken) -> Result<(), String>;
+    async fn get_refresh_token_by_hash(&self, token_hash: &str) -> Result<Option<ai_tutor_domain::auth::RefreshToken>, String>;
+    async fn revoke_refresh_token(&self, token_id: &str) -> Result<(), String>;
+    async fn revoke_refresh_family(&self, family_id: &str) -> Result<(), String>;
+    async fn cleanup_expired_refresh_tokens(&self) -> Result<usize, String>;
+}
+
+#[async_trait]
 pub trait CreditLedgerRepository: Send + Sync {
     async fn apply_credit_entry(&self, entry: &CreditLedgerEntry) -> Result<CreditBalance, String>;
     async fn get_credit_balance(&self, account_id: &str) -> Result<CreditBalance, String>;

@@ -267,6 +267,7 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
         || path == "/api/auth/google/callback"
         || path == "/api/auth/google/onetap"
         || path == "/api/auth/bind-phone"
+        || path == "/api/auth/refresh"
         || path == "/api/operator/auth/request-otp"
         || path == "/api/operator/auth/verify-otp"
         || path == "/api/operator/auth/logout"
@@ -753,6 +754,26 @@ pub struct AuthSessionResponse {
     pub partial_auth_token: Option<String>,
     #[serde(default)]
     pub session_token: Option<String>,
+    /// Opaque refresh token for silent session renewal.
+    /// Clients should store this securely and use it to obtain a new
+    /// access token when the current one expires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    /// Seconds until the access (session) token expires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_in: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RefreshTokenRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RefreshTokenResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1436,6 +1457,12 @@ pub trait LessonAppService: Send + Sync {
     async fn google_onetap(&self, payload: GoogleOneTapRequest) -> Result<AuthSessionResponse>;
     async fn handle_google_account_auth(&self, claims: GoogleIdTokenClaims) -> Result<AuthSessionResponse>;
     async fn bind_phone(&self, payload: BindPhoneRequest) -> Result<AuthSessionResponse>;
+    async fn save_refresh_token(&self, token: &ai_tutor_domain::auth::RefreshToken) -> Result<()>;
+    async fn get_refresh_token_by_hash(&self, token_hash: &str) -> Result<Option<ai_tutor_domain::auth::RefreshToken>>;
+    async fn revoke_refresh_token(&self, token_id: &str) -> Result<()>;
+    async fn revoke_refresh_family(&self, family_id: &str) -> Result<()>;
+    async fn cleanup_expired_refresh_tokens(&self) -> Result<usize>;
+    async fn get_account(&self, account_id: &str) -> Result<Option<TutorAccount>>;
     async fn get_billing_catalog(&self) -> Result<BillingCatalogResponse>;
     async fn create_checkout(
         &self,
@@ -4429,7 +4456,7 @@ impl LessonAppService for LiveLessonAppService {
         let phone_auth_required = env_flag("AI_TUTOR_FIREBASE_PHONE_AUTH_ENABLED");
         let phone_ok = !phone_auth_required || account.phone_verified;
         if matches!(account.status, TutorAccountStatus::Active) && phone_ok {
-            let session_token = issue_session_token(&account)?;
+            let pair = issue_token_pair(&account, &*self).await?;
             tracing::info!("Auth: Login successful, issuing session");
             return Ok(AuthSessionResponse {
                 account_id: account.id,
@@ -4438,7 +4465,9 @@ impl LessonAppService for LiveLessonAppService {
                 phone_number: account.phone_number,
                 redirect_to: auth_success_redirect(),
                 partial_auth_token: None,
-                session_token: Some(session_token),
+                session_token: Some(pair.access_token),
+                refresh_token: Some(pair.refresh_token),
+                expires_in: Some(pair.access_token_ttl),
             });
         }
         // Account status is PartialAuth or phone verification is required but missing
@@ -4446,7 +4475,7 @@ impl LessonAppService for LiveLessonAppService {
             // Phone auth is disabled – auto-activate the account so Google-only login works
             tracing::info!("Auth: Phone auth disabled, auto-activating account");
             let activated = self.activate_account_without_phone(&account.id).await?;
-            let session_token = issue_session_token(&activated)?;
+            let pair = issue_token_pair(&activated, &*self).await?;
             return Ok(AuthSessionResponse {
                 account_id: activated.id,
                 status: "active".to_string(),
@@ -4454,7 +4483,9 @@ impl LessonAppService for LiveLessonAppService {
                 phone_number: activated.phone_number,
                 redirect_to: auth_success_redirect(),
                 partial_auth_token: None,
-                session_token: Some(session_token),
+                session_token: Some(pair.access_token),
+                refresh_token: Some(pair.refresh_token),
+                expires_in: Some(pair.access_token_ttl),
             });
         }
 
@@ -4468,6 +4499,8 @@ impl LessonAppService for LiveLessonAppService {
             redirect_to: verify_phone_path(),
             partial_auth_token: Some(partial_auth_token),
             session_token: None,
+            refresh_token: None,
+            expires_in: None,
         })
     }
 
@@ -4490,7 +4523,7 @@ impl LessonAppService for LiveLessonAppService {
         let account = self
             .activate_account_with_phone(&partial_claims, &phone_number)
             .await?;
-        let session_token = issue_session_token(&account)?;
+        let pair = issue_token_pair(&account, &*self).await?;
         Ok(AuthSessionResponse {
             account_id: account.id,
             status: "active".to_string(),
@@ -4498,8 +4531,39 @@ impl LessonAppService for LiveLessonAppService {
             phone_number: account.phone_number,
             redirect_to: auth_success_redirect(),
             partial_auth_token: None,
-            session_token: Some(session_token),
+            session_token: Some(pair.access_token),
+            refresh_token: Some(pair.refresh_token),
+            expires_in: Some(pair.access_token_ttl),
         })
+    }
+
+    async fn save_refresh_token(&self, token: &ai_tutor_domain::auth::RefreshToken) -> Result<()> {
+        use ai_tutor_storage::repositories::RefreshTokenRepository;
+        self.storage.save_refresh_token(token).await.map_err(|e| anyhow!(e))
+    }
+
+    async fn get_refresh_token_by_hash(&self, token_hash: &str) -> Result<Option<ai_tutor_domain::auth::RefreshToken>> {
+        use ai_tutor_storage::repositories::RefreshTokenRepository;
+        self.storage.get_refresh_token_by_hash(token_hash).await.map_err(|e| anyhow!(e))
+    }
+
+    async fn revoke_refresh_token(&self, token_id: &str) -> Result<()> {
+        use ai_tutor_storage::repositories::RefreshTokenRepository;
+        self.storage.revoke_refresh_token(token_id).await.map_err(|e| anyhow!(e))
+    }
+
+    async fn revoke_refresh_family(&self, family_id: &str) -> Result<()> {
+        use ai_tutor_storage::repositories::RefreshTokenRepository;
+        self.storage.revoke_refresh_family(family_id).await.map_err(|e| anyhow!(e))
+    }
+
+    async fn cleanup_expired_refresh_tokens(&self) -> Result<usize> {
+        use ai_tutor_storage::repositories::RefreshTokenRepository;
+        self.storage.cleanup_expired_refresh_tokens().await.map_err(|e| anyhow!(e))
+    }
+
+    async fn get_account(&self, account_id: &str) -> Result<Option<TutorAccount>> {
+        self.storage.get_tutor_account_by_id(account_id).await.map_err(|e| anyhow!(e))
     }
 
     async fn get_billing_catalog(&self) -> Result<BillingCatalogResponse> {
@@ -7405,6 +7469,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/auth/google/callback", get(google_callback))
         .route("/api/auth/google/onetap", post(google_onetap))
         .route("/api/auth/bind-phone", post(bind_phone))
+        .route("/api/auth/refresh", post(refresh_session_token))
         .route("/api/operator/auth/request-otp", post(request_operator_otp))
         .route("/api/operator/auth/verify-otp", post(verify_operator_otp))
         .route("/api/operator/auth/logout", post(logout_operator_otp))
@@ -10179,10 +10244,25 @@ fn partial_auth_ttl_seconds() -> i64 {
 }
 
 fn session_ttl_seconds() -> i64 {
+    // Prefer the new access-token-specific env var, fall back to the legacy
+    // AI_TUTOR_SESSION_TTL_HOURS for backward compatibility, then default
+    // to 1 hour (enterprise-standard short-lived access token).
+    if let Some(secs) = read_optional_env("AI_TUTOR_ACCESS_TOKEN_TTL_SECONDS")
+        .and_then(|v| v.parse::<i64>().ok())
+    {
+        return secs.max(300); // floor at 5 minutes
+    }
     read_optional_env("AI_TUTOR_SESSION_TTL_HOURS")
         .and_then(|value| value.parse::<i64>().ok())
         .map(|hours| hours * 3600)
-        .unwrap_or(7 * 24 * 3600)
+        .unwrap_or(3600) // 1 hour default
+}
+
+fn refresh_token_ttl_seconds() -> i64 {
+    read_optional_env("AI_TUTOR_REFRESH_TOKEN_TTL_DAYS")
+        .and_then(|v| v.parse::<i64>().ok())
+        .map(|days| days * 86400)
+        .unwrap_or(30 * 86400) // 30 days default
 }
 
 fn auth_cookie_enabled() -> bool {
@@ -10672,6 +10752,162 @@ fn verify_session_token(token: &str) -> Result<SessionClaims> {
         &validation,
     )?;
     Ok(data.claims)
+}
+
+/// Result of issuing a token pair: short-lived access token + long-lived refresh token.
+struct TokenPair {
+    access_token: String,
+    refresh_token: String,
+    access_token_ttl: i64,
+}
+
+/// Issue an access token (short-lived JWT) and a refresh token (opaque, stored
+/// in Postgres) for the given account. The refresh token is persisted as a
+/// SHA-256 hash so that a DB compromise does not leak usable tokens.
+async fn issue_token_pair(account: &TutorAccount, service: &dyn LessonAppService) -> Result<TokenPair> {
+    let access_token = issue_session_token(account)?;
+    let access_ttl = session_ttl_seconds();
+
+    // Generate opaque refresh token
+    let raw_refresh = format!("rt_{}", Uuid::new_v4().to_string().replace('-', ""));
+    let family_id = Uuid::new_v4().to_string();
+
+    let token_hash = sha256_hex(&raw_refresh);
+    let now = chrono::Utc::now();
+    let expires_at = now + chrono::Duration::seconds(refresh_token_ttl_seconds());
+
+    // Persist to DB (best-effort – if Postgres is unavailable, the access
+    // token alone still works for its TTL window, the user just won't get
+    // silent refresh)
+    let id = Uuid::new_v4().to_string();
+    let token = ai_tutor_domain::auth::RefreshToken {
+        id,
+        token_hash,
+        account_id: account.id.clone(),
+        family_id: family_id.clone(),
+        expires_at,
+        created_at: now,
+        revoked_at: None,
+    };
+    if let Err(err) = service.save_refresh_token(&token).await {
+        tracing::warn!("Failed to persist refresh token (auth still works): {err}");
+    }
+
+    Ok(TokenPair {
+        access_token,
+        refresh_token: raw_refresh,
+        access_token_ttl: access_ttl,
+    })
+}
+
+/// Issue a token pair for an existing refresh that belongs to a family,
+/// rotating the old token so it cannot be reused.
+async fn issue_rotated_token_pair(
+    account: &TutorAccount,
+    family_id: &str,
+    old_token_id: &str,
+    service: &dyn LessonAppService,
+) -> Result<TokenPair> {
+    let access_token = issue_session_token(account)?;
+    let access_ttl = session_ttl_seconds();
+
+    let raw_refresh = format!("rt_{}", Uuid::new_v4().to_string().replace('-', ""));
+    let token_hash = sha256_hex(&raw_refresh);
+    let now = chrono::Utc::now();
+    let expires_at = now + chrono::Duration::seconds(refresh_token_ttl_seconds());
+    let id = Uuid::new_v4().to_string();
+
+    // Revoke old token and insert new one (same family)
+    if let Err(err) = service.revoke_refresh_token(old_token_id).await {
+        tracing::warn!("Failed to revoke old refresh token: {err}");
+    }
+    let token = ai_tutor_domain::auth::RefreshToken {
+        id,
+        token_hash,
+        account_id: account.id.clone(),
+        family_id: family_id.to_string(),
+        expires_at,
+        created_at: now,
+        revoked_at: None,
+    };
+    if let Err(err) = service.save_refresh_token(&token).await {
+        tracing::warn!("Failed to insert rotated refresh token: {err}");
+    }
+
+    Ok(TokenPair {
+        access_token,
+        refresh_token: raw_refresh,
+        access_token_ttl: access_ttl,
+    })
+}
+
+fn sha256_hex(input: &str) -> String {
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(input.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+
+
+/// POST /api/auth/refresh  —  Exchange a valid refresh token for a new token pair.
+async fn refresh_session_token(
+    State(state): State<AppState>,
+    Json(payload): Json<RefreshTokenRequest>,
+) -> Result<Json<RefreshTokenResponse>, ApiError> {
+    let raw_token = payload.refresh_token.clone();
+    let token_hash = sha256_hex(&raw_token);
+
+    let row = state
+        .service
+        .get_refresh_token_by_hash(&token_hash)
+        .await
+        .map_err(|e| ApiError::internal(anyhow!("refresh token lookup failed: {e}")))?;
+
+    let row = row.ok_or_else(|| ApiError {
+        status: StatusCode::UNAUTHORIZED,
+        message: "invalid refresh token".to_string(),
+    })?;
+
+    // Check if revoked (replay attack detection)
+    if row.revoked_at.is_some() {
+        // Token was already used! Revoke the entire family to force re-login.
+        let family_id = row.family_id.clone();
+        let _ = state.service.revoke_refresh_family(&family_id).await;
+        return Err(ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            message: "refresh token has been revoked (possible replay attack)".to_string(),
+        });
+    }
+
+    // Check expiry
+    if row.expires_at < chrono::Utc::now() {
+        return Err(ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            message: "refresh token expired; please sign in again".to_string(),
+        });
+    }
+
+    // Load the account
+    let account = state
+        .service
+        .get_account(&row.account_id)
+        .await
+        .map_err(|e| ApiError::internal(anyhow!("failed to load account for refresh: {e}")))?
+        .ok_or_else(|| ApiError {
+            status: StatusCode::UNAUTHORIZED,
+            message: "account not found".to_string(),
+        })?;
+
+    // Issue rotated token pair
+    let pair = issue_rotated_token_pair(&account, &row.family_id, &row.id, &*state.service)
+        .await
+        .map_err(|e| ApiError::internal(anyhow!("failed to issue rotated token pair: {e}")))?;
+
+    Ok(Json(RefreshTokenResponse {
+        access_token: pair.access_token,
+        refresh_token: pair.refresh_token,
+        expires_in: pair.access_token_ttl,
+    }))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -11261,6 +11497,41 @@ mod tests {
                 .unwrap()
                 .clone()
                 .ok_or_else(|| anyhow!("missing auth session response"))
+        }
+
+        async fn save_refresh_token(&self, _token: &ai_tutor_domain::auth::RefreshToken) -> Result<()> {
+            Ok(())
+        }
+
+        async fn get_refresh_token_by_hash(&self, _token_hash: &str) -> Result<Option<ai_tutor_domain::auth::RefreshToken>> {
+            Ok(None)
+        }
+
+        async fn revoke_refresh_token(&self, _token_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn revoke_refresh_family(&self, _family_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        async fn cleanup_expired_refresh_tokens(&self) -> Result<usize> {
+            Ok(0)
+        }
+
+        async fn get_account(&self, account_id: &str) -> Result<Option<TutorAccount>> {
+            // Mock returns a hardcoded account if requested
+            Ok(Some(TutorAccount {
+                id: account_id.to_string(),
+                email: "mock@example.com".to_string(),
+                google_id: "mock_google_id".to_string(),
+                phone_number: None,
+                phone_verified: true,
+                status: TutorAccountStatus::Active,
+                school_id: None,
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            }))
         }
 
         async fn contact_enterprise(
