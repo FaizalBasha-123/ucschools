@@ -1141,20 +1141,3 @@ fn ensure_queue_column_exists(
     )?;
     Ok(())
 }
-
-fn normalize_locked_claim_result(
-    result: Result<Option<QueuedLessonRequest>>,
-) -> Option<QueuedLessonRequest> {
-    match result {
-        Ok(value) => value,
-        Err(err)
-            if err
-                .to_string()
-                .to_ascii_lowercase()
-                .contains("database is locked") =>
-        {
-            None
-        }
-        Err(err) => panic!("unexpected sqlite claim error: {}", err),
-    }
-}

@@ -10,9 +10,7 @@ use chrono::Utc;
 use uuid::Uuid;
 use anyhow::Result as AnyResult;
 use async_trait::async_trait;
-use native_tls::TlsConnector;
-use postgres::{Client, NoTls};
-use postgres_native_tls::MakeTlsConnector;
+use postgres::Client;
 use rusqlite::{params, Connection, OptionalExtension};
 use tokio::{fs, sync::Mutex};
 
@@ -647,10 +645,6 @@ impl FileStorage {
         })
     }
 
-    fn connect_postgres(_url: &str) -> AnyResult<Client> {
-        unreachable!("use get_pg_client instead")
-    }
-
     fn run_postgres_migrations(client: &mut Client) -> AnyResult<()> {
         static MIGRATIONS_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if MIGRATIONS_DONE.load(std::sync::atomic::Ordering::Acquire) {
@@ -791,7 +785,7 @@ impl FileStorage {
             return Ok(());
         }
 
-        let mut client = get_pg_client(postgres_url).map_err(|err| err.to_string())?;
+        let _client = get_pg_client(postgres_url).map_err(|err| err.to_string())?;
         postgres_ready.store(true, Ordering::Release);
         Ok(())
     }
