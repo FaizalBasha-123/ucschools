@@ -148,6 +148,8 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
                 updated_at TIMESTAMPTZ NOT NULL
             );
 
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_tutor_accounts_email_lower ON tutor_accounts (LOWER(email));
+
             CREATE TABLE IF NOT EXISTS credit_ledger (
                 id TEXT PRIMARY KEY,
                 account_id TEXT NOT NULL REFERENCES tutor_accounts(id) ON DELETE CASCADE,
@@ -3299,7 +3301,7 @@ impl TutorAccountRepository for FileStorage {
                         "SELECT id, email, google_id, phone_number, phone_verified, status,
                                 created_at,
                                 updated_at
-                         FROM tutor_accounts WHERE email = $1",
+                         FROM tutor_accounts WHERE LOWER(email) = LOWER($1)",
                         &[&email],
                     )
                     .map_err(|err| err.to_string())?;

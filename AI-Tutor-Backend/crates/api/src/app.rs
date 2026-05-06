@@ -445,6 +445,18 @@ async fn auth_middleware(
         {
             if let Some(session_id) = parse_cookie(cookie_header, &auth.operator_session_cookie_name)
             {
+                // CSRF Protection: Require a custom header for all state-changing operator requests
+                if req.method() != Method::GET && req.method() != Method::HEAD && req.method() != Method::OPTIONS {
+                    let has_op_header = req.headers().get("X-Operator-Header").is_some();
+                    if !has_op_header {
+                        warn!("operator CSRF attempt blocked: missing X-Operator-Header");
+                        return ApiError {
+                            status: StatusCode::FORBIDDEN,
+                            message: "security violation: X-Operator-Header missing".to_string(),
+                        }.into_response();
+                    }
+                }
+
                 if let Ok(Some(session)) = load_operator_session(&session_id).await {
                     granted_role = parse_api_role(&session.role);
                     req.extensions_mut().insert(AuthenticatedAccountContext {
@@ -611,6 +623,7 @@ pub struct SystemConfig {
 pub struct AdminUser {
     pub account_id: String,
     pub email: Option<String>,
+    pub phone_number: Option<String>,
     pub created_at_unix: i64,
     pub plan: Option<String>,
     pub credits: f64,
@@ -2071,23 +2084,38 @@ impl LiveLessonAppService {
         }
 
         tracing::info!("upsert step 1.5: fallback looking up account by email");
+        let normalized_email = normalize_email(&claims.email);
         let pre_registered = self
             .storage
-            .get_tutor_account_by_email(&claims.email)
+            .get_tutor_account_by_email(&normalized_email)
             .await
             .map_err(|err| anyhow!("email lookup failed: {err}"))?;
 
         if let Some(mut existing) = pre_registered {
-            if existing.status == TutorAccountStatus::PreRegistered {
-                tracing::info!(account_id = %existing.id, "upsert step 2: activating pre-registered account");
+            // ONLY link if the existing account is pre-registered OR has a placeholder google_id.
+            // This prevents "Account Takeover" if a different Google account is used with the same email.
+            if existing.status == TutorAccountStatus::PreRegistered || existing.google_id.starts_with("pending-") {
+                tracing::info!(account_id = %existing.id, "upsert step 2: linking to pre-registered/pending account");
                 existing.google_id = claims.sub.clone();
-                existing.status = TutorAccountStatus::PartialAuth;
+                // If it was PreRegistered, move to PartialAuth to trigger phone check if needed
+                if existing.status == TutorAccountStatus::PreRegistered {
+                    existing.status = TutorAccountStatus::PartialAuth;
+                }
                 existing.updated_at = chrono::Utc::now();
                 self.storage
                     .save_tutor_account(&existing)
                     .await
-                    .map_err(|err| anyhow!("save pre-registered failed: {err}"))?;
+                    .map_err(|err| anyhow!("save pre-registered/pending link failed: {err}"))?;
                 return Ok(existing);
+            } else {
+                // If it's an active account but with a different google_id, we DO NOT link it.
+                // This is a safety gate.
+                tracing::warn!(
+                    account_id = %existing.id, 
+                    old_google_id = %existing.google_id,
+                    new_google_id = %claims.sub,
+                    "upsert block: email collision with active account but different google_id"
+                );
             }
         }
 
@@ -2095,7 +2123,7 @@ impl LiveLessonAppService {
         let now = chrono::Utc::now();
         let account = TutorAccount {
             id: Uuid::new_v4().to_string(),
-            email: claims.email.clone(),
+            email: normalized_email,
             google_id: claims.sub.clone(),
             phone_number: None,
             phone_verified: false,
@@ -5227,6 +5255,7 @@ impl LessonAppService for LiveLessonAppService {
             users.push(AdminUser {
                 account_id: a.id,
                 email: Some(a.email),
+                phone_number: a.phone_number,
                 created_at_unix: a.created_at.timestamp(),
                 plan,
                 credits,
@@ -5572,7 +5601,7 @@ impl LessonAppService for LiveLessonAppService {
         let now = chrono::Utc::now();
 
         for email in payload.emails {
-            let email = email.trim().to_string();
+            let email = normalize_email(&email);
             if email.is_empty() {
                 continue;
             }
@@ -10423,8 +10452,12 @@ fn operator_otp_secret() -> String {
         .unwrap_or_else(|| "ai_tutor_operator_otp_secret".to_string())
 }
 
+fn normalize_email(value: &str) -> String {
+    value.trim().to_ascii_lowercase()
+}
+
 fn normalize_operator_email(value: &str) -> Result<String, ApiError> {
-    let normalized = value.trim().to_ascii_lowercase();
+    let normalized = normalize_email(value);
     if normalized.is_empty() || !normalized.contains('@') || normalized.len() > 255 {
         return Err(ApiError::bad_request(
             "valid operator email is required".to_string(),

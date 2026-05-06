@@ -357,7 +357,7 @@ impl NotificationService for SmtpNotificationService {
             ],
         );
         let text = format!(
-            "Your operator login code is {}. It expires in {} minutes.",
+            "[AI Tutor] Your verification code is {}. This code expires in {} minutes. Security notice: We will never call you to ask for this code.",
             payload.otp_code, expires
         );
 
@@ -553,7 +553,7 @@ impl NotificationService for WebhookNotificationService {
             ],
         );
         let text = format!(
-            "Your operator login code is {}. It expires in {} minutes.",
+            "[AI Tutor] Your verification code is {}. This code expires in {} minutes. Security notice: We will never call you to ask for this code.",
             payload.otp_code, expires
         );
         self.send_webhook(&payload.operator_email, "Your AI-Tutor operator login code", html, text).await

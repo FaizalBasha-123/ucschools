@@ -54,7 +54,9 @@ export default function AdminPage() {
 
   const headers = (): HeadersInit => {
     const tok = sessionStorage.getItem('adminBearerToken');
-    return tok ? { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` } : { 'Content-Type': 'application/json' };
+    const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
+    if (tok) h['Authorization'] = `Bearer ${tok}`;
+    return h;
   };
 
   const load = async () => {
@@ -91,7 +93,7 @@ export default function AdminPage() {
   return (
     <div className="flex w-full min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
       <EnterpriseSidebar variant="admin" onSignOut={async () => {
-        try { await fetch('/api/operator/auth/logout', { method: 'POST' }); } catch {}
+        try { await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } }); } catch {}
         router.push('/operator');
       }} />
 

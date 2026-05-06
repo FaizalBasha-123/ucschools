@@ -90,7 +90,10 @@ export default function AdminSchoolsPage() {
     try {
       const res = await fetch('/api/admin/schools', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Operator-Header': 'true'
+        },
         body: JSON.stringify({ name: newName.trim(), admin_email: newEmail.trim(), plan: newPlan }),
       });
       if (!res.ok) throw new Error('Failed to create school');
@@ -153,7 +156,10 @@ export default function AdminSchoolsPage() {
       const emails = bulkEmails.split(/[\n,]+/).map(e => e.trim()).filter(Boolean);
       const res = await fetch('/api/admin/schools/members/bulk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Operator-Header': 'true'
+        },
         body: JSON.stringify({
           school_id: selectedSchool.id,
           emails,
@@ -180,7 +186,10 @@ export default function AdminSchoolsPage() {
       dueDate.setDate(dueDate.getDate() + 30);
       const res = await fetch(`/api/admin/schools/${selectedSchool.id}/invoices`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Operator-Header': 'true'
+        },
         body: JSON.stringify({
           school_id: selectedSchool.id,
           due_date: dueDate.toISOString(),
@@ -202,7 +211,7 @@ export default function AdminSchoolsPage() {
       <EnterpriseSidebar
         variant="admin"
         onSignOut={async () => {
-          try { await fetch('/api/operator/auth/logout', { method: 'POST' }); } catch (e) {}
+          try { await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } }); } catch (e) {}
           router.push('/operator');
         }}
       />

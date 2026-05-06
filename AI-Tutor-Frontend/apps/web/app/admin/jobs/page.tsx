@@ -97,7 +97,7 @@ export default function AdminJobsPage() {
         variant="admin"
         onSignOut={async () => {
           try {
-            await fetch('/api/operator/auth/logout', { method: 'POST' });
+            await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } });
           } catch (e) {}
           router.push('/operator');
         }} 
