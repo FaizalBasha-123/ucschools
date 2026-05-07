@@ -88,20 +88,53 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
   const credits = entitlement?.credit_balance ?? 0;
 
   return (
-    <aside 
-      className={cn(
-        "relative flex flex-col bg-sidebar text-sidebar-foreground h-screen transition-all duration-300 border-r border-sidebar-border shadow-2xl z-40",
-        isCollapsed ? "w-20" : "w-64"
-      )}
-    >
-      {/* Collapse Toggle */}
+    <>
+      {/* Mobile Hamburger Button */}
       <button
-        onClick={() => setIsCollapsed(!isCollapsed)}
-        className="absolute -right-3 top-10 size-6 rounded-full bg-sidebar-primary text-sidebar-primary-foreground flex items-center justify-center shadow-lg hover:scale-110 transition-transform z-50 cursor-pointer"
-        aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        onClick={() => setIsMobileOpen(true)}
+        className="md:hidden fixed bottom-6 left-6 z-[60] size-14 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-xl shadow-emerald-500/30 active:scale-95 transition-all"
+        aria-label="Open menu"
       >
-        {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        <Menu className="size-6 stroke-[2.5]" />
       </button>
+
+      {/* Mobile Backdrop */}
+      <AnimatePresence>
+        {isMobileOpen && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="md:hidden fixed inset-0 bg-black/40 z-[70] backdrop-blur-sm"
+            onClick={() => setIsMobileOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <aside 
+        className={cn(
+          "flex flex-col bg-sidebar text-sidebar-foreground h-[100dvh] transition-all duration-300 border-r border-sidebar-border shadow-2xl z-[80]",
+          "fixed inset-y-0 left-0 md:relative",
+          isMobileOpen ? "translate-x-0 w-64" : "-translate-x-full md:translate-x-0",
+          !isMobileOpen && isCollapsed ? "md:w-20" : "md:w-64"
+        )}
+      >
+        {/* Mobile Close Button */}
+        <button
+          onClick={() => setIsMobileOpen(false)}
+          className="md:hidden absolute top-4 right-4 p-2 rounded-lg text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+        >
+          <X className="size-5" />
+        </button>
+
+        {/* Collapse Toggle (Desktop only) */}
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className="hidden md:flex absolute -right-3 top-10 size-6 rounded-full bg-sidebar-primary text-sidebar-primary-foreground items-center justify-center shadow-lg hover:scale-110 transition-transform cursor-pointer"
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+        </button>
 
       {/* Header / Logo */}
       <div className="p-6">
@@ -229,5 +262,6 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
         </button>
       </div>
     </aside>
+    </>
   );
 }

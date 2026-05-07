@@ -136,6 +136,8 @@ function VerifyPhoneContent() {
       const data = json.data || json;
       setAuthSession({
         token: data.session_token,
+        refreshToken: data.refresh_token,
+        expiresIn: data.expires_in ?? undefined,
         accountId: data.account_id,
         email: data.email,
       });

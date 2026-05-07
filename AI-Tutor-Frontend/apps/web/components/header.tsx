@@ -24,9 +24,10 @@ import { useExportPPTX } from '@/lib/export/use-export-pptx';
 
 interface HeaderProps {
   readonly currentSceneTitle: string;
+  readonly rightElement?: React.ReactNode;
 }
 
-export function Header({ currentSceneTitle }: HeaderProps) {
+export function Header({ currentSceneTitle, rightElement }: HeaderProps) {
   const { t } = useI18n();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
@@ -72,21 +73,21 @@ export function Header({ currentSceneTitle }: HeaderProps) {
 
   return (
     <>
-      <header className="h-20 px-8 flex items-center justify-between z-10 bg-transparent gap-4">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <header className="h-16 md:h-20 px-4 md:px-8 flex items-center justify-between z-10 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md md:backdrop-blur-xl border-b border-neutral-200/50 dark:border-neutral-800/50 gap-2 md:gap-4 shrink-0">
+        <div className="flex items-center gap-2 md:gap-4 min-w-0 flex-1">
           <button
             onClick={() => router.push('/')}
-            className="shrink-0 p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            className="shrink-0 p-1.5 md:p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
             title={t('generation.backToHome')}
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4 md:w-5 md:h-5" />
           </button>
           <div className="flex flex-col min-w-0">
-            <span className="text-[10px] uppercase tracking-widest font-bold text-gray-400 dark:text-gray-500 mb-0.5">
+            <span className="hidden md:block text-[10px] uppercase tracking-widest font-bold text-gray-400 dark:text-gray-500 mb-0.5">
               {t('stage.currentScene')}
             </span>
             <h1
-              className="text-xl font-bold text-gray-800 dark:text-gray-200 tracking-tight truncate"
+              className="text-base md:text-xl font-bold text-gray-800 dark:text-gray-200 tracking-tight truncate"
               suppressHydrationWarning
             >
               {currentSceneTitle || t('common.loading')}
@@ -94,7 +95,7 @@ export function Header({ currentSceneTitle }: HeaderProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-4 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md px-2 py-1.5 rounded-full border border-gray-100/50 dark:border-gray-700/50 shadow-sm shrink-0">
+        <div className="hidden sm:flex items-center gap-2 md:gap-4 bg-white/60 dark:bg-gray-800/60 backdrop-blur-md px-2 py-1.5 rounded-full border border-gray-100/50 dark:border-gray-700/50 shadow-sm shrink-0">
           {/* Language Selector */}
           <LanguageSwitcher onOpen={() => setThemeOpen(false)} />
 
@@ -231,6 +232,12 @@ export function Header({ currentSceneTitle }: HeaderProps) {
             </div>
           )}
         </div>
+
+        {rightElement && (
+          <div className="flex items-center gap-3">
+            {rightElement}
+          </div>
+        )}
       </header>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>

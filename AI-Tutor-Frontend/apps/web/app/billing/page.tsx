@@ -11,6 +11,7 @@ import { LeftSidebar } from '@/components/layout/left-sidebar';
 import { verifyAuthSession, hasAuthSessionHint, clearAuthSession, authHeaders } from '@/lib/auth/session';
 import { Header } from '@/components/header';
 import { UserMenu } from '@/components/layout/user-menu';
+import { CreditsDisplay } from '@/components/layout/credits-display';
 import { SettingsDialog } from '@/components/settings';
 
 export default function BillingPage() {
@@ -76,13 +77,18 @@ export default function BillingPage() {
       }} />
       
       <div className="flex-1 flex flex-col min-w-0 relative">
-        <Header currentSceneTitle="Billing: Overview" />
+        <Header 
+          currentSceneTitle="Billing: Overview" 
+          rightElement={
+            <div className="flex items-center gap-4">
+              <CreditsDisplay />
+              <div className="w-[1px] h-6 bg-neutral-200 dark:bg-neutral-800" />
+              <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
+            </div>
+          }
+        />
         
-        <div className="absolute top-6 right-24 z-20">
-          <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
-        </div>
-
-        <main className="flex-1 overflow-y-auto p-8 scrollbar-hide">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-hide">
           <div className="max-w-6xl mx-auto">
             
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">

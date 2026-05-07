@@ -6,6 +6,7 @@ import { CreditCard, Loader2, Plus, Trash2 } from 'lucide-react';
 import { LeftSidebar } from '@/components/layout/left-sidebar';
 import { Header } from '@/components/header';
 import { UserMenu } from '@/components/layout/user-menu';
+import { CreditsDisplay } from '@/components/layout/credits-display';
 import { SettingsDialog } from '@/components/settings';
 import { verifyAuthSession, hasAuthSessionHint, clearAuthSession } from '@/lib/auth/session';
 import { Button } from '@/components/ui/button';
@@ -36,13 +37,18 @@ export default function PaymentMethodsPage() {
       }} />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
-        <Header currentSceneTitle="Billing: Payment Methods" />
-        
-        <div className="absolute top-6 right-24 z-20">
-          <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
-        </div>
+        <Header 
+          currentSceneTitle="Billing: Payment Methods" 
+          rightElement={
+            <div className="flex items-center gap-4">
+              <CreditsDisplay />
+              <div className="w-[1px] h-6 bg-neutral-200 dark:bg-neutral-800" />
+              <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
+            </div>
+          }
+        />
 
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-5xl mx-auto">
             <div className="flex items-center justify-between mb-8">
               <div>
