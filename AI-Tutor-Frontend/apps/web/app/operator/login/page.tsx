@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, ArrowLeft, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
-import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, getOperatorToken, clearOperatorSession, OPERATOR_TOKEN_KEY } from '@/lib/auth/session';
 
 type OperatorAuthStep = 'email' | 'otp' | 'success';
 
@@ -100,7 +100,7 @@ export default function OperatorLoginPage() {
 
       // Store operator token for header-based auth (bypasses third-party cookie restrictions)
       if (data.operator_token) {
-        sessionStorage.setItem('operatorBearerToken', data.operator_token);
+        localStorage.setItem(OPERATOR_TOKEN_KEY, data.operator_token);
       }
 
       // Session cookie is automatically set by the API

@@ -10473,7 +10473,7 @@ fn operator_otp_lockout_window_seconds() -> i64 {
 }
 
 fn operator_session_ttl_seconds() -> i64 {
-    env_i64("AI_TUTOR_OPERATOR_SESSION_TTL_SECONDS", 86400).max(3600)
+    env_i64("AI_TUTOR_OPERATOR_SESSION_TTL_SECONDS", 2592000).max(3600)
 }
 
 fn operator_otp_max_attempts() -> i32 {

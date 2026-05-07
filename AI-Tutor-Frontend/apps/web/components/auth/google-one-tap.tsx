@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { setAuthSession } from '@/lib/auth/session';
+import { setAuthSession, getOperatorToken } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('GoogleOneTap');
@@ -127,7 +127,7 @@ export function GoogleOneTap({ onSuccess, onError }: GoogleOneTapProps) {
 
       // Skip One Tap if already logged in (user or operator)
       const hasUserSession = typeof window !== 'undefined' && !!localStorage.getItem('aiTutorSessionToken');
-      const hasOpSession = typeof window !== 'undefined' && !!sessionStorage.getItem('operatorBearerToken');
+      const hasOpSession = !!getOperatorToken();
       if (hasUserSession || hasOpSession) {
         return;
       }

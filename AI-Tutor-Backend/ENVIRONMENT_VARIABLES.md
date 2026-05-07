@@ -72,6 +72,7 @@
 | `GOOGLE_OAUTH_CLIENT_ID` | Required | `...apps.googleusercontent.com` | Google Sign-In client ID |
 | `GOOGLE_OAUTH_CLIENT_SECRET` | Required | `...` | Google Sign-In secret (DO NOT commit) |
 | `OAUTH_REDIRECT_URL` | `http://localhost:3000/auth/callback` | `https://app.com/auth/callback` | OAuth callback URL (must match Google Console) |
+| `AI_TUTOR_OPERATOR_SESSION_TTL_SECONDS` | No | `2592000` | `2592000` | Operator session TTL (default 30 days) |
 
 ### Observability
 

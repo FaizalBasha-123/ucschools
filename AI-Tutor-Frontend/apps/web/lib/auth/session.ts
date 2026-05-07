@@ -258,12 +258,12 @@ export async function verifyAuthSession(): Promise<boolean> {
 
 export function getOperatorToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem(OPERATOR_TOKEN_KEY);
+  return localStorage.getItem(OPERATOR_TOKEN_KEY);
 }
 
 export function clearOperatorSession(): void {
   if (typeof window === 'undefined') return;
-  sessionStorage.removeItem(OPERATOR_TOKEN_KEY);
+  localStorage.removeItem(OPERATOR_TOKEN_KEY);
 }
 
 export async function operatorSignOut(): Promise<void> {
