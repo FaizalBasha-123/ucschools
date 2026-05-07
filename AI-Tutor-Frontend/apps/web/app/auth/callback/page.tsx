@@ -59,10 +59,11 @@ function AuthCallbackPageContent() {
         // If so, clear session and require user to sign in again (separate signin step)
         const authMode = sessionStorage.getItem('authMode');
         sessionStorage.removeItem('authMode');
-        sessionStorage.removeItem('postLoginNext');
+        // We keep postLoginNext for the check-billing page to use
 
         if (authMode === 'signup') {
           // Signup flow: clear session and redirect to signin
+          sessionStorage.removeItem('postLoginNext');
           clearAuthSession();
           router.replace('/auth?mode=signin');
         } else {

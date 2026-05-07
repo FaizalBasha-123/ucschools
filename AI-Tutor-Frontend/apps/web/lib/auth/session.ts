@@ -98,12 +98,20 @@ export function clearAuthSession(): void {
 
 export function authHeaders(extra?: HeadersInit): HeadersInit {
   const token = getSessionToken();
+  const opToken = getOperatorToken();
+  
   const headers: Record<string, string> = {
     'X-Auth-Token': token || '',
     'X-Session-Token': token || '',
   };
   
-  if (token) {
+  // If an operator token exists, prioritize it for the Authorization header
+  // as it is required for administrative routes.
+  if (opToken) {
+    headers['Authorization'] = `Bearer ${opToken}`;
+    headers['X-Operator-Header'] = 'true';
+    headers['X-Operator-Token'] = opToken;
+  } else if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 

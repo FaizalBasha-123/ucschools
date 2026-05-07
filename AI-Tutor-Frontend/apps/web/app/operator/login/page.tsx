@@ -98,6 +98,11 @@ export default function OperatorLoginPage() {
         throw new Error(data.error || 'Invalid OTP code');
       }
 
+      // Store operator token for header-based auth (bypasses third-party cookie restrictions)
+      if (data.operator_token) {
+        sessionStorage.setItem('operatorBearerToken', data.operator_token);
+      }
+
       // Session cookie is automatically set by the API
       setStep('success');
       toast.success('Successfully authenticated', {

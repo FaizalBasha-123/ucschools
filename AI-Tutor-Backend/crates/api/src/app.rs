@@ -418,7 +418,7 @@ async fn auth_middleware(
         // For session-authenticated routes, require the account context
         // to be present (set from a valid JWT session above). Return 401
         // instead of letting the handler crash with a 500.
-        if session_auth_required(&path) {
+        if session_auth_required(&path) && method != Method::OPTIONS {
             if req.extensions().get::<AuthenticatedAccountContext>().is_none() {
                 return ApiError {
                     status: StatusCode::UNAUTHORIZED,
@@ -438,32 +438,39 @@ async fn auth_middleware(
         .and_then(|token| auth.tokens.get(&token).cloned());
 
     if granted_role.is_none() && auth.operator_otp_enabled {
-        if let Some(cookie_header) = req
-            .headers()
-            .get(header::COOKIE)
-            .and_then(|value| value.to_str().ok())
-        {
-            if let Some(session_id) = parse_cookie(cookie_header, &auth.operator_session_cookie_name)
-            {
-                // CSRF Protection: Require a custom header for all state-changing operator requests
-                if req.method() != Method::GET && req.method() != Method::HEAD && req.method() != Method::OPTIONS {
-                    let has_op_header = req.headers().get("X-Operator-Header").is_some();
-                    if !has_op_header {
-                        warn!("operator CSRF attempt blocked: missing X-Operator-Header");
-                        return ApiError {
-                            status: StatusCode::FORBIDDEN,
-                            message: "security violation: X-Operator-Header missing".to_string(),
-                        }.into_response();
-                    }
-                }
+        let bearer_token = parse_bearer_token(req.headers());
+        let session_id = bearer_token.or_else(|| {
+            req.headers()
+                .get(header::COOKIE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|cookie_header| {
+                    parse_cookie(cookie_header, &auth.operator_session_cookie_name)
+                })
+        });
 
-                if let Ok(Some(session)) = load_operator_session(&session_id).await {
-                    granted_role = parse_api_role(&session.role);
-                    req.extensions_mut().insert(AuthenticatedAccountContext {
-                        account_id: format!("operator:{}", session.operator_email),
-                        billing_context: None,
-                    });
+        if let Some(session_id) = session_id {
+            // CSRF Protection: Require a custom header for all state-changing operator requests
+            if req.method() != Method::GET
+                && req.method() != Method::HEAD
+                && req.method() != Method::OPTIONS
+            {
+                let has_op_header = req.headers().get("X-Operator-Header").is_some();
+                if !has_op_header {
+                    warn!("operator CSRF attempt blocked: missing X-Operator-Header");
+                    return ApiError {
+                        status: StatusCode::FORBIDDEN,
+                        message: "security violation: X-Operator-Header missing".to_string(),
+                    }
+                    .into_response();
                 }
+            }
+
+            if let Ok(Some(session)) = load_operator_session(&session_id).await {
+                granted_role = parse_api_role(&session.role);
+                req.extensions_mut().insert(AuthenticatedAccountContext {
+                    account_id: format!("operator:{}", session.operator_email),
+                    billing_context: None,
+                });
             }
         }
     }
@@ -663,6 +670,8 @@ pub struct SchoolResponse {
     pub id: String,
     pub name: String,
     pub operator_email: String,
+    pub institution_type: String,
+    pub description: Option<String>,
     pub plan: String,
     pub credit_pool: f64,
     pub member_count: usize,
@@ -678,6 +687,8 @@ pub struct SchoolsListResponse {
 pub struct CreateSchoolRequest {
     pub name: String,
     pub operator_email: String,
+    pub institution_type: Option<String>,
+    pub description: Option<String>,
     pub plan: Option<String>,
 }
 
@@ -804,6 +815,8 @@ pub struct OperatorOtpVerifyRequest {
 pub struct OperatorOtpResponse {
     pub ok: bool,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -5507,6 +5520,8 @@ impl LessonAppService for LiveLessonAppService {
                 id: s.id,
                 name: s.name,
                 operator_email: s.operator_email,
+                institution_type: s.institution_type,
+                description: s.description,
                 plan: s.plan,
                 credit_pool: s.credit_pool,
                 member_count: members.len(),
@@ -5522,6 +5537,8 @@ impl LessonAppService for LiveLessonAppService {
             id: uuid::Uuid::new_v4().to_string(),
             name: payload.name,
             operator_email: payload.operator_email,
+            institution_type: payload.institution_type.unwrap_or_else(|| "school".to_string()),
+            description: payload.description,
             plan: payload.plan.unwrap_or_else(|| "free".to_string()),
             credit_pool: 0.0,
             created_at: now,
@@ -5532,6 +5549,8 @@ impl LessonAppService for LiveLessonAppService {
             id: school.id,
             name: school.name,
             operator_email: school.operator_email,
+            institution_type: school.institution_type,
+            description: school.description,
             plan: school.plan,
             credit_pool: school.credit_pool,
             member_count: 0,
@@ -7786,6 +7805,7 @@ async fn request_operator_otp(
     Ok(Json(OperatorOtpResponse {
         ok: true,
         message: "OTP sent".to_string(),
+        operator_token: None,
     }))
 }
 
@@ -7887,6 +7907,7 @@ async fn verify_operator_otp(
     let body = serde_json::to_vec(&OperatorOtpResponse {
         ok: true,
         message: "operator session created".to_string(),
+        operator_token: Some(session_id.clone()),
     })
     .unwrap_or_else(|_| b"{}".to_vec());
     let mut response = Response::builder()
@@ -7927,6 +7948,7 @@ async fn logout_operator_otp(headers: axum::http::HeaderMap) -> Result<Response,
     let body = serde_json::to_vec(&OperatorOtpResponse {
         ok: true,
         message: "logged out".to_string(),
+        operator_token: None,
     })
     .unwrap_or_else(|_| b"{}".to_vec());
     let mut response = Response::builder()

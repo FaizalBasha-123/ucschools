@@ -1,11 +1,21 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+fn default_institution_type() -> String {
+    "school".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct School {
     pub id: String,
     pub name: String,
     pub operator_email: String,
+    /// Institution type: "school", "academy", "institution", "enterprise"
+    #[serde(default = "default_institution_type")]
+    pub institution_type: String,
+    /// Optional description / notes about this enterprise
+    #[serde(default)]
+    pub description: Option<String>,
     /// Plan code, e.g. "free", "pro", "enterprise"
     pub plan: String,
     /// Shared credit pool for all school members

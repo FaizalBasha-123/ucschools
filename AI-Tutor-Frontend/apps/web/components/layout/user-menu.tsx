@@ -50,9 +50,9 @@ export function UserMenu({ onOpenSettings }: UserMenuProps) {
       onClick: () => { router.push('/classroom'); setOpen(false); } 
     },
     { 
-      label: 'Pricing & Billing', 
+      label: 'Plans and Billing', 
       icon: CreditCard, 
-      onClick: () => { router.push('/pricing'); setOpen(false); } 
+      onClick: () => { router.push('/billing'); setOpen(false); } 
     },
     { 
       label: 'Settings', 

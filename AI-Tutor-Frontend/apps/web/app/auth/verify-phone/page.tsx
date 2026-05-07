@@ -148,9 +148,10 @@ function VerifyPhoneContent() {
       // Check if this was a signup flow
       const authMode = sessionStorage.getItem('authMode');
       sessionStorage.removeItem('authMode');
-      sessionStorage.removeItem('postLoginNext');
+      // We keep postLoginNext for the check-billing page to use
 
       if (authMode === 'signup') {
+        sessionStorage.removeItem('postLoginNext');
         router.replace('/auth?mode=signin');
       } else {
         router.replace('/check-billing');
