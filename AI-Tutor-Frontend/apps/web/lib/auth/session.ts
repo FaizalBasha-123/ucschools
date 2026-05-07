@@ -21,7 +21,7 @@ export function getSessionToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
     const token = localStorage.getItem(SESSION_TOKEN_KEY);
-    // Secure check: true tokens are substantial JWTs or IDs
+    // True tokens are substantial JWTs or opaque IDs, never short strings
     return token && token.trim().length > 10 ? token : null;
   } catch {
     return null;
@@ -79,7 +79,7 @@ export function setAuthSession(session: AuthSession): void {
     if (session.accountId) localStorage.setItem(ACCOUNT_ID_KEY, session.accountId);
     if (session.email) localStorage.setItem(ACCOUNT_EMAIL_KEY, session.email);
   } catch {
-    // no-op
+    // no-op – storage may be unavailable in private mode
   }
 }
 
@@ -102,15 +102,12 @@ export function authHeaders(extra?: HeadersInit): HeadersInit {
 
   const headers: Record<string, string> = {};
 
-  // If an operator token exists, prioritize it for the Authorization header
-  // as it is required for administrative routes.
   if (opToken) {
     headers['Authorization'] = `Bearer ${opToken}`;
     headers['X-Operator-Header'] = 'true';
     headers['X-Operator-Token'] = opToken;
   } else if (token) {
     headers['Authorization'] = `Bearer ${token}`;
-    // Some older backend paths may still read these; only send when token exists
     headers['X-Auth-Token'] = token;
     headers['X-Session-Token'] = token;
   }
@@ -124,11 +121,14 @@ export function authHeaders(extra?: HeadersInit): HeadersInit {
   return headers;
 }
 
+// ─── Token refresh ────────────────────────────────────────────────────────────
+
 let isRefreshing = false;
 let refreshPromise: Promise<boolean> | null = null;
 
 async function executeTokenRefresh(): Promise<boolean> {
-  const refreshToken = typeof window !== 'undefined' ? localStorage.getItem(REFRESH_TOKEN_KEY) : null;
+  const refreshToken =
+    typeof window !== 'undefined' ? localStorage.getItem(REFRESH_TOKEN_KEY) : null;
   if (!refreshToken) return false;
 
   try {
@@ -139,46 +139,56 @@ async function executeTokenRefresh(): Promise<boolean> {
     });
 
     if (!res.ok) {
-      log.warn('Failed to refresh token, clearing session');
+      log.warn('Refresh token rejected by backend (status %s) — session will be cleared', res.status);
       clearAuthSession();
       return false;
     }
 
     const data = await res.json();
     if (data.access_token) {
-      log.info('Successfully refreshed access token');
       setAuthSession({
         token: data.access_token,
         refreshToken: data.refresh_token,
         expiresIn: data.expires_in,
-        accountId: typeof window !== 'undefined' ? localStorage.getItem(ACCOUNT_ID_KEY) || undefined : undefined,
-        email: typeof window !== 'undefined' ? localStorage.getItem(ACCOUNT_EMAIL_KEY) || undefined : undefined,
+        accountId:
+          typeof window !== 'undefined'
+            ? localStorage.getItem(ACCOUNT_ID_KEY) || undefined
+            : undefined,
+        email:
+          typeof window !== 'undefined'
+            ? localStorage.getItem(ACCOUNT_EMAIL_KEY) || undefined
+            : undefined,
       });
+      log.info('Token refreshed successfully');
       return true;
     }
     return false;
   } catch (err) {
-    log.error('Network error during token refresh', err);
+    // Network failure during refresh — do NOT clear the session; just return false
+    log.warn('Network error during token refresh, will retry on next request', err);
     return false;
   }
 }
 
+// ─── apiFetch ─────────────────────────────────────────────────────────────────
+
 /**
- * Enterprise-grade fetch utility that uses Next.js proxying by default.
- * Direct backend bypass is disabled to avoid CORS issues when the 
- * frontend is on a different domain than the backend.
- * Now includes silent token refresh logic.
+ * Drop-in fetch wrapper that:
+ * 1. Proactively refreshes the token if it's within 60s of expiry
+ * 2. Retries once with a fresh token on a 401
+ *
+ * IMPORTANT: Does NOT clear the session on non-401 errors.
+ * Only a confirmed 401 after a successful refresh attempt clears the session.
  */
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const url = path.startsWith('/') ? path : `/${path}`;
 
-  // Check expiration proactively if possible
+  // Proactive refresh: if token expires within 60s (not 30s — more headroom on slow connections)
   if (typeof window !== 'undefined') {
     const expiresStr = localStorage.getItem(TOKEN_EXPIRES_AT_KEY);
     if (expiresStr) {
       const expiresAt = parseInt(expiresStr, 10);
-      // Refresh if expiring within the next 30 seconds
-      if (Date.now() + 30000 > expiresAt) {
+      if (Date.now() + 60_000 > expiresAt) {
         if (!isRefreshing) {
           isRefreshing = true;
           refreshPromise = executeTokenRefresh().finally(() => {
@@ -186,9 +196,7 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
             refreshPromise = null;
           });
         }
-        if (refreshPromise) {
-          await refreshPromise;
-        }
+        if (refreshPromise) await refreshPromise;
       }
     }
   }
@@ -200,9 +208,13 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
 
   let response = await fetch(url, mergedOptions);
 
-  // If we still got a 401, it might have expired exactly during the request
-  if (response.status === 401 && typeof window !== 'undefined' && localStorage.getItem(REFRESH_TOKEN_KEY)) {
-    log.warn('Got 401 on API call, attempting silent refresh');
+  // Reactive refresh: on 401, attempt one silent refresh then retry
+  if (
+    response.status === 401 &&
+    typeof window !== 'undefined' &&
+    localStorage.getItem(REFRESH_TOKEN_KEY)
+  ) {
+    log.warn('Got 401, attempting silent token refresh before retry');
     if (!isRefreshing) {
       isRefreshing = true;
       refreshPromise = executeTokenRefresh().finally(() => {
@@ -212,11 +224,7 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
     }
     const success = await refreshPromise;
     if (success) {
-      // Retry request with new token
-      mergedOptions = {
-        ...options,
-        headers: authHeaders(options.headers),
-      };
+      mergedOptions = { ...options, headers: authHeaders(options.headers) };
       response = await fetch(url, mergedOptions);
     }
   }
@@ -224,37 +232,147 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
   return response;
 }
 
+// ─── verifyAuthSession ────────────────────────────────────────────────────────
+
+/**
+ * Enterprise-grade session verification.
+ *
+ * Design decisions (matching industry patterns like Vercel, Linear, Notion):
+ *
+ * 1. LOCAL-FIRST: If a valid, non-expired token exists in localStorage, trust
+ *    it immediately without a network call. The token was issued by the backend
+ *    and its expiry is authoritative. This prevents any network latency from
+ *    causing false logouts on page refresh.
+ *
+ * 2. BACKGROUND NETWORK CHECK: A lightweight network ping is fired after
+ *    returning the local result. If the backend returns a definitive 401
+ *    (token revoked server-side), the session is cleared and the window is
+ *    reloaded to reflect the logged-out state.
+ *
+ * 3. NEVER CLEARS ON NETWORK FAILURE: A timeout, 5xx, or network error does
+ *    NOT destroy the session. Only a backend-confirmed 401 does.
+ *
+ * 4. EXPIRED TOKEN → REFRESH: If the token has expired (per local expiry
+ *    metadata), we attempt a silent refresh before giving up. If refresh
+ *    succeeds the function returns true.
+ *
+ * @returns true if the user should be treated as authenticated, false if the
+ *          session is definitively invalid and the user must log in again.
+ */
 export async function verifyAuthSession(): Promise<boolean> {
   const token = getSessionToken();
   if (!token) return false;
-  
+
+  // ── Step 1: Check local expiry ────────────────────────────────────────────
+  if (typeof window !== 'undefined') {
+    const expiresStr = localStorage.getItem(TOKEN_EXPIRES_AT_KEY);
+    if (expiresStr) {
+      const expiresAt = parseInt(expiresStr, 10);
+      const secondsLeft = (expiresAt - Date.now()) / 1000;
+
+      if (secondsLeft > 60) {
+        // Token is fresh (more than 60s left). Trust it locally.
+        // Fire a background check to detect server-side revocation, but
+        // do NOT block the UI on it.
+        pingSessionInBackground(token);
+        return true;
+      }
+
+      if (secondsLeft <= 0) {
+        // Token has expired. Attempt silent refresh.
+        log.info('Token expired locally, attempting silent refresh');
+        const refreshed = await executeTokenRefresh();
+        if (refreshed) return true;
+        // Refresh failed — session is gone
+        return false;
+      }
+
+      // 0–60s window: token is about to expire. Attempt refresh proactively,
+      // but use the local token as a fallback if refresh fails.
+      if (!isRefreshing) {
+        isRefreshing = true;
+        refreshPromise = executeTokenRefresh().finally(() => {
+          isRefreshing = false;
+          refreshPromise = null;
+        });
+      }
+      const refreshed = await refreshPromise;
+      // Even if refresh fails, the token is still technically valid for up to
+      // 60 more seconds — keep the session alive.
+      return refreshed || true;
+    }
+  }
+
+  // ── Step 2: No expiry metadata — token was set before expiresIn was stored.
+  // Verify with the backend once using /api/lesson-shelf (lightweight, reader
+  // role, always returns a small payload). We use this rather than
+  // /api/subscriptions/me because subscriptions can return 403/404 for valid
+  // users who simply have no active plan — that is NOT an auth failure.
   try {
-    const response = await apiFetch('/api/subscriptions/me', {
+    const response = await fetch('/api/lesson-shelf', {
       method: 'GET',
+      headers: authHeaders(),
       cache: 'no-store',
-      // Short timeout to avoid blocking the UI
-      signal: AbortController ? AbortSignal.timeout(5000) : undefined,
-    } as any);
+      signal: AbortSignal.timeout(8000),
+    });
 
     if (response.status === 401) {
-      log.warn('Session is definitively expired (401) and refresh failed. User must log in again.');
-      clearAuthSession();
-      return false;
-    }
-    
-    // If the server is down (5xx) or we have a network error, 
-    // we assume the session is still valid locally to avoid frustrating the user.
-    if (!response.ok && response.status >= 500) {
-      log.warn(`Backend error (${response.status}), preserving local session`);
-      return true;
+      // Definitively invalid. Attempt one refresh before giving up.
+      log.warn('Session returned 401 (no expiry metadata), attempting refresh');
+      const refreshed = await executeTokenRefresh();
+      return refreshed;
     }
 
-    return response.ok;
-  } catch (err) {
-    log.error('Network error during auth verification, preserving local session');
-    return true; 
+    // Any other status (200, 403, 404, 5xx) means the token itself was accepted
+    // by the auth middleware — do NOT log the user out.
+    return true;
+  } catch {
+    // Network failure — preserve the session. User may be offline or the
+    // backend may be starting up.
+    log.warn('Network error during session verification, preserving local session');
+    return true;
   }
 }
+
+/**
+ * Fires a one-shot background ping to detect server-side token revocation.
+ * Runs completely in the background — never blocks UI or causes redirects
+ * directly. If a 401 is received, the session is cleared and the page is
+ * reloaded so the user sees the login page naturally.
+ */
+function pingSessionInBackground(token: string): void {
+  if (typeof window === 'undefined') return;
+
+  // Small delay so we don't compete with the page's initial data fetches
+  setTimeout(async () => {
+    try {
+      const res = await fetch('/api/lesson-shelf', {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (res.status === 401) {
+        // Server-side revocation detected. Try refresh first.
+        log.warn('[BG] Session revoked server-side, attempting refresh');
+        const refreshed = await executeTokenRefresh();
+        if (!refreshed) {
+          log.warn('[BG] Refresh failed — clearing session and reloading');
+          clearAuthSession();
+          // Soft reload: redirect to the auth page rather than a hard reload
+          // to avoid losing any form data. We use location.assign so the
+          // back-button works correctly.
+          window.location.assign('/auth?mode=signin&reason=session_expired');
+        }
+      }
+    } catch {
+      // Network error in background ping — do nothing, session is fine
+    }
+  }, 3000); // 3s delay — well after the page's first meaningful paint
+}
+
+// ─── Operator helpers ─────────────────────────────────────────────────────────
 
 export function getOperatorToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -269,11 +387,11 @@ export function clearOperatorSession(): void {
 export async function operatorSignOut(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    await fetch('/api/operator/auth/logout', { 
-      method: 'POST', 
-      headers: { 'X-Operator-Header': 'true' } 
+    await fetch('/api/operator/auth/logout', {
+      method: 'POST',
+      headers: { 'X-Operator-Header': 'true' },
     });
-  } catch (e) {
+  } catch {
     // ignore network errors on signout
   } finally {
     clearOperatorSession();

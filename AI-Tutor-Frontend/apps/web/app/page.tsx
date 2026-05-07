@@ -228,19 +228,22 @@ function HomePage() {
       const session = getAuthSession();
 
       try {
-        // Parallelize session verification and classroom loading
+        // Parallelize session verification and classroom loading.
+        // If the session is confirmed valid, redirect to /classroom immediately
+        // so logged-in users skip the landing page.
         const [ok] = await Promise.all([
           verifyAuthSession(),
-          loadClassrooms()
+          loadClassrooms(),
         ]);
-        
-        if (!ok) {
-          setIsAuthenticated(true);
-          setAccountEmail(session?.email || null);
-        } else {
-          setIsAuthenticated(true);
-          setAccountEmail(session?.email || null);
+
+        if (ok) {
+          // Valid session — send to classroom hub
+          router.replace('/classroom');
+          return;
         }
+        // Session hint exists but verify failed (e.g. network issue) — stay on page
+        setIsAuthenticated(true);
+        setAccountEmail(session?.email || null);
       } catch (err) {
         log.error('Hydration failed:', err);
         setIsAuthenticated(true); // Fallback to local session
@@ -250,6 +253,7 @@ function HomePage() {
     };
 
     hydrateAuth();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const persistLessonShelfOpen = (next: boolean) => {
@@ -413,7 +417,25 @@ function HomePage() {
     if (authChecking || isGenerating) return;
 
     if (!isAuthenticated) {
-      router.push('/auth?next=/');
+      // Persist the user's lesson intent so the classroom can pre-fill it
+      // after they sign in and complete billing.
+      if (form.requirement.trim()) {
+        try {
+          localStorage.setItem(
+            'pendingLesson',
+            JSON.stringify({
+              requirement: form.requirement.trim(),
+              language: form.language,
+              webSearch: form.webSearch,
+            }),
+          );
+        } catch {
+          // quota errors — proceed without persistence
+        }
+      }
+      // Send them to sign-in; after login → check-billing → /classroom
+      sessionStorage.setItem('postLoginNext', '/classroom');
+      router.push('/auth?mode=signin&next=/classroom');
       return;
     }
 
@@ -422,7 +444,21 @@ function HomePage() {
       clearAuthSession();
       setIsAuthenticated(false);
       setAccountEmail(null);
-      router.push('/auth?next=/');
+      // Save intent before sending them to auth
+      if (form.requirement.trim()) {
+        try {
+          localStorage.setItem(
+            'pendingLesson',
+            JSON.stringify({
+              requirement: form.requirement.trim(),
+              language: form.language,
+              webSearch: form.webSearch,
+            }),
+          );
+        } catch { /* ignore */ }
+      }
+      sessionStorage.setItem('postLoginNext', '/classroom');
+      router.push('/auth?mode=signin&next=/classroom');
       return;
     }
 
@@ -717,7 +753,7 @@ function HomePage() {
               {/* Action Buttons */}
               <div className="flex items-center gap-2">
                 <SpeechButton
-                  size="lg"
+                  size="md"
                   onTranscription={(text) => {
                     setForm((prev) => {
                       const next = prev.requirement + (prev.requirement ? ' ' : '') + text;

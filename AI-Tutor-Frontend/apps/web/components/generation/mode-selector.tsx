@@ -45,9 +45,21 @@ const LEARNING_MODES: {
   { id: 'placement_prep', label: 'Placement', desc: 'Interview & aptitude prep' },
 ];
 
+// ─── Props ────────────────────────────────────────────────────────────────────
+
+export interface ModeSelectorProps {
+  /**
+   * If provided, intercepts a learning mode click BEFORE the store is updated.
+   * The callback decides whether/when to call setLearningMode.
+   * If omitted, the store is updated directly — normal behaviour on landing page
+   * and classroom page.
+   */
+  onLearningModeChange?: (mode: LearningMode) => void;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function ModeSelector() {
+export function ModeSelector({ onLearningModeChange }: ModeSelectorProps = {}) {
   const qualityMode  = useSettingsStore((s) => s.qualityMode);
   const learningMode = useSettingsStore((s) => s.learningMode);
   const setQualityMode  = useSettingsStore((s) => s.setQualityMode);
@@ -55,6 +67,24 @@ export function ModeSelector() {
 
   const activeQ = QUALITY_MODES.find((q) => q.id === qualityMode)  ?? QUALITY_MODES[1];
   const activeL = LEARNING_MODES.find((l) => l.id === learningMode) ?? LEARNING_MODES[0];
+
+  /** Quality always updates the store immediately — no confirmation needed. */
+  const handleQualityClick = (mode: QualityMode) => {
+    setQualityMode(mode);
+  };
+
+  /**
+   * Learning mode: if the caller supplied an intercept handler (lesson studio),
+   * delegate to it so it can show a confirmation dialog. Otherwise update directly.
+   */
+  const handleLearningClick = (mode: LearningMode) => {
+    if (mode === learningMode) return; // no-op if same mode clicked
+    if (onLearningModeChange) {
+      onLearningModeChange(mode);
+    } else {
+      setLearningMode(mode);
+    }
+  };
 
   return (
     <Popover>
@@ -87,7 +117,7 @@ export function ModeSelector() {
             {QUALITY_MODES.map((q) => (
               <button
                 key={q.id}
-                onClick={() => setQualityMode(q.id)}
+                onClick={() => handleQualityClick(q.id)}
                 className={cn(
                   'rounded-xl border px-2 py-2 text-center transition-all text-xs font-semibold',
                   qualityMode === q.id
@@ -110,7 +140,7 @@ export function ModeSelector() {
             {LEARNING_MODES.map((m) => (
               <button
                 key={m.id}
-                onClick={() => setLearningMode(m.id)}
+                onClick={() => handleLearningClick(m.id)}
                 className={cn(
                   'w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-all text-xs',
                   learningMode === m.id
@@ -127,7 +157,7 @@ export function ModeSelector() {
           </div>
         </div>
 
-        {/* ── Estimated credit burn ────────────────────────────── */}
+        {/* ── Credit info link ─────────────────────────────────── */}
         <div className="text-center pt-2">
           <Link href="/pricing" className="text-xs text-blue-500 hover:underline">
             Click here to see how credits works.

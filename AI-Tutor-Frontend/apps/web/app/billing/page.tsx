@@ -33,7 +33,6 @@ export default function BillingPage() {
       try {
         const isValid = await verifyAuthSession();
         if (!isValid) {
-          clearAuthSession();
           router.push('/auth?next=/billing');
           return;
         }

@@ -22,7 +22,9 @@ import {
   Zap,
   Shield,
   Sparkles,
-  Home
+  Home,
+  Menu,
+  X,
 } from 'lucide-react';
 import { clearAuthSession, authHeaders } from '@/lib/auth/session';
 import { motion, AnimatePresence } from 'motion/react';
@@ -36,6 +38,7 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [billingData, setBillingData] = useState<any>(null);
 
   const isBillingContext = pathname.startsWith('/billing');

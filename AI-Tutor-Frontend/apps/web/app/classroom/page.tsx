@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -26,7 +26,6 @@ import { useSettingsStore } from '@/lib/store/settings';
 import { useUserProfileStore } from '@/lib/store/user-profile';
 import { storePdfBlob } from '@/lib/utils/image-storage';
 import type { UserRequirements } from '@/lib/types/generation';
-import type { SettingsSection } from '@/lib/types/settings';
 import { SpeechButton } from '@/components/audio/speech-button';
 import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
@@ -35,14 +34,41 @@ import { UserMenu } from '@/components/layout/user-menu';
 import { CreditsDisplay } from '@/components/layout/credits-display';
 import { SettingsDialog } from '@/components/settings';
 
+// ── Pending lesson storage key (written by landing page on unauthenticated submit)
+const PENDING_LESSON_KEY = 'pendingLesson';
+
+interface PendingLesson {
+  requirement: string;
+  language: string;
+  webSearch: boolean;
+}
+
+function readAndClearPendingLesson(): PendingLesson | null {
+  try {
+    const raw = localStorage.getItem(PENDING_LESSON_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PendingLesson;
+    // Don't clear yet — wait until generate is confirmed
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingLesson() {
+  try {
+    localStorage.removeItem(PENDING_LESSON_KEY);
+  } catch { /* ignore */ }
+}
+
 export default function ClassroomDashboard() {
   const router = useRouter();
-  const { t, locale } = useI18n();
+  const { locale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [lessons, setLessons] = useState<LessonShelfItem[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // ── Generator state (mirrors landing page) ──
+  // ── Generator state ──
   const [requirement, setRequirement] = useState('');
   const [language, setLanguage] = useState<string>(locale);
   const [webSearch, setWebSearch] = useState(true);
@@ -52,10 +78,22 @@ export default function ClassroomDashboard() {
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Sync locale → language
+  // Sync locale → language (only when user hasn't typed anything yet)
   useEffect(() => {
     setLanguage(locale);
   }, [locale]);
+
+  // ── On mount: pre-fill from pending lesson written by landing page ──
+  useEffect(() => {
+    const pending = readAndClearPendingLesson();
+    if (pending) {
+      if (pending.requirement) setRequirement(pending.requirement);
+      if (pending.language) setLanguage(pending.language);
+      setWebSearch(pending.webSearch ?? true);
+      // Auto-focus so user sees the pre-filled text immediately
+      setTimeout(() => textareaRef.current?.focus(), 150);
+    }
+  }, []);
 
   useEffect(() => {
     async function initDashboard() {
@@ -65,7 +103,6 @@ export default function ClassroomDashboard() {
           router.replace('/auth?mode=signin&next=/classroom');
           return;
         }
-
         const response = await fetchShelf();
         setLessons(response.items || []);
       } catch (err) {
@@ -75,12 +112,11 @@ export default function ClassroomDashboard() {
         setLoading(false);
       }
     }
-
     initDashboard();
   }, [router]);
 
-  // ── Generate handler (same flow as landing page) ──
-  const handleGenerate = async () => {
+  // ── Generate handler ──
+  const handleGenerate = useCallback(async () => {
     if (isGenerating) return;
 
     if (!requirement.trim()) {
@@ -92,7 +128,7 @@ export default function ClassroomDashboard() {
     setIsGenerating(true);
 
     try {
-      // Check billing
+      // 1. Billing check
       const billingRes = await fetch('/api/billing/dashboard', {
         method: 'GET',
         headers: authHeaders(),
@@ -113,10 +149,10 @@ export default function ClassroomDashboard() {
         }
       }
 
-      // Prepare generation session
+      // 2. Build session
       const userProfile = useUserProfileStore.getState();
       const requirements: UserRequirements = {
-        requirement,
+        requirement: requirement.trim(),
         language,
         userNickname: userProfile.nickname || undefined,
         userBio: userProfile.bio || undefined,
@@ -156,7 +192,12 @@ export default function ClassroomDashboard() {
         sceneOutlines: null,
         currentStep: 'generating' as const,
       };
+
       sessionStorage.setItem('generationSession', JSON.stringify(sessionState));
+
+      // 3. Clear the pending lesson now that we're actually generating
+      clearPendingLesson();
+
       router.push('/generation-preview');
     } catch (err) {
       console.error('Error preparing generation:', err);
@@ -164,7 +205,7 @@ export default function ClassroomDashboard() {
     } finally {
       setIsGenerating(false);
     }
-  };
+  }, [isGenerating, requirement, language, webSearch, pdfFile, router]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -297,8 +338,8 @@ export default function ClassroomDashboard() {
       }} />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
-        <Header 
-          currentSceneTitle="Classroom Dashboard" 
+        <Header
+          currentSceneTitle="Classroom Dashboard"
           rightElement={
             <div className="flex items-center gap-4">
               <CreditsDisplay />
@@ -331,7 +372,7 @@ export default function ClassroomDashboard() {
                 </div>
               </div>
 
-              {/* Input box — same structure as landing page */}
+              {/* Input box */}
               <div className="w-full rounded-2xl border border-border/60 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-xl shadow-black/[0.03] dark:shadow-black/20 transition-shadow focus-within:shadow-2xl focus-within:shadow-primary/[0.06]">
                 <textarea
                   ref={textareaRef}
@@ -396,6 +437,9 @@ export default function ClassroomDashboard() {
                   </motion.p>
                 )}
               </AnimatePresence>
+              {pdfError && (
+                <p className="mt-1 text-xs text-red-500 px-1">{pdfError}</p>
+              )}
             </motion.div>
 
             {/* ── Lesson Tabs ── */}
@@ -424,22 +468,13 @@ export default function ClassroomDashboard() {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent
-                value="my-lessons"
-                className="focus-visible:outline-none focus-visible:ring-0"
-              >
+              <TabsContent value="my-lessons" className="focus-visible:outline-none focus-visible:ring-0">
                 <LessonGrid items={myLessons} />
               </TabsContent>
-              <TabsContent
-                value="groups"
-                className="focus-visible:outline-none focus-visible:ring-0"
-              >
+              <TabsContent value="groups" className="focus-visible:outline-none focus-visible:ring-0">
                 <LessonGrid items={groupedLessons} />
               </TabsContent>
-              <TabsContent
-                value="shared"
-                className="focus-visible:outline-none focus-visible:ring-0"
-              >
+              <TabsContent value="shared" className="focus-visible:outline-none focus-visible:ring-0">
                 <LessonGrid items={sharedLessons} />
               </TabsContent>
             </Tabs>
