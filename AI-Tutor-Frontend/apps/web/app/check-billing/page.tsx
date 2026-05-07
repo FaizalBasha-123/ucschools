@@ -52,23 +52,20 @@ export default function CheckBillingPage() {
 
         const data = await res.json();
         
-        // Extract real billing data
-        const creditBalance = data.data?.entitlement?.credit_balance ?? 0;
-        const hasActiveSubscription = data.data?.entitlement?.has_active_subscription ?? false;
+        // Extract real billing data - support both wrapped and unwrapped formats
+        const entitlement = data.entitlement || data.data?.entitlement;
+        const creditBalance = entitlement?.credit_balance ?? 0;
 
-        // MANDATORY: If no active subscription, always show pricing page on sign-in
-        if (!hasActiveSubscription) {
+        // User instruction: if no credits show pricing page, if got credits redirect to original page
+        if (creditBalance <= 0) {
           router.replace('/pricing');
           return;
         }
 
-        // If has subscription but no credits, show top-up
-        if (creditBalance <= 0) {
-          setStatus('modal-credits');
-        } else {
-          // Has subscription and credits - proceed
-          router.replace('/classroom');
-        }
+        // Credits available - proceed to original destination or default dashboard
+        const nextPath = sessionStorage.getItem('postLoginNext') || '/classroom';
+        sessionStorage.removeItem('postLoginNext');
+        router.replace(nextPath);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to check billing status';
         setError(message);

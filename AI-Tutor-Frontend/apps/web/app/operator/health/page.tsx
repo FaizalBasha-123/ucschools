@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Database, Activity, CheckCircle2, AlertCircle, Loader2, Server, Cpu, ShieldCheck } from 'lucide-react';
-import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
+import { LeftSidebar } from '@/components/layout/left-sidebar';
 import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
@@ -69,7 +69,7 @@ export default function OperatorHealthPage() {
 
   return (
     <div className="flex w-full min-h-[100dvh] bg-neutral-50 dark:bg-neutral-900/50">
-      <EnterpriseSidebar
+      <LeftSidebar
         variant="operator"
         onSignOut={async () => {
           await operatorSignOut();

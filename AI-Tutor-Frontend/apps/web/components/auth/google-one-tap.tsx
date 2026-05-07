@@ -125,13 +125,20 @@ export function GoogleOneTap({ onSuccess, onError }: GoogleOneTapProps) {
         return;
       }
 
+      // Skip One Tap if already logged in (user or operator)
+      const hasUserSession = typeof window !== 'undefined' && !!localStorage.getItem('aiTutorSessionToken');
+      const hasOpSession = typeof window !== 'undefined' && !!sessionStorage.getItem('operatorBearerToken');
+      if (hasUserSession || hasOpSession) {
+        return;
+      }
+
       window.google.accounts.id.initialize({
         client_id: clientId,
         callback: handleCredentialResponse,
-        auto_select: true,
-        cancel_on_tap_outside: false,
+        auto_select: false,
+        cancel_on_tap_outside: true,
         itp_support: true,
-        use_fedcm_for_prompt: true,
+        use_fedcm_for_prompt: false, // Disable FedCM to avoid browser policy warnings/disabling
       });
 
       window.google.accounts.id.prompt((notification) => {

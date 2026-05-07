@@ -551,7 +551,7 @@ function HomePage() {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full bg-[#F8FAFC] dark:bg-neutral-900/50 flex flex-col items-center p-4 pt-16 md:p-8 md:pt-16 overflow-x-hidden">
+    <div className="min-h-[100dvh] w-full flex flex-col items-center p-4 pt-16 md:p-8 md:pt-16 overflow-x-hidden" style={{ background: 'radial-gradient(ellipse 80% 60% at 50% -10%, rgba(16,185,129,0.08) 0%, transparent 70%), linear-gradient(180deg, #050d18 0%, #07111e 40%, #F8FAFC 100%)' }}>
       {/* ═══ Top Navigation Header ═══ */}
       <SiteHeader variant="landing" />
 
@@ -580,14 +580,30 @@ function HomePage() {
 
       {/* ═══ Background Decor ═══ */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        {/* Primary glow orb */}
         <div
-          className="absolute top-0 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse"
-          style={{ animationDuration: '4s' }}
+          className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[700px] h-[400px] rounded-full blur-[120px] animate-pulse"
+          style={{ background: 'rgba(16,185,129,0.07)', animationDuration: '5s' }}
+        />
+        {/* Secondary accent orbs */}
+        <div
+          className="absolute top-[20%] left-[10%] w-64 h-64 rounded-full blur-[80px] animate-pulse"
+          style={{ background: 'rgba(16,185,129,0.04)', animationDuration: '7s' }}
         />
         <div
-          className="absolute bottom-0 right-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse"
-          style={{ animationDuration: '6s' }}
+          className="absolute top-[15%] right-[8%] w-48 h-48 rounded-full blur-[60px] animate-pulse"
+          style={{ background: 'rgba(99,102,241,0.05)', animationDuration: '9s' }}
         />
+        {/* Grid texture */}
+        <div
+          className="absolute inset-0 opacity-[0.025]"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
+            backgroundSize: '72px 72px',
+          }}
+        />
+        {/* Bottom fade to light */}
+        <div className="absolute bottom-0 left-0 right-0 h-[30vh] bg-gradient-to-t from-[#F8FAFC] dark:from-neutral-900 to-transparent" />
       </div>
 
       {/* ═══ Hero section: title + input (centered, wider) ═══ */}
@@ -600,33 +616,44 @@ function HomePage() {
           classrooms.length === 0 ? 'justify-center min-h-[calc(100dvh-8rem)]' : 'mt-[10vh]',
         )}
       >
-        {/* ── Logo ── */}
+        {/* ── Hero Headline ── */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{
-            delay: 0.1,
-            type: 'spring',
-            stiffness: 200,
-            damping: 20,
-          }}
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08, duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+          className="text-center mb-3"
         >
-          <div className="flex flex-col">
-            <span className="text-2xl md:text-3xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-br from-emerald-600 to-teal-500 dark:from-emerald-400 dark:to-teal-300">
-              Learn something new today.
+          {/* Eyebrow */}
+          <div className="inline-flex items-center gap-2 mb-6 px-3 py-1 rounded-full border border-emerald-500/20 bg-emerald-500/5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-emerald-400/80 text-[11px] font-mono tracking-[0.25em] uppercase">
+              AI Teaching Engine
             </span>
-            <div className="h-0.5 w-full bg-gradient-to-r from-emerald-500/60 to-transparent rounded-full mt-1" />
           </div>
-        </motion.div>
 
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.25 }}
-          className="text-sm md:text-base font-medium text-neutral-500 dark:text-neutral-400 mb-8 max-w-xl text-center"
-        >
-          Transform curiosity into clarity through instantly generated, personalized lessons.
-        </motion.p>
+          {/* Main title */}
+          <h1
+            className="text-4xl sm:text-5xl md:text-6xl font-black leading-[1.0] tracking-tight mb-4"
+            style={{ color: 'rgba(255,255,255,0.95)' }}
+          >
+            Every concept,
+            <br />
+            <span
+              style={{
+                background: 'linear-gradient(135deg, #10B981 0%, #34D399 50%, #6EE7B7 100%)',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+              }}
+            >
+              taught your way.
+            </span>
+          </h1>
+
+          {/* Subheadline */}
+          <p className="text-sm md:text-base text-white/40 mb-8 max-w-md mx-auto leading-relaxed font-medium">
+            Describe anything you want to understand. A living classroom appears — built only for you.
+          </p>
+        </motion.div>
 
         {/* ── Unified input area ── */}
         <motion.div
@@ -635,7 +662,7 @@ function HomePage() {
           transition={{ delay: 0.35 }}
           className="w-full"
         >
-          <div className="w-full rounded-2xl border border-border/60 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-xl shadow-black/[0.03] dark:shadow-black/20 transition-shadow focus-within:shadow-2xl focus-within:shadow-primary/[0.06]">
+          <div className="w-full rounded-2xl border border-white/10 dark:border-white/10 bg-white/90 dark:bg-neutral-900/90 backdrop-blur-2xl shadow-2xl shadow-black/30 transition-all duration-300 focus-within:shadow-emerald-500/20 focus-within:shadow-2xl focus-within:border-emerald-500/30" style={{ boxShadow: '0 0 0 1px rgba(16,185,129,0.0), 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.07)' }}>
             {/* ── Greeting + Profile + Agents ── */}
             {/* ── Lesson Personalization Avatar ── */}
             <div className="relative z-20 flex items-start justify-between">
@@ -962,7 +989,7 @@ function HomePage() {
       )}
       {/* ═══ Philosophical Marketing Layout (Landing Page Only) ═══ */}
       {(!isAuthenticated || classrooms.length === 0) && (
-        <div className="w-full mt-auto bg-neutral-50 dark:bg-neutral-900 border-t border-border/40 rounded-t-[3rem] shadow-[0_-20px_40px_rgba(0,0,0,0.05)] overflow-hidden relative z-10 block">
+        <div className="w-full mt-auto relative z-10">
           <MissionSection />
           <UseCasesSection />
           <FinalCTA />
@@ -970,22 +997,26 @@ function HomePage() {
       )}
 
       {/* ═══ Footer ═══ */}
-      <footer className="w-full relative z-10 mt-auto pt-20 pb-8 flex flex-col items-center justify-center border-t border-border/40 bg-white/30 dark:bg-neutral-900/30 backdrop-blur-sm">
-        <div className="flex items-center gap-2 mb-4 opacity-60 cursor-default select-none">
-          <BotOff className="size-5 text-primary stroke-[2]" />
-          <span className="text-lg font-bold tracking-tight text-primary">
+      <footer className="w-full relative z-10 pt-16 pb-10 flex flex-col items-center justify-center" style={{ background: 'linear-gradient(to bottom, #030b14, #020810)' }}>
+        {/* Separator */}
+        <div className="w-full max-w-6xl mx-auto px-4 mb-10">
+          <div className="h-px w-full" style={{ background: 'linear-gradient(90deg, transparent, rgba(16,185,129,0.2), transparent)' }} />
+        </div>
+        <div className="flex items-center gap-2 mb-4 cursor-default select-none">
+          <BotOff className="size-5 text-emerald-400 stroke-[2]" />
+          <span className="text-lg font-bold tracking-tight text-emerald-400">
             AI-Tutor
           </span>
         </div>
-        <p className="text-xs text-muted-foreground/70 mb-3 font-medium">
+        <p className="text-xs text-neutral-600 mb-4 font-medium">
           Empowering education with open-source artificial intelligence.
         </p>
-        <div className="flex items-center gap-4 text-xs text-muted-foreground/60">
-          <a href="#" className="hover:text-primary transition-colors">Privacy</a>
-          <a href="#" className="hover:text-primary transition-colors">Terms</a>
-          <a href="https://github.com" target="_blank" rel="noreferrer" className="hover:text-primary transition-colors">GitHub</a>
+        <div className="flex items-center gap-5 text-xs text-neutral-700">
+          <a href="#" className="hover:text-emerald-400 transition-colors">Privacy</a>
+          <a href="#" className="hover:text-emerald-400 transition-colors">Terms</a>
+          <a href="https://github.com" target="_blank" rel="noreferrer" className="hover:text-emerald-400 transition-colors">GitHub</a>
         </div>
-        <div className="mt-6 text-[11px] text-muted-foreground/40">
+        <div className="mt-6 text-[11px] text-neutral-800">
           &copy; {new Date().getFullYear()} AI-Tutor Open Source Project. All rights reserved.
         </div>
       </footer>

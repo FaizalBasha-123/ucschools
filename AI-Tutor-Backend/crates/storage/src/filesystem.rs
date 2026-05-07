@@ -615,6 +615,8 @@ impl FileStorage {
             id: row.get("id"),
             name: row.get("name"),
             operator_email: row.get("operator_email"),
+            institution_type: row.try_get("institution_type").unwrap_or_else(|_| "school".to_string()),
+            description: row.try_get("description").unwrap_or(None),
             plan: row.get("plan"),
             credit_pool: row.get("credit_pool"),
             created_at: row.get("created_at"),
@@ -5445,17 +5447,29 @@ impl SchoolRepository for FileStorage {
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+                // Ensure new columns exist (safe to run every time)
+                let _ = client.execute(
+                    "ALTER TABLE schools ADD COLUMN IF NOT EXISTS institution_type TEXT NOT NULL DEFAULT 'school'",
+                    &[],
+                );
+                let _ = client.execute(
+                    "ALTER TABLE schools ADD COLUMN IF NOT EXISTS description TEXT",
+                    &[],
+                );
                 client.execute(
-                    "INSERT INTO schools (id, name, operator_email, plan, credit_pool, created_at, updated_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    "INSERT INTO schools (id, name, operator_email, institution_type, description, plan, credit_pool, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                      ON CONFLICT (id) DO UPDATE SET
                          name = EXCLUDED.name,
                          operator_email = EXCLUDED.operator_email,
+                         institution_type = EXCLUDED.institution_type,
+                         description = EXCLUDED.description,
                          plan = EXCLUDED.plan,
                          credit_pool = EXCLUDED.credit_pool,
                          updated_at = EXCLUDED.updated_at",
-                    &[&school.id, &school.name, &school.operator_email, &school.plan,
-                      &school.credit_pool, &school.created_at, &school.updated_at],
+                    &[&school.id, &school.name, &school.operator_email,
+                      &school.institution_type, &school.description,
+                      &school.plan, &school.credit_pool, &school.created_at, &school.updated_at],
                 ).map_err(|e| e.to_string())?;
                 Ok(())
             }).await.map_err(|e| e.to_string())?;

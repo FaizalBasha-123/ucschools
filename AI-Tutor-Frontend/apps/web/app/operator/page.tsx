@@ -9,7 +9,7 @@ import {
   School, Receipt, Zap, ChevronRight, RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
+import { LeftSidebar } from '@/components/layout/left-sidebar';
 import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { cn } from '@/lib/utils';
@@ -93,7 +93,7 @@ export default function OperatorPage() {
 
   return (
     <div className="flex w-full min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
-      <EnterpriseSidebar variant="operator" onSignOut={async () => {
+      <LeftSidebar variant="operator" onSignOut={async () => {
         await operatorSignOut();
         router.push('/operator/login');
       }} />

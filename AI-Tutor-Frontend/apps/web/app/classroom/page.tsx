@@ -29,12 +29,17 @@ import type { UserRequirements } from '@/lib/types/generation';
 import type { SettingsSection } from '@/lib/types/settings';
 import { SpeechButton } from '@/components/audio/speech-button';
 import { cn } from '@/lib/utils';
+import { Header } from '@/components/header';
+import { LeftSidebar } from '@/components/layout/left-sidebar';
+import { UserMenu } from '@/components/layout/user-menu';
+import { SettingsDialog } from '@/components/settings';
 
 export default function ClassroomDashboard() {
   const router = useRouter();
   const { t, locale } = useI18n();
   const [loading, setLoading] = useState(true);
   const [lessons, setLessons] = useState<LessonShelfItem[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // ── Generator state (mirrors landing page) ──
   const [requirement, setRequirement] = useState('');
@@ -284,142 +289,158 @@ export default function ClassroomDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      <div className="max-w-7xl mx-auto px-6 py-10">
-        {/* ── Hero: Quick generate input ── */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-          className="mb-10"
-        >
-          <div className="flex items-center gap-3 mb-6">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-emerald-500 flex items-center justify-center shadow-lg shadow-primary/20">
-              <Sparkles className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-neutral-900 dark:text-white">
-                Classroom Hub
-              </h1>
-              <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                Generate, manage, and organize all your lessons.
-              </p>
-            </div>
-          </div>
+    <div className="flex h-screen overflow-hidden bg-neutral-50 dark:bg-neutral-950">
+      <LeftSidebar onSignOut={() => {
+        clearAuthSession();
+        router.push('/auth?mode=signin');
+      }} />
 
-          {/* Input box — same structure as landing page */}
-          <div className="w-full rounded-2xl border border-border/60 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-xl shadow-black/[0.03] dark:shadow-black/20 transition-shadow focus-within:shadow-2xl focus-within:shadow-primary/[0.06]">
-            <textarea
-              ref={textareaRef}
-              placeholder="What do you want to learn today?"
-              className="w-full resize-none border-0 bg-transparent px-4 pt-4 pb-2 text-[14px] md:text-[15px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[48px] max-h-[200px]"
-              value={requirement}
-              onChange={(e) => setRequirement(e.target.value)}
-              onKeyDown={handleKeyDown}
-              rows={1}
-            />
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        <Header currentSceneTitle="Classroom Dashboard" />
+        
+        <div className="absolute top-6 right-24 z-20">
+          <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
+        </div>
 
-            {/* Toolbar row */}
-            <div className="px-3 pb-3 flex items-end gap-2">
-              <div className="flex-1 min-w-0">
-                <GenerationToolbar
-                  language={language}
-                  onLanguageChange={(lang) => setLanguage(lang)}
-                  webSearch={webSearch}
-                  onWebSearchChange={setWebSearch}
-                  onSettingsOpen={() => {}}
-                  pdfFile={pdfFile}
-                  onPdfFileChange={setPdfFile}
-                  onPdfError={setPdfError}
-                />
+        <main className="flex-1 overflow-y-auto scrollbar-hide">
+          <div className="max-w-7xl mx-auto px-6 py-10">
+            {/* ── Hero: Quick generate input ── */}
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="mb-10"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-emerald-500 flex items-center justify-center shadow-lg shadow-primary/20">
+                  <Sparkles className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold text-neutral-900 dark:text-white">
+                    Classroom Hub
+                  </h1>
+                  <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                    Generate, manage, and organize all your lessons.
+                  </p>
+                </div>
               </div>
 
-              <SpeechButton
-                size="md"
-                onTranscription={(text) => {
-                  setRequirement((prev) => prev + (prev ? ' ' : '') + text);
-                }}
-              />
+              {/* Input box — same structure as landing page */}
+              <div className="w-full rounded-2xl border border-border/60 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-xl shadow-black/[0.03] dark:shadow-black/20 transition-shadow focus-within:shadow-2xl focus-within:shadow-primary/[0.06]">
+                <textarea
+                  ref={textareaRef}
+                  placeholder="What do you want to learn today?"
+                  className="w-full resize-none border-0 bg-transparent px-4 pt-4 pb-2 text-[14px] md:text-[15px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[48px] max-h-[200px]"
+                  value={requirement}
+                  onChange={(e) => setRequirement(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  rows={1}
+                />
 
-              <button
-                onClick={handleGenerate}
-                disabled={!canGenerate || isGenerating}
-                className={cn(
-                  'shrink-0 h-8 w-8 rounded-lg flex items-center justify-center transition-all',
-                  canGenerate && !isGenerating
-                    ? 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm cursor-pointer'
-                    : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
+                {/* Toolbar row */}
+                <div className="px-3 pb-3 flex items-end gap-2">
+                  <div className="flex-1 min-w-0">
+                    <GenerationToolbar
+                      language={language}
+                      onLanguageChange={(lang) => setLanguage(lang)}
+                      webSearch={webSearch}
+                      onWebSearchChange={setWebSearch}
+                      onSettingsOpen={() => {}}
+                      pdfFile={pdfFile}
+                      onPdfFileChange={setPdfFile}
+                      onPdfError={setPdfError}
+                    />
+                  </div>
+
+                  <SpeechButton
+                    size="md"
+                    onTranscription={(text) => {
+                      setRequirement((prev) => prev + (prev ? ' ' : '') + text);
+                    }}
+                  />
+
+                  <button
+                    onClick={handleGenerate}
+                    disabled={!canGenerate || isGenerating}
+                    className={cn(
+                      'shrink-0 h-8 w-8 rounded-lg flex items-center justify-center transition-all',
+                      canGenerate && !isGenerating
+                        ? 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm cursor-pointer'
+                        : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
+                    )}
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="size-4 animate-spin text-primary" />
+                    ) : (
+                      <ArrowUp className="size-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <AnimatePresence>
+                {error && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    className="mt-2 text-xs text-red-500 px-1"
+                  >
+                    {error}
+                  </motion.p>
                 )}
+              </AnimatePresence>
+            </motion.div>
+
+            {/* ── Lesson Tabs ── */}
+            <Tabs defaultValue="my-lessons" className="w-full">
+              <TabsList className="mb-8 w-full max-w-md grid grid-cols-3 h-12 rounded-xl bg-neutral-200/50 dark:bg-neutral-900/50 p-1">
+                <TabsTrigger
+                  value="my-lessons"
+                  className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-neutral-800 data-[state=active]:shadow-sm"
+                >
+                  <BookOpen className="w-4 h-4 mr-2" />
+                  My Lessons
+                </TabsTrigger>
+                <TabsTrigger
+                  value="groups"
+                  className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-neutral-800 data-[state=active]:shadow-sm"
+                >
+                  <Folder className="w-4 h-4 mr-2" />
+                  Groups
+                </TabsTrigger>
+                <TabsTrigger
+                  value="shared"
+                  className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-neutral-800 data-[state=active]:shadow-sm"
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Shared
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent
+                value="my-lessons"
+                className="focus-visible:outline-none focus-visible:ring-0"
               >
-                {isGenerating ? (
-                  <Loader2 className="size-4 animate-spin text-primary" />
-                ) : (
-                  <ArrowUp className="size-4" />
-                )}
-              </button>
-            </div>
+                <LessonGrid items={myLessons} />
+              </TabsContent>
+              <TabsContent
+                value="groups"
+                className="focus-visible:outline-none focus-visible:ring-0"
+              >
+                <LessonGrid items={groupedLessons} />
+              </TabsContent>
+              <TabsContent
+                value="shared"
+                className="focus-visible:outline-none focus-visible:ring-0"
+              >
+                <LessonGrid items={sharedLessons} />
+              </TabsContent>
+            </Tabs>
           </div>
-
-          <AnimatePresence>
-            {error && (
-              <motion.p
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                className="mt-2 text-xs text-red-500 px-1"
-              >
-                {error}
-              </motion.p>
-            )}
-          </AnimatePresence>
-        </motion.div>
-
-        {/* ── Lesson Tabs ── */}
-        <Tabs defaultValue="my-lessons" className="w-full">
-          <TabsList className="mb-8 w-full max-w-md grid grid-cols-3 h-12 rounded-xl bg-neutral-200/50 dark:bg-neutral-900/50 p-1">
-            <TabsTrigger
-              value="my-lessons"
-              className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-neutral-800 data-[state=active]:shadow-sm"
-            >
-              <BookOpen className="w-4 h-4 mr-2" />
-              My Lessons
-            </TabsTrigger>
-            <TabsTrigger
-              value="groups"
-              className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-neutral-800 data-[state=active]:shadow-sm"
-            >
-              <Folder className="w-4 h-4 mr-2" />
-              Groups
-            </TabsTrigger>
-            <TabsTrigger
-              value="shared"
-              className="rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-neutral-800 data-[state=active]:shadow-sm"
-            >
-              <Users className="w-4 h-4 mr-2" />
-              Shared
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent
-            value="my-lessons"
-            className="focus-visible:outline-none focus-visible:ring-0"
-          >
-            <LessonGrid items={myLessons} />
-          </TabsContent>
-          <TabsContent
-            value="groups"
-            className="focus-visible:outline-none focus-visible:ring-0"
-          >
-            <LessonGrid items={groupedLessons} />
-          </TabsContent>
-          <TabsContent
-            value="shared"
-            className="focus-visible:outline-none focus-visible:ring-0"
-          >
-            <LessonGrid items={sharedLessons} />
-          </TabsContent>
-        </Tabs>
+        </main>
       </div>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }
