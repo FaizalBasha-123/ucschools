@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Users, Loader2, Search, CreditCard, Ticket } from 'lucide-react';
 import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
+import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,7 +37,7 @@ export default function OperatorUsersPage() {
       setError(null);
       try {
         const res = await fetch('/api/operator/users', { cache: 'no-store' });
-        if (res.status === 401) { router.push('/operator/login'); return; }
+        if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
         if (!res.ok) throw new Error('Failed to fetch users');
         const data = await res.json();
         if (data.success && data.users) {
@@ -70,14 +71,13 @@ export default function OperatorUsersPage() {
 
   return (
     <div className="flex w-full min-h-[100dvh] bg-[#F8FAFC] dark:bg-neutral-900/50">
-      <EnterpriseSidebar 
+      <EnterpriseSidebar
         variant="operator"
         onSignOut={async () => {
-          try { await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } }); } catch (e) {}
+          await operatorSignOut();
           router.push('/operator/login');
-        }} 
-      />
-      
+        }}
+      />      
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-8 pt-12">
           

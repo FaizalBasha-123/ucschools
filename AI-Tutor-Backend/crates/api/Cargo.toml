@@ -29,6 +29,8 @@ native-tls = { version = "0.2", features = ["vendored"] }
 tokio-native-tls = "0.3"
 redis = { version = "0.27", features = ["tokio-comp"] }
 rand = "0.8"
+postgres = "0.19"
+postgres-native-tls = "0.5"
 ai_tutor_domain = { path = "../domain" }
 ai_tutor_media = { path = "../media" }
 ai_tutor_orchestrator = { path = "../orchestrator" }

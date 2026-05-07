@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, Loader2, Plus, Users, CreditCard, ChevronRight, X } from 'lucide-react';
 import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
+import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -72,7 +73,7 @@ export default function OperatorSchoolsPage() {
     setError(null);
     try {
       const res = await fetch('/api/operator/schools', { cache: 'no-store' });
-      if (res.status === 401) { router.push('/operator/login'); return; }
+      if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
       if (!res.ok) throw new Error('Failed to fetch schools');
       const data = await res.json();
       if (data.success && data.schools) setSchools(data.schools);
@@ -211,7 +212,7 @@ export default function OperatorSchoolsPage() {
       <EnterpriseSidebar
         variant="operator"
         onSignOut={async () => {
-          try { await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } }); } catch (e) {}
+          await operatorSignOut();
           router.push('/operator/login');
         }}
       />

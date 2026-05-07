@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ticket, Loader2, Plus, Search, Calendar, Users, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
+import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -40,7 +41,7 @@ export default function OperatorPromoPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   const headers = (): HeadersInit => {
-    const tok = sessionStorage.getItem('operatorBearerToken');
+    const tok = getOperatorToken();
     const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
     if (tok) h['Authorization'] = `Bearer ${tok}`;
     return h;
@@ -50,7 +51,7 @@ export default function OperatorPromoPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/operator/promo-codes', { headers: headers(), cache: 'no-store' });
-      if (res.status === 401) { router.push('/operator/login'); return; }
+      if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
       if (!res.ok) throw new Error('Failed to fetch promo codes');
       const data = await res.json();
       setPromoCodes(data.promo_codes || []);
@@ -102,7 +103,10 @@ export default function OperatorPromoPage() {
 
   return (
     <div className="flex w-full min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
-      <EnterpriseSidebar variant="operator" onSignOut={() => router.push('/operator/login')} />
+      <EnterpriseSidebar variant="operator" onSignOut={async () => {
+        await operatorSignOut();
+        router.push('/operator/login');
+      }} />
 
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-6 pt-10">
