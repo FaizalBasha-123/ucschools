@@ -551,7 +551,7 @@ function HomePage() {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full flex flex-col items-center p-4 pt-16 md:p-8 md:pt-16 overflow-x-hidden" style={{ background: 'radial-gradient(ellipse 80% 60% at 50% -10%, rgba(16,185,129,0.08) 0%, transparent 70%), linear-gradient(180deg, #050d18 0%, #07111e 40%, #F8FAFC 100%)' }}>
+    <div className="min-h-[100dvh] w-full flex flex-col items-center p-4 pt-20 md:p-8 md:pt-24 overflow-x-hidden selection:bg-emerald-500/30" style={{ background: 'radial-gradient(circle at 50% -20%, rgba(16,185,129,0.15) 0%, transparent 80%), linear-gradient(180deg, #050d18 0%, #07111e 60%, #F8FAFC 100%)' }}>
       {/* ═══ Top Navigation Header ═══ */}
       <SiteHeader variant="landing" />
 
@@ -580,91 +580,105 @@ function HomePage() {
 
       {/* ═══ Background Decor ═══ */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {/* Primary glow orb */}
-        <div
-          className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[700px] h-[400px] rounded-full blur-[120px] animate-pulse"
-          style={{ background: 'rgba(16,185,129,0.07)', animationDuration: '5s' }}
+        {/* Animated Primary Mesh */}
+        <motion.div
+          animate={{ 
+            scale: [1, 1.1, 1],
+            opacity: [0.07, 0.1, 0.07] 
+          }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
+          className="absolute top-[-20%] left-1/2 -translate-x-1/2 w-[1000px] h-[600px] rounded-full blur-[140px]"
+          style={{ background: 'radial-gradient(circle, rgba(16,185,129,0.4) 0%, transparent 70%)' }}
         />
-        {/* Secondary accent orbs */}
+        
+        {/* Accent Orbs */}
         <div
-          className="absolute top-[20%] left-[10%] w-64 h-64 rounded-full blur-[80px] animate-pulse"
-          style={{ background: 'rgba(16,185,129,0.04)', animationDuration: '7s' }}
+          className="absolute top-[10%] left-[5%] w-96 h-96 rounded-full blur-[100px] opacity-[0.03]"
+          style={{ background: 'rgb(16,185,129)' }}
         />
         <div
-          className="absolute top-[15%] right-[8%] w-48 h-48 rounded-full blur-[60px] animate-pulse"
-          style={{ background: 'rgba(99,102,241,0.05)', animationDuration: '9s' }}
+          className="absolute top-[5%] right-[5%] w-80 h-80 rounded-full blur-[100px] opacity-[0.04]"
+          style={{ background: 'rgb(99,102,241)' }}
         />
-        {/* Grid texture */}
+
+        {/* Dynamic Grid */}
         <div
-          className="absolute inset-0 opacity-[0.025]"
+          className="absolute inset-0 opacity-[0.03]"
           style={{
-            backgroundImage: 'linear-gradient(rgba(255,255,255,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.6) 1px, transparent 1px)',
-            backgroundSize: '72px 72px',
+            backgroundImage: `linear-gradient(rgba(255,255,255,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.4) 1px, transparent 1px)`,
+            backgroundSize: '64px 64px',
+            maskImage: 'radial-gradient(ellipse 80% 50% at 50% 0%, black, transparent)',
+            WebkitMaskImage: 'radial-gradient(ellipse 80% 50% at 50% 0%, black, transparent)'
           }}
         />
-        {/* Bottom fade to light */}
-        <div className="absolute bottom-0 left-0 right-0 h-[30vh] bg-gradient-to-t from-[#F8FAFC] dark:from-neutral-900 to-transparent" />
+        
+        {/* Subtle noise texture */}
+        <div className="absolute inset-0 opacity-[0.015] pointer-events-none contrast-150 brightness-100" style={{ backgroundImage: 'url("https://grainy-gradients.vercel.app/noise.svg")' }} />
+
+        {/* Transition fade */}
+        <div className="absolute bottom-0 left-0 right-0 h-[40vh] bg-gradient-to-t from-[#F8FAFC] dark:from-neutral-900 to-transparent" />
       </div>
 
-      {/* ═══ Hero section: title + input (centered, wider) ═══ */}
+      {/* ═══ Hero section ═══ */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
+        transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
         className={cn(
-          'relative z-20 w-full max-w-[800px] flex flex-col items-center',
-          classrooms.length === 0 ? 'justify-center min-h-[calc(100dvh-8rem)]' : 'mt-[10vh]',
+          'relative z-20 w-full max-w-[850px] flex flex-col items-center',
+          classrooms.length === 0 ? 'justify-center min-h-[calc(100dvh-12rem)] mb-12' : 'mt-[8vh] mb-16',
         )}
       >
         {/* ── Hero Headline ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.08, duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
-          className="text-center mb-3"
-        >
+        <div className="text-center mb-10 w-full px-4">
           {/* Eyebrow */}
-          <div className="inline-flex items-center gap-2 mb-6 px-3 py-1 rounded-full border border-emerald-500/20 bg-emerald-500/5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-emerald-400/80 text-[11px] font-mono tracking-[0.25em] uppercase">
-              AI Teaching Engine
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
+            className="inline-flex items-center gap-2 mb-8 px-4 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/5 backdrop-blur-md"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" />
+            <span className="text-emerald-400/90 text-[10px] font-bold tracking-[0.2em] uppercase">
+              Next-Gen Pedagogy Engine
             </span>
-          </div>
+          </motion.div>
 
           {/* Main title */}
           <h1
-            className="text-4xl sm:text-5xl md:text-6xl font-black leading-[1.0] tracking-tight mb-4"
-            style={{ color: 'rgba(255,255,255,0.95)' }}
+            className="text-5xl sm:text-6xl md:text-7xl font-black leading-[1.05] tracking-tight mb-6"
+            style={{ color: 'rgba(255,255,255,0.98)' }}
           >
-            Every concept,
+            Your curiosity,
             <br />
             <span
-              style={{
-                background: 'linear-gradient(135deg, #10B981 0%, #34D399 50%, #6EE7B7 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-              }}
+              className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-400 animate-gradient-x"
+              style={{ backgroundSize: '200% auto' }}
             >
-              taught your way.
+              mastered instantly.
             </span>
           </h1>
 
           {/* Subheadline */}
-          <p className="text-sm md:text-base text-white/40 mb-8 max-w-md mx-auto leading-relaxed font-medium">
-            Describe anything you want to understand. A living classroom appears — built only for you.
+          <p className="text-base md:text-lg text-white/50 max-w-xl mx-auto leading-relaxed font-medium">
+            AI-Tutor crafts immersive, personalized classrooms from any description. 
+            Stop searching for answers—start experiencing them.
           </p>
-        </motion.div>
+        </div>
 
         {/* ── Unified input area ── */}
         <motion.div
-          initial={{ opacity: 0, scale: 0.97 }}
+          initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.35 }}
-          className="w-full"
+          transition={{ delay: 0.4, duration: 0.6 }}
+          className="w-full px-4 group"
         >
-          <div className="w-full rounded-2xl border border-white/10 dark:border-white/10 bg-white/90 dark:bg-neutral-900/90 backdrop-blur-2xl shadow-2xl shadow-black/30 transition-all duration-300 focus-within:shadow-emerald-500/20 focus-within:shadow-2xl focus-within:border-emerald-500/30" style={{ boxShadow: '0 0 0 1px rgba(16,185,129,0.0), 0 20px 60px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.07)' }}>
-            {/* ── Greeting + Profile + Agents ── */}
-            {/* ── Lesson Personalization Avatar ── */}
+          <div className="w-full rounded-3xl border border-white/10 bg-white/10 dark:bg-black/20 backdrop-blur-md md:backdrop-blur-xl lg:backdrop-blur-3xl shadow-[0_32px_64px_-16px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:ring-2 focus-within:ring-emerald-500/30 focus-within:border-emerald-500/40" 
+               style={{ 
+                 boxShadow: '0 0 0 1px rgba(255,255,255,0.05), 0 20px 50px -12px rgba(0,0,0,0.5)',
+                 background: 'linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%)'
+               }}>
+            {/* Header part of input */}
             <div className="relative z-20 flex items-start justify-between">
               <GreetingBar />
             </div>
@@ -672,8 +686,8 @@ function HomePage() {
             {/* Textarea */}
             <textarea
               ref={textareaRef}
-              placeholder="What do you want to learn today?"
-              className="w-full resize-none border-0 bg-transparent px-4 pt-3 pb-2 text-[14px] md:text-[15px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[48px] max-h-[200px]"
+              placeholder="What do you want to understand deeply today?"
+              className="w-full resize-none border-0 bg-transparent px-6 pt-2 pb-3 text-[14px] sm:text-[15px] md:text-[17px] leading-relaxed text-white placeholder:text-white/20 focus:outline-none min-h-[56px] max-h-[220px] font-medium"
               value={form.requirement}
               onChange={(e) => updateForm('requirement', e.target.value)}
               onKeyDown={handleKeyDown}
@@ -681,47 +695,51 @@ function HomePage() {
             />
 
             {/* Toolbar row */}
-            <div className="px-3 pb-3 flex items-end gap-2">
+            <div className="px-4 pb-4 flex items-end gap-3">
               <div className="flex-1 min-w-0">
-                <GenerationToolbar
-                  language={form.language}
-                  onLanguageChange={(lang) => updateForm('language', lang)}
-                  webSearch={form.webSearch}
-                  onWebSearchChange={(v) => updateForm('webSearch', v)}
-                  onSettingsOpen={(section) => {
-                    setSettingsSection(section);
-                    setSettingsOpen(true);
-                  }}
-                  pdfFile={form.pdfFile}
-                  onPdfFileChange={(f) => updateForm('pdfFile', f)}
-                  onPdfError={setError}
-                />
+                <div className="bg-black/20 dark:bg-white/5 rounded-2xl p-1 border border-white/5">
+                  <GenerationToolbar
+                    language={form.language}
+                    onLanguageChange={(lang) => updateForm('language', lang)}
+                    webSearch={form.webSearch}
+                    onWebSearchChange={(v) => updateForm('webSearch', v)}
+                    onSettingsOpen={(section) => {
+                      setSettingsSection(section);
+                      setSettingsOpen(true);
+                    }}
+                    pdfFile={form.pdfFile}
+                    onPdfFileChange={(f) => updateForm('pdfFile', f)}
+                    onPdfError={setError}
+                  />
+                </div>
               </div>
 
-              {/* Voice input */}
-              <SpeechButton
-                size="md"
-                onTranscription={(text) => {
-                  setForm((prev) => {
-                    const next = prev.requirement + (prev.requirement ? ' ' : '') + text;
-                    updateRequirementCache(next);
-                    return { ...prev, requirement: next };
-                  });
-                }}
-              />
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2">
+                <SpeechButton
+                  size="lg"
+                  onTranscription={(text) => {
+                    setForm((prev) => {
+                      const next = prev.requirement + (prev.requirement ? ' ' : '') + text;
+                      updateRequirementCache(next);
+                      return { ...prev, requirement: next };
+                    });
+                  }}
+                />
 
-              <button
-                onClick={handleGenerate}
-                disabled={!canGenerate || authChecking || isGenerating}
-                className={cn(
-                  'shrink-0 h-8 w-8 rounded-lg flex items-center justify-center transition-all',
-                  canGenerate && !authChecking && !isGenerating
-                    ? 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm cursor-pointer'
-                    : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
-                )}
-              >
-                {isGenerating ? <Loader2 className="size-4 animate-spin text-primary" /> : <ArrowUp className="size-4" />}
-              </button>
+                <button
+                  onClick={handleGenerate}
+                  disabled={!canGenerate || authChecking || isGenerating}
+                  className={cn(
+                    'shrink-0 h-11 w-11 rounded-2xl flex items-center justify-center transition-all duration-300',
+                    canGenerate && !authChecking && !isGenerating
+                      ? 'bg-emerald-500 text-white hover:bg-emerald-400 shadow-[0_8px_16px_-4px_rgba(16,185,129,0.4)] hover:shadow-[0_12px_20px_-4px_rgba(16,185,129,0.5)] active:scale-95 cursor-pointer'
+                      : 'bg-white/5 text-white/20 cursor-not-allowed',
+                  )}
+                >
+                  {isGenerating ? <Loader2 className="size-5 animate-spin" /> : <ArrowUp className="size-5 stroke-[2.5]" />}
+                </button>
+              </div>
             </div>
           </div>
         </motion.div>

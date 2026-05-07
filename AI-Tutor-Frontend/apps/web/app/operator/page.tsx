@@ -99,7 +99,7 @@ export default function OperatorPage() {
       }} />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto p-6 pt-10">
+        <div className="max-w-7xl mx-auto p-4 pt-6 md:p-6 md:pt-10">
 
           {/* Header */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">

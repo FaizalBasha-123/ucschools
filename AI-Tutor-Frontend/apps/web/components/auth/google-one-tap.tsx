@@ -83,6 +83,8 @@ export function GoogleOneTap({ onSuccess, onError }: GoogleOneTapProps) {
         // Store session
         setAuthSession({
           token: data.session_token,
+          refreshToken: data.refresh_token,
+          expiresIn: data.expires_in ?? undefined,
           accountId: data.account_id,
           email: data.email,
         });

@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
 import { LeftSidebar } from '@/components/layout/left-sidebar';
 import { UserMenu } from '@/components/layout/user-menu';
+import { CreditsDisplay } from '@/components/layout/credits-display';
 import { SettingsDialog } from '@/components/settings';
 
 export default function ClassroomDashboard() {
@@ -296,14 +297,19 @@ export default function ClassroomDashboard() {
       }} />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
-        <Header currentSceneTitle="Classroom Dashboard" />
-        
-        <div className="absolute top-6 right-24 z-20">
-          <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
-        </div>
+        <Header 
+          currentSceneTitle="Classroom Dashboard" 
+          rightElement={
+            <div className="flex items-center gap-4">
+              <CreditsDisplay />
+              <div className="w-[1px] h-6 bg-neutral-200 dark:bg-neutral-800" />
+              <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
+            </div>
+          }
+        />
 
         <main className="flex-1 overflow-y-auto scrollbar-hide">
-          <div className="max-w-7xl mx-auto px-6 py-10">
+          <div className="max-w-7xl mx-auto px-4 py-6 md:px-6 md:py-10">
             {/* ── Hero: Quick generate input ── */}
             <motion.div
               initial={{ opacity: 0, y: -10 }}

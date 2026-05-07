@@ -10310,7 +10310,7 @@ fn partial_auth_ttl_seconds() -> i64 {
 fn session_ttl_seconds() -> i64 {
     // Prefer the new access-token-specific env var, fall back to the legacy
     // AI_TUTOR_SESSION_TTL_HOURS for backward compatibility, then default
-    // to 1 hour (enterprise-standard short-lived access token).
+    // to 24 hours (long-lived access token).
     if let Some(secs) = read_optional_env("AI_TUTOR_ACCESS_TOKEN_TTL_SECONDS")
         .and_then(|v| v.parse::<i64>().ok())
     {
@@ -10319,14 +10319,14 @@ fn session_ttl_seconds() -> i64 {
     read_optional_env("AI_TUTOR_SESSION_TTL_HOURS")
         .and_then(|value| value.parse::<i64>().ok())
         .map(|hours| hours * 3600)
-        .unwrap_or(3600) // 1 hour default
+        .unwrap_or(86400) // 24 hours default
 }
 
 fn refresh_token_ttl_seconds() -> i64 {
     read_optional_env("AI_TUTOR_REFRESH_TOKEN_TTL_DAYS")
         .and_then(|v| v.parse::<i64>().ok())
         .map(|days| days * 86400)
-        .unwrap_or(30 * 86400) // 30 days default
+        .unwrap_or(90 * 86400) // 90 days default
 }
 
 fn auth_cookie_enabled() -> bool {
