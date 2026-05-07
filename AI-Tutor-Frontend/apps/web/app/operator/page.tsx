@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
+import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { cn } from '@/lib/utils';
 
@@ -53,7 +54,7 @@ export default function OperatorPage() {
   const [schools, setSchools] = useState<any[]>([]);
 
   const headers = (): HeadersInit => {
-    const tok = sessionStorage.getItem('operatorBearerToken');
+    const tok = getOperatorToken();
     const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
     if (tok) h['Authorization'] = `Bearer ${tok}`;
     return h;
@@ -67,7 +68,7 @@ export default function OperatorPage() {
         fetch('/api/operator/api-costs', { headers: headers(), cache: 'no-store' }),
         fetch('/api/operator/schools', { headers: headers(), cache: 'no-store' }),
       ]);
-      if (ovRes.status === 401) { router.push('/operator/login'); return; }
+      if (ovRes.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
       if (ovRes.ok) setOverview(await ovRes.json());
       if (costsRes.ok) setApiCosts(await costsRes.json());
       if (schoolsRes.ok) {
@@ -93,8 +94,7 @@ export default function OperatorPage() {
   return (
     <div className="flex w-full min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
       <EnterpriseSidebar variant="operator" onSignOut={async () => {
-        try { await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } }); } catch {}
-        sessionStorage.removeItem('operatorBearerToken');
+        await operatorSignOut();
         router.push('/operator/login');
       }} />
 

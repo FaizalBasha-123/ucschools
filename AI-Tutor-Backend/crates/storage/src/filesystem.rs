@@ -543,6 +543,13 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens (token_hash);
         "#,
     },
+    PostgresMigration {
+        version: 14,
+        name: "restore_unique_email_index",
+        sql: r#"
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_tutor_accounts_email_lower ON tutor_accounts (LOWER(email));
+        "#,
+    },
 ];
 
 impl FileStorage {

@@ -7,6 +7,7 @@ const REFRESH_TOKEN_KEY = 'aiTutorRefreshToken';
 const TOKEN_EXPIRES_AT_KEY = 'aiTutorTokenExpiresAt';
 const ACCOUNT_EMAIL_KEY = 'aiTutorAccountEmail';
 const ACCOUNT_ID_KEY = 'aiTutorAccountId';
+export const OPERATOR_TOKEN_KEY = 'operatorBearerToken';
 
 export type AuthSession = {
   token?: string;
@@ -244,5 +245,29 @@ export async function verifyAuthSession(): Promise<boolean> {
   } catch (err) {
     log.error('Network error during auth verification, preserving local session');
     return true; 
+  }
+}
+
+export function getOperatorToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return sessionStorage.getItem(OPERATOR_TOKEN_KEY);
+}
+
+export function clearOperatorSession(): void {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(OPERATOR_TOKEN_KEY);
+}
+
+export async function operatorSignOut(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    await fetch('/api/operator/auth/logout', { 
+      method: 'POST', 
+      headers: { 'X-Operator-Header': 'true' } 
+    });
+  } catch (e) {
+    // ignore network errors on signout
+  } finally {
+    clearOperatorSession();
   }
 }

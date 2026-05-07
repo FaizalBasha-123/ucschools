@@ -2109,13 +2109,15 @@ impl LiveLessonAppService {
                 return Ok(existing);
             } else {
                 // If it's an active account but with a different google_id, we DO NOT link it.
-                // This is a safety gate.
-                tracing::warn!(
+                // This is a safety gate to prevent account takeover and duplication.
+                tracing::error!(
                     account_id = %existing.id, 
                     old_google_id = %existing.google_id,
                     new_google_id = %claims.sub,
-                    "upsert block: email collision with active account but different google_id"
+                    email = %existing.email,
+                    "upsert block: email collision with existing account but different google_id"
                 );
+                return Err(anyhow!("The email {} is already associated with another account. Please use the original login method.", existing.email));
             }
         }
 

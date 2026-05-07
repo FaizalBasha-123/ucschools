@@ -68,6 +68,8 @@ dependencies = [
  "filetime",
  "jsonwebtoken",
  "native-tls",
+ "postgres",
+ "postgres-native-tls",
  "rand 0.8.5",
  "redis",
  "reqwest 0.12.24",

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ListTodo, Loader2, Play, Square, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { EnterpriseSidebar } from '@/components/layout/enterprise-sidebar';
+import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -37,7 +38,7 @@ export default function OperatorJobsPage() {
       const res = await fetch('/api/operator/jobs', { cache: 'no-store' });
       
       if (res.status === 401) {
-        router.push('/operator/login');
+        clearOperatorSession(); router.push('/operator/login');
         return;
       }
       
@@ -93,16 +94,13 @@ export default function OperatorJobsPage() {
 
   return (
     <div className="flex w-full min-h-[100dvh] bg-neutral-50 dark:bg-neutral-900/50">
-      <EnterpriseSidebar 
+      <EnterpriseSidebar
         variant="operator"
         onSignOut={async () => {
-          try {
-            await fetch('/api/operator/auth/logout', { method: 'POST', headers: { 'X-Operator-Header': 'true' } });
-          } catch (e) {}
+          await operatorSignOut();
           router.push('/operator/login');
-        }} 
-      />
-      
+        }}
+      />      
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-8 pt-12">
           

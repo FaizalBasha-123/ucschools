@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, ArrowLeft, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 
 type OperatorAuthStep = 'email' | 'otp' | 'success';
 
@@ -105,7 +106,7 @@ export default function OperatorLoginPage() {
 
       // Redirect after a brief delay
       setTimeout(() => {
-        router.push('/operator/login');
+        router.push('/operator');
       }, 1500);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to verify OTP';
