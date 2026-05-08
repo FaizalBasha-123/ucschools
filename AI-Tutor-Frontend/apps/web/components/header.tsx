@@ -23,7 +23,7 @@ import { useMediaGenerationStore } from '@/lib/store/media-generation';
 import { useExportPPTX } from '@/lib/export/use-export-pptx';
 
 interface HeaderProps {
-  readonly currentSceneTitle: string;
+  readonly currentSceneTitle?: string;
   readonly rightElement?: React.ReactNode;
 }
 

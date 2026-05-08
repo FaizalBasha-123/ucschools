@@ -29,6 +29,7 @@ import type { UserRequirements } from '@/lib/types/generation';
 import { SpeechButton } from '@/components/audio/speech-button';
 import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
+import { AuroraEffect } from '@/components/aurora-effect';
 import { LeftSidebar } from '@/components/layout/left-sidebar';
 import { UserMenu } from '@/components/layout/user-menu';
 import { CreditsDisplay } from '@/components/layout/credits-display';
@@ -338,8 +339,10 @@ export default function ClassroomDashboard() {
       }} />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
+        <div className="absolute inset-0 z-0">
+          <AuroraEffect />
+        </div>
         <Header
-          currentSceneTitle="Classroom Dashboard"
           rightElement={
             <div className="flex items-center gap-4">
               <CreditsDisplay />
@@ -358,16 +361,16 @@ export default function ClassroomDashboard() {
               transition={{ duration: 0.4 }}
               className="mb-10"
             >
-              <div className="flex items-center gap-3 mb-6">
+              <div className="relative z-10 flex items-center gap-3 mb-6">
                 <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-emerald-500 flex items-center justify-center shadow-lg shadow-primary/20">
                   <Sparkles className="h-5 w-5 text-white" />
                 </div>
-                <div>
+                <div className="text-center">
                   <h1 className="text-2xl font-bold text-neutral-900 dark:text-white">
                     Classroom Hub
                   </h1>
                   <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                    Generate, manage, and organize all your lessons.
+                    Create and explore your AI-powered lessons.
                   </p>
                 </div>
               </div>

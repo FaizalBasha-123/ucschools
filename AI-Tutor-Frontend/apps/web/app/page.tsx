@@ -63,6 +63,7 @@ import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useDraftCache } from '@/lib/hooks/use-draft-cache';
 import { SpeechButton } from '@/components/audio/speech-button';
+import { AuroraEffect } from '@/components/aurora-effect';
 import { authHeaders, clearAuthSession, getAuthSession, hasAuthSessionHint, verifyAuthSession } from '@/lib/auth/session';
 import { GoogleOneTap } from '@/components/auth/google-one-tap';
 
@@ -616,6 +617,9 @@ function HomePage() {
           }}
         />
       )}
+
+      {/* ═══ Aurora Effect — Top Edge ═══ */}
+      <AuroraEffect className="fixed top-0 left-0 w-full h-64 md:h-80" />
 
       {/* ═══ Background Decor ═══ */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
