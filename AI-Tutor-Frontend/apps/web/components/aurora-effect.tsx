@@ -26,21 +26,21 @@ export function AuroraEffect({
       >
         <defs>
           <linearGradient id="aurora-gradient-1" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor={primaryColor} stopOpacity="0.8" />
-            <stop offset="30%" stopColor={secondaryColor} stopOpacity="0.5" />
-            <stop offset="60%" stopColor="rgba(16, 185, 129, 0.3)" stopOpacity="0.4" />
-            <stop offset="100%" stopColor={primaryColor} stopOpacity="0.6" />
+            <stop offset="0%" stopColor={primaryColor} stopOpacity="0.9" />
+            <stop offset="30%" stopColor={secondaryColor} stopOpacity="0.7" />
+            <stop offset="60%" stopColor="rgba(16, 185, 129, 0.5)" stopOpacity="0.6" />
+            <stop offset="100%" stopColor={primaryColor} stopOpacity="0.8" />
           </linearGradient>
           <linearGradient id="aurora-gradient-2" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="rgba(52, 211, 153, 0.3)" stopOpacity="0.5" />
-            <stop offset="50%" stopColor={secondaryColor} stopOpacity="0.7" />
-            <stop offset="100%" stopColor="rgba(16, 185, 129, 0.4)" stopOpacity="0.4" />
+            <stop offset="0%" stopColor="rgba(52, 211, 153, 0.5)" stopOpacity="0.7" />
+            <stop offset="50%" stopColor={secondaryColor} stopOpacity="0.8" />
+            <stop offset="100%" stopColor="rgba(16, 185, 129, 0.6)" stopOpacity="0.6" />
           </linearGradient>
           <linearGradient id="aurora-gradient-3" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="rgba(16, 185, 129, 0.2)" stopOpacity="0.4" />
-            <stop offset="40%" stopColor={primaryColor} stopOpacity="0.5" />
-            <stop offset="80%" stopColor="rgba(52, 211, 153, 0.3)" stopOpacity="0.4" />
-            <stop offset="100%" stopColor="rgba(16, 185, 129, 0.5)" stopOpacity="0.3" />
+            <stop offset="0%" stopColor="rgba(16, 185, 129, 0.4)" stopOpacity="0.6" />
+            <stop offset="40%" stopColor={primaryColor} stopOpacity="0.7" />
+            <stop offset="80%" stopColor="rgba(52, 211, 153, 0.5)" stopOpacity="0.6" />
+            <stop offset="100%" stopColor="rgba(16, 185, 129, 0.7)" stopOpacity="0.5" />
           </linearGradient>
         </defs>
         <motion.path

@@ -339,10 +339,11 @@ export default function ClassroomDashboard() {
       }} />
 
       <div className="flex-1 flex flex-col min-w-0 relative">
-        <div className="absolute inset-0 z-0">
+        <div className="absolute top-0 left-0 w-full h-80 z-0 overflow-hidden pointer-events-none">
           <AuroraEffect />
         </div>
         <Header
+          hideLeft={true}
           rightElement={
             <div className="flex items-center gap-4">
               <CreditsDisplay />
@@ -361,16 +362,16 @@ export default function ClassroomDashboard() {
               transition={{ duration: 0.4 }}
               className="mb-10"
             >
-              <div className="relative z-10 flex items-center gap-3 mb-6">
-                <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-primary to-emerald-500 flex items-center justify-center shadow-lg shadow-primary/20">
-                  <Sparkles className="h-5 w-5 text-white" />
+              <div className="relative z-10 flex flex-col items-center justify-center mb-10 mt-6">
+                <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 mb-4">
+                  <Sparkles className="h-6 w-6 text-white" />
                 </div>
-                <div className="text-center">
-                  <h1 className="text-2xl font-bold text-neutral-900 dark:text-white">
-                    Classroom Hub
+                <div className="text-center max-w-2xl mx-auto">
+                  <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-neutral-900 dark:text-white mb-3">
+                    What do you want to master today?
                   </h1>
-                  <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                    Create and explore your AI-powered lessons.
+                  <p className="text-base md:text-lg text-neutral-500 dark:text-neutral-400">
+                    Instantly generate personalized, high-fidelity lessons tailored to your learning style.
                   </p>
                 </div>
               </div>
