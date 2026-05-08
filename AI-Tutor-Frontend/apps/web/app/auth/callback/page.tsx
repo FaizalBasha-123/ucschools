@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { setAuthSession, clearAuthSession } from '@/lib/auth/session';
+import { motion } from 'motion/react';
+import { Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
 
 function AuthCallbackPageContent() {
   const router = useRouter();
@@ -81,13 +83,72 @@ function AuthCallbackPageContent() {
   }, [queryString, router]);
 
   return (
-    <main className="min-h-screen bg-neutral-100 text-neutral-900">
-      <div className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-6 py-16">
-        <section className="w-full rounded-3xl border border-neutral-200 bg-white p-8 text-center shadow-lg">
-          <h1 className="text-2xl font-semibold tracking-tight">Signing you in...</h1>
-          <p className="mt-2 text-sm text-neutral-600">Finalizing secure session and loading your dashboard.</p>
-          {error ? <p className="mt-5 text-sm text-rose-700">{error}</p> : null}
-        </section>
+    <main className="min-h-screen bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 relative overflow-hidden flex items-center justify-center">
+      {/* Enterprise Background Decor */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div className="absolute top-[-20%] left-[20%] w-[500px] h-[500px] rounded-full bg-emerald-500/10 dark:bg-emerald-500/5 blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[10%] w-[400px] h-[400px] rounded-full bg-indigo-500/10 dark:bg-indigo-500/5 blur-[100px]" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-md px-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <div className="rounded-3xl border border-neutral-200/50 dark:border-neutral-800/50 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl shadow-2xl p-8 md:p-10 text-center relative overflow-hidden">
+            {/* Top accent line */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-400 via-teal-500 to-indigo-500" />
+
+            {!error ? (
+              <div className="flex flex-col items-center">
+                <div className="relative mb-6">
+                  <div className="absolute inset-0 bg-emerald-500/20 dark:bg-emerald-500/10 rounded-full animate-ping" />
+                  <div className="relative h-16 w-16 bg-white dark:bg-neutral-800 rounded-full border border-neutral-100 dark:border-neutral-700 shadow-sm flex items-center justify-center">
+                    <ShieldCheck className="h-8 w-8 text-emerald-500" />
+                    <Loader2 className="h-16 w-16 text-emerald-500/30 absolute animate-spin" />
+                  </div>
+                </div>
+                
+                <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-neutral-900 dark:text-white mb-3">
+                  Authenticating
+                </h1>
+                <p className="text-sm md:text-base text-neutral-500 dark:text-neutral-400 font-medium max-w-[250px] mx-auto">
+                  Establishing secure enterprise session...
+                </p>
+                
+                <div className="mt-8 w-full max-w-[200px] mx-auto">
+                  <div className="h-1.5 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                    <motion.div 
+                      className="h-full bg-gradient-to-r from-emerald-400 to-teal-500 rounded-full"
+                      initial={{ width: "0%" }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 2, ease: "easeInOut", repeat: Infinity }}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center">
+                <div className="h-16 w-16 bg-rose-100 dark:bg-rose-500/10 rounded-full flex items-center justify-center mb-6">
+                  <AlertCircle className="h-8 w-8 text-rose-600 dark:text-rose-500" />
+                </div>
+                <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-white mb-3">
+                  Authentication Failed
+                </h1>
+                <p className="text-sm text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-500/5 px-4 py-3 rounded-xl border border-rose-100 dark:border-rose-500/10">
+                  {error}
+                </p>
+                <button 
+                  onClick={() => router.replace('/auth?mode=signin')}
+                  className="mt-8 px-6 py-2.5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 text-sm font-semibold rounded-full hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors"
+                >
+                  Return to Sign In
+                </button>
+              </div>
+            )}
+          </div>
+        </motion.div>
       </div>
     </main>
   );
@@ -95,7 +156,11 @@ function AuthCallbackPageContent() {
 
 export default function AuthCallbackPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-neutral-100" />}>
+    <Suspense fallback={
+      <main className="min-h-screen bg-neutral-50 dark:bg-neutral-950 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+      </main>
+    }>
       <AuthCallbackPageContent />
     </Suspense>
   );
