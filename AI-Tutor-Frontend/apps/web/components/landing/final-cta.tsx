@@ -12,14 +12,14 @@ export function FinalCTA() {
   };
 
   return (
-    <section className="relative w-full overflow-hidden py-40 md:py-56 px-4">
-      {/* Deep background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#030b14] via-[#061220] to-[#030b14]" />
+    <section className="relative w-full overflow-hidden py-40 md:py-56 px-4 bg-background transition-colors duration-300">
+      {/* Deep background - theme aware */}
+      <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/30 to-background" />
 
       {/* Radial burst */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-[800px] h-[400px] rounded-full bg-emerald-500/10 blur-[100px]" />
-        <div className="absolute w-[400px] h-[200px] rounded-full bg-emerald-400/8 blur-[60px]" />
+        <div className="w-[800px] h-[400px] rounded-full bg-primary/10 blur-[100px]" />
+        <div className="absolute w-[400px] h-[200px] rounded-full bg-primary/5 blur-[60px]" />
       </div>
 
       {/* Subtle concentric rings */}
@@ -28,7 +28,7 @@ export function FinalCTA() {
           key={size}
           animate={{ scale: [1, 1.04, 1], opacity: [0.06, 0.12, 0.06] }}
           transition={{ duration: 4 + i, repeat: Infinity, delay: i * 0.8, ease: 'easeInOut' }}
-          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-emerald-500/20 pointer-events-none"
+          className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/20 pointer-events-none"
           style={{ width: size, height: size }}
         />
       ))}
@@ -41,11 +41,11 @@ export function FinalCTA() {
           transition={{ duration: 0.6 }}
           className="flex items-center justify-center gap-3 mb-10"
         >
-          <div className="h-px w-12 bg-gradient-to-r from-transparent to-emerald-500/30" />
-          <span className="text-emerald-400/60 text-xs font-mono tracking-[0.3em] uppercase">
+          <div className="h-px w-12 bg-gradient-to-r from-transparent to-primary/30" />
+          <span className="text-primary/60 text-xs font-mono tracking-[0.3em] uppercase">
             Begin
           </span>
-          <div className="h-px w-12 bg-gradient-to-l from-transparent to-emerald-500/30" />
+          <div className="h-px w-12 bg-gradient-to-l from-transparent to-primary/30" />
         </motion.div>
 
         {/* Headline */}
@@ -53,7 +53,7 @@ export function FinalCTA() {
           initial={{ opacity: 0, y: 40 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.9, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
-          className="text-5xl md:text-7xl font-black text-white tracking-tight leading-[0.9] mb-8"
+          className="text-5xl md:text-7xl font-black text-foreground tracking-tight leading-[0.9] mb-8"
         >
           The lesson
           <br />
@@ -61,7 +61,7 @@ export function FinalCTA() {
           <span
             className="relative inline-block"
             style={{
-              background: 'linear-gradient(135deg, #10B981, #34D399)',
+              background: 'linear-gradient(135deg, var(--primary), #34D399)',
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
             }}
@@ -73,7 +73,7 @@ export function FinalCTA() {
               initial={{ scaleX: 0 }}
               animate={inView ? { scaleX: 1 } : {}}
               transition={{ duration: 0.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
-              className="absolute -bottom-2 left-0 right-0 h-[3px] rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 origin-left"
+              className="absolute -bottom-2 left-0 right-0 h-[3px] rounded-full bg-gradient-to-r from-primary to-teal-400 origin-left"
             />
           </span>
         </motion.h2>
@@ -83,7 +83,7 @@ export function FinalCTA() {
           initial={{ opacity: 0, y: 20 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.7, delay: 0.3 }}
-          className="text-lg text-neutral-500 mb-14 leading-relaxed max-w-xl mx-auto"
+          className="text-lg text-muted-foreground mb-14 leading-relaxed max-w-xl mx-auto"
         >
           Type anything — a concept, a subject, a problem you are stuck on. In moments, a living classroom materialises around your curiosity.
         </motion.p>
@@ -99,7 +99,7 @@ export function FinalCTA() {
             onClick={scrollToTop}
             className="group relative inline-flex items-center gap-3 px-10 py-5 rounded-full font-bold text-lg text-white overflow-hidden transition-all hover:scale-105 active:scale-95"
             style={{
-              background: 'linear-gradient(135deg, #059669 0%, #10B981 50%, #34D399 100%)',
+              background: 'linear-gradient(135deg, #059669 0%, var(--primary) 50%, #34D399 100%)',
               boxShadow: '0 0 40px rgba(16,185,129,0.35), 0 2px 0 rgba(255,255,255,0.1) inset',
             }}
           >
@@ -131,7 +131,7 @@ export function FinalCTA() {
           initial={{ opacity: 0 }}
           animate={inView ? { opacity: 1 } : {}}
           transition={{ duration: 0.6, delay: 0.6 }}
-          className="mt-8 text-xs text-neutral-600 font-mono tracking-wide"
+          className="mt-8 text-xs text-muted-foreground/60 font-mono tracking-wide"
         >
           No setup · No credit card · First lesson free
         </motion.p>
