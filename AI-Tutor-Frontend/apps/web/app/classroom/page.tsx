@@ -96,25 +96,14 @@ export default function ClassroomDashboard() {
     }
   }, []);
 
+  // ── Auto-resize textarea logic ──
   useEffect(() => {
-    async function initDashboard() {
-      try {
-        const isVerified = await verifyAuthSession();
-        if (!isVerified) {
-          router.replace('/auth?mode=signin&next=/classroom');
-          return;
-        }
-        const response = await fetchShelf();
-        setLessons(response.items || []);
-      } catch (err) {
-        console.error('Failed to initialize dashboard:', err);
-        toast.error('Failed to load lessons');
-      } finally {
-        setLoading(false);
-      }
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
     }
-    initDashboard();
-  }, [router]);
+  }, [requirement]);
 
   // ── Generate handler ──
   const handleGenerate = useCallback(async () => {
@@ -363,9 +352,6 @@ export default function ClassroomDashboard() {
               className="mb-10"
             >
               <div className="relative z-10 flex flex-col items-center justify-center mb-10 mt-6">
-                <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-lg shadow-emerald-500/20 mb-4">
-                  <Sparkles className="h-6 w-6 text-white" />
-                </div>
                 <div className="text-center max-w-2xl mx-auto">
                   <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-neutral-900 dark:text-white mb-3">
                     What do you want to master today?
@@ -381,7 +367,7 @@ export default function ClassroomDashboard() {
                 <textarea
                   ref={textareaRef}
                   placeholder="What do you want to learn today?"
-                  className="w-full resize-none border-0 bg-transparent px-4 pt-4 pb-2 text-[14px] md:text-[15px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[48px] max-h-[200px]"
+                  className="w-full resize-none border-0 bg-transparent px-4 pt-4 pb-2 text-[14px] md:text-[15px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[48px] max-h-[180px] overflow-y-auto scrollbar-hide transition-[height] duration-200 ease-out"
                   value={requirement}
                   onChange={(e) => setRequirement(e.target.value)}
                   onKeyDown={handleKeyDown}
