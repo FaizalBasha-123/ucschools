@@ -96,6 +96,27 @@ export default function ClassroomDashboard() {
     }
   }, []);
 
+  // ── On mount: fetch lessons ──
+  useEffect(() => {
+    async function initDashboard() {
+      try {
+        const isVerified = await verifyAuthSession();
+        if (!isVerified) {
+          router.replace('/auth?mode=signin&next=/classroom');
+          return;
+        }
+        const response = await fetchShelf();
+        setLessons(response.items || []);
+      } catch (err) {
+        console.error('Failed to initialize dashboard:', err);
+        toast.error('Failed to load lessons');
+      } finally {
+        setLoading(false);
+      }
+    }
+    initDashboard();
+  }, [router]);
+
   // ── Auto-resize textarea logic ──
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -211,7 +232,7 @@ export default function ClassroomDashboard() {
       <div className="flex h-screen items-center justify-center bg-neutral-50 dark:bg-neutral-950">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-neutral-500">Loading your dashboard...</p>
+          <p className="text-sm text-neutral-500">Loading your classrooms...</p>
         </div>
       </div>
     );
