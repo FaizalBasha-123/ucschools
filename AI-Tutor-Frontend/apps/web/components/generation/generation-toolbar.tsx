@@ -22,6 +22,7 @@ import type { WebSearchProviderId } from '@/lib/web-search/types';
 import type { SettingsSection } from '@/lib/types/settings';
 import { MediaPopover } from '@/components/generation/media-popover';
 import { ModeSelector } from '@/components/generation/mode-selector';
+import { LanguageSwitcher } from '@/components/language-switcher';
 
 // ─── Constants ───────────────────────────────────────────────
 const MAX_PDF_SIZE_MB = 50;
@@ -213,22 +214,10 @@ export function GenerationToolbar({
 
 
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            onClick={() => {
-              const currentIdx = supportedLocales.findIndex((l) => l.code === locale);
-              const next = supportedLocales[(currentIdx + 1) % supportedLocales.length];
-              setLocale(next.code);
-            }}
-            className={cn(pillCls, 'border-border/50 text-muted-foreground/70 hover:text-foreground hover:bg-muted/60')}
-          >
-            <Globe className="size-3.5" />
-            <span>{localeLabelShort}</span>
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>{t('toolbar.languageHint')}</TooltipContent>
-      </Tooltip>
+      <LanguageSwitcher 
+        className={cn(pillCls, 'border-border/50 text-muted-foreground/70 hover:text-foreground hover:bg-muted/60')} 
+        align="left"
+      />
 
       {/* ── Separator ── */}
       <div className="w-px h-4 bg-border/60 mx-1" />

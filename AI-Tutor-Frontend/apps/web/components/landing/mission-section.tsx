@@ -24,7 +24,7 @@ function RotatingWord() {
         exit={{ y: '-110%', opacity: 0 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         className="absolute inset-0 flex items-center justify-start"
-        style={{ color: 'transparent', WebkitTextStroke: '1.5px #10B981' }}
+        style={{ color: 'transparent', WebkitTextStroke: '1.5px var(--primary)' }}
       >
         {WORDS[index]}
       </motion.span>
@@ -136,21 +136,21 @@ export function MissionSection() {
   return (
     <section
       ref={sectionRef}
-      className="relative w-full overflow-hidden py-32 md:py-44 px-4"
+      className="relative w-full overflow-hidden py-32 md:py-44 px-4 bg-background transition-colors duration-300"
     >
-      {/* Deep background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#050d18] via-[#061220] to-[#050d18]" />
+      {/* Deep background gradient - theme aware */}
+      <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/30 to-background" />
 
       {/* Radial glow */}
       <motion.div
         style={{ y: yParallax }}
         className="absolute inset-0 flex items-center justify-center pointer-events-none"
       >
-        <div className="w-[600px] h-[600px] rounded-full bg-emerald-500/8 blur-[120px]" />
+        <div className="w-[600px] h-[600px] rounded-full bg-primary/10 blur-[120px]" />
       </motion.div>
 
       {/* Neural network animation */}
-      <div className="absolute inset-0 opacity-60">
+      <div className="absolute inset-0 opacity-40 dark:opacity-60">
         <NeuralCanvas />
       </div>
 
@@ -158,7 +158,7 @@ export function MissionSection() {
       <motion.div
         animate={{ y: ['0%', '100%', '0%'] }}
         transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
-        className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent pointer-events-none"
+        className="absolute left-0 right-0 h-px bg-gradient-to-r from-transparent via-primary/20 to-transparent pointer-events-none"
       />
 
       <div className="relative z-10 max-w-6xl mx-auto">
@@ -169,8 +169,8 @@ export function MissionSection() {
           transition={{ duration: 0.6 }}
           className="flex items-center gap-3 mb-12"
         >
-          <div className="h-px flex-1 max-w-[60px] bg-gradient-to-r from-transparent to-emerald-500/40" />
-          <span className="text-emerald-400/70 text-xs font-mono tracking-[0.3em] uppercase">
+          <div className="h-px flex-1 max-w-[60px] bg-gradient-to-r from-transparent to-primary/40" />
+          <span className="text-primary/70 text-xs font-mono tracking-[0.3em] uppercase">
             The Intelligence Within
           </span>
         </motion.div>
@@ -180,11 +180,11 @@ export function MissionSection() {
           initial={{ opacity: 0, y: 30 }}
           animate={inView ? { opacity: 1, y: 0 } : {}}
           transition={{ duration: 0.8, delay: 0.1 }}
-          className="text-5xl md:text-7xl font-black text-white leading-[0.95] tracking-tight mb-8"
+          className="text-5xl md:text-7xl font-black text-foreground leading-[0.95] tracking-tight mb-8"
         >
           A tutor that <br />
           <RotatingWord />{' '}
-          <span className="text-white/20">you.</span>
+          <span className="text-foreground/20">you.</span>
         </motion.h2>
 
         {/* Body copy */}
@@ -194,10 +194,10 @@ export function MissionSection() {
           transition={{ duration: 0.7, delay: 0.25 }}
           className="max-w-xl"
         >
-          <p className="text-lg text-neutral-400 leading-relaxed mb-4">
+          <p className="text-lg text-muted-foreground leading-relaxed mb-4">
             The traditional classroom forces a single mind to teach thirty unique variations of learners at one speed. That model is broken by design.
           </p>
-          <p className="text-neutral-500 leading-relaxed">
+          <p className="text-muted-foreground/80 leading-relaxed">
             AI-Tutor was built to shatter this barrier — a teaching engine that perceives your pace, your reasoning style, and your curiosity patterns, then generates a reality of learning built only for you.
           </p>
         </motion.div>
@@ -211,10 +211,10 @@ export function MissionSection() {
         >
           {stats.map((s, i) => (
             <div key={i} className="flex flex-col gap-1">
-              <span className="text-4xl md:text-5xl font-black text-white tabular-nums">
+              <span className="text-4xl md:text-5xl font-black text-foreground tabular-nums">
                 {s.value}
               </span>
-              <span className="text-sm text-neutral-500 font-medium">{s.label}</span>
+              <span className="text-sm text-muted-foreground font-medium">{s.label}</span>
             </div>
           ))}
         </motion.div>

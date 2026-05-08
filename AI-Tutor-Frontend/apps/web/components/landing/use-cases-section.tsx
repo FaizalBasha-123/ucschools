@@ -50,14 +50,13 @@ function ConceptCard({ concept, index }: { concept: typeof concepts[0]; index: n
       <motion.div
         animate={hovered ? { rotateY: -3, rotateX: 2, scale: 1.01 } : { rotateY: 0, rotateX: 0, scale: 1 }}
         transition={{ duration: 0.4, ease: 'easeOut' }}
-        className="relative rounded-[2rem] border overflow-hidden"
+        className="relative rounded-[2.5rem] border overflow-hidden transition-colors duration-300"
         style={{
-          background: `linear-gradient(145deg, #0a1628 0%, #061020 100%)`,
-          borderColor: hovered ? concept.accent + '44' : '#ffffff0d',
+          background: `var(--card)`,
+          borderColor: hovered ? concept.accent + '44' : 'var(--border)',
           boxShadow: hovered
             ? `0 0 60px ${concept.glowColor}, inset 0 1px 0 rgba(255,255,255,0.06)`
             : `0 0 0px transparent, inset 0 1px 0 rgba(255,255,255,0.03)`,
-          transition: 'box-shadow 0.4s ease, border-color 0.4s ease',
         }}
       >
         {/* Glow orb */}
@@ -92,7 +91,7 @@ function ConceptCard({ concept, index }: { concept: typeof concepts[0]; index: n
           </div>
 
           {/* Title */}
-          <h3 className="text-4xl md:text-5xl font-black text-white mb-3 tracking-tight">
+          <h3 className="text-4xl md:text-5xl font-black text-foreground mb-3 tracking-tight">
             {concept.title}
           </h3>
 
@@ -105,7 +104,7 @@ function ConceptCard({ concept, index }: { concept: typeof concepts[0]; index: n
           </p>
 
           {/* Body */}
-          <p className="text-neutral-400 leading-relaxed text-[15px]">{concept.body}</p>
+          <p className="text-muted-foreground leading-relaxed text-[15px]">{concept.body}</p>
         </div>
       </motion.div>
     </motion.div>
@@ -117,17 +116,17 @@ export function UseCasesSection() {
   const headerInView = useInView(headerRef, { once: true, margin: '-60px' });
 
   return (
-    <section className="relative w-full overflow-hidden py-32 md:py-44 px-4">
-      {/* Background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#050d18] to-[#030b14]" />
+    <section className="relative w-full overflow-hidden py-32 md:py-44 px-4 bg-background transition-colors duration-300">
+      {/* Background - theme aware */}
+      <div className="absolute inset-0 bg-gradient-to-b from-background to-muted/20" />
 
       {/* Grid texture */}
       <div
-        className="absolute inset-0 opacity-[0.03]"
+        className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05]"
         style={{
           backgroundImage: `
-            linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)
+            linear-gradient(currentColor 1px, transparent 1px),
+            linear-gradient(90deg, currentColor 1px, transparent 1px)
           `,
           backgroundSize: '60px 60px',
         }}
@@ -142,8 +141,8 @@ export function UseCasesSection() {
             transition={{ duration: 0.6 }}
             className="flex items-center gap-3 mb-8"
           >
-            <div className="h-px w-12 bg-gradient-to-r from-transparent to-neutral-700" />
-            <span className="text-neutral-500 text-xs font-mono tracking-[0.3em] uppercase">
+            <div className="h-px w-12 bg-gradient-to-r from-transparent to-muted-foreground/30" />
+            <span className="text-muted-foreground text-xs font-mono tracking-[0.3em] uppercase">
               How It Works
             </span>
           </motion.div>
@@ -152,11 +151,11 @@ export function UseCasesSection() {
             initial={{ opacity: 0, y: 30 }}
             animate={headerInView ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.8, delay: 0.1 }}
-            className="text-5xl md:text-7xl font-black text-white leading-[0.9] tracking-tight"
+            className="text-5xl md:text-7xl font-black text-foreground leading-[0.9] tracking-tight"
           >
             Three acts.
             <br />
-            <span className="text-neutral-600">One transformation.</span>
+            <span className="text-muted-foreground/60">One transformation.</span>
           </motion.h2>
         </div>
 

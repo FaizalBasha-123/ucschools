@@ -165,7 +165,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
 
             {/* Utility Tools */}
             <div className="flex items-center gap-1">
-              <LanguageSwitcher onOpen={() => setThemeOpen(false)} />
+              {variant !== 'landing' && <LanguageSwitcher onOpen={() => setThemeOpen(false)} />}
 
               <div className="relative">
                 <button
@@ -197,12 +197,14 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
                 )}
               </div>
 
-              <button
-                onClick={() => setSettingsOpen(true)}
-                className="p-2 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white transition-all group"
-              >
-                <Settings className="w-4.5 h-4.5 group-hover:rotate-90 transition-transform duration-500" />
-              </button>
+              {variant !== 'landing' && (
+                <button
+                  onClick={() => setSettingsOpen(true)}
+                  className="p-2 rounded-lg text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-900 dark:hover:text-white transition-all group"
+                >
+                  <Settings className="w-4.5 h-4.5 group-hover:rotate-90 transition-transform duration-500" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -315,13 +317,15 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
               </div>
 
               {/* Language */}
-              <div className="px-4 py-2">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400 dark:text-neutral-500 mb-2">Language</p>
-                <LanguageSwitcher />
-              </div>
+              {variant !== 'landing' && (
+                <div className="px-4 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-neutral-400 dark:text-neutral-500 mb-2">Language</p>
+                  <LanguageSwitcher />
+                </div>
+              )}
 
               {/* Settings */}
-              {variant !== 'dashboard' && (
+              {variant !== 'dashboard' && variant !== 'landing' && (
                 <button
                   onClick={() => { setSettingsOpen(true); setMobileMenuOpen(false); }}
                   className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
