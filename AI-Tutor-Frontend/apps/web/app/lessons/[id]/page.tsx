@@ -65,7 +65,16 @@ export default function LessonStudioPage() {
   const [studioBarOpen, setStudioBarOpen] = useState(true);
   const studioTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // ── Learning style dialog state ────────────────────────────────────────────
+  // ── Auto-resize textarea logic ──
+  useEffect(() => {
+    const textarea = studioTextareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [studioInput]);
+
+  // ── Learning style dialog state ──
   const [lsDialog, setLsDialog] = useState<{
     open: boolean;
     pendingMode: LearningMode | null;
@@ -486,7 +495,7 @@ export default function LessonStudioPage() {
                           ref={studioTextareaRef}
                           rows={1}
                           placeholder="Ask a new lesson, rephrase, or explore a related topic…"
-                          className="w-full resize-none border-0 bg-transparent px-4 pb-1 text-[13px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[36px] max-h-[120px]"
+                          className="w-full resize-none border-0 bg-transparent px-4 pb-1 text-[13px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[36px] max-h-[160px] overflow-y-auto scrollbar-hide transition-[height] duration-200 ease-out"
                           value={studioInput}
                           onChange={(e) => setStudioInput(e.target.value)}
                           onKeyDown={(e) => {

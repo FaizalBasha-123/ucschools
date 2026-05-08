@@ -65,7 +65,6 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
   const userLinks = [
     { href: '/classroom', label: 'Classrooms', icon: LayoutDashboard },
     { href: '/billing', label: 'Plans and Billing', icon: CreditCard },
-    { href: '/operator', label: 'Operator', icon: Settings },
   ];
 
   const billingLinks = [
@@ -232,15 +231,20 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
               </div>
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-sidebar-foreground group-hover:text-sidebar-primary transition-colors capitalize truncate">
-                    {planName} Plan
-                  </p>
-                  <p className="text-[11px] text-sidebar-foreground/40 font-medium">
-                    {credits.toFixed(0)} credits
-                  </p>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-bold text-sidebar-foreground group-hover:text-sidebar-primary transition-colors">
+                      {credits.toFixed(0)}
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-sidebar-foreground/30">
+                      Credits
+                    </span>
+                  </div>
+                  <div className="mt-1 inline-flex items-center px-2 py-0.5 rounded-md bg-sidebar-primary/10 text-sidebar-primary text-[10px] font-bold uppercase tracking-wider border border-sidebar-primary/20">
+                    {planName}
+                  </div>
                 </div>
-                <div className="size-8 rounded-lg bg-sidebar-primary/10 flex items-center justify-center text-sidebar-primary group-hover:bg-sidebar-primary group-hover:text-sidebar-primary-foreground transition-all shrink-0">
-                  <Zap size={14} fill="currentColor" />
+                <div className="size-10 rounded-xl bg-sidebar-primary/10 flex items-center justify-center text-sidebar-primary group-hover:bg-sidebar-primary group-hover:text-sidebar-primary-foreground transition-all shrink-0">
+                  <Zap size={16} fill="currentColor" />
                 </div>
               </div>
             </motion.div>

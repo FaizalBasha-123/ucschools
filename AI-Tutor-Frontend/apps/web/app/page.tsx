@@ -167,6 +167,16 @@ function HomePage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [accountEmail, setAccountEmail] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Auto-resize textarea logic ──
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  }, [form.requirement]);
+
   const loadClassrooms = async () => {
     try {
       const list = await listStages();
@@ -728,7 +738,7 @@ function HomePage() {
             <textarea
               ref={textareaRef}
               placeholder="What do you want to understand deeply today?"
-              className="w-full resize-none border-0 bg-transparent px-6 pt-2 pb-3 text-[14px] sm:text-[15px] md:text-[17px] leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:outline-none min-h-[56px] max-h-[220px] font-medium"
+              className="w-full resize-none border-0 bg-transparent px-6 pt-2 pb-3 text-[14px] sm:text-[15px] md:text-[17px] leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:outline-none min-h-[56px] max-h-[180px] overflow-y-auto scrollbar-hide font-medium transition-[height] duration-200 ease-out"
               value={form.requirement}
               onChange={(e) => updateForm('requirement', e.target.value)}
               onKeyDown={handleKeyDown}
