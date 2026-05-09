@@ -101,7 +101,9 @@ export function Stage({
   const setSidebarCollapsed = useSettingsStore((s) => s.setSidebarCollapsed);
   const chatAreaWidth = useSettingsStore((s) => s.chatAreaWidth);
   const setChatAreaWidth = useSettingsStore((s) => s.setChatAreaWidth);
-  const chatAreaCollapsed = useSettingsStore((s) => s.chatAreaCollapsed);
+  // In the Teaching Studio layout the ChatArea panel is always hidden visually
+  // (collapsed = true), but the component stays mounted so SSE streaming still works.
+  const chatAreaCollapsed = true;
   const setChatAreaCollapsed = useSettingsStore((s) => s.setChatAreaCollapsed);
   const setTTSMuted = useSettingsStore((s) => s.setTTSMuted);
   const setTTSVolume = useSettingsStore((s) => s.setTTSVolume);
@@ -996,11 +998,11 @@ export function Stage({
       }
     : null;
 
-  // Calculate scene viewer height (subtract Header's 80px height)
+  // Calculate scene viewer height — Header is suppressed in studio layout, so subtract 0.
+  // Roundtable is also hidden, so no bottom reservation needed here.
   const sceneViewerHeight = (() => {
-    const headerHeight = isPresenting ? 0 : 80; // Header h-20 = 80px
-    const roundtableHeight = mode === 'playback' && !isPresenting ? 192 : 0;
-    return `calc(100% - ${headerHeight + roundtableHeight}px)`;
+    if (isPresenting) return '100%';
+    return '100%'; // Studio layout: lesson page manages padding via paddingBottom
   })();
 
   return (
@@ -1021,8 +1023,8 @@ export function Stage({
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
-        {/* Header */}
-        {!isPresenting && <Header currentSceneTitle={currentScene?.title || ''} />}
+        {/* Header — hidden in studio layout; lesson page manages its own navigation */}
+        {!isPresenting && false && <Header currentSceneTitle={currentScene?.title || ''} />}
 
         {/* Canvas Area */}
         <div
@@ -1070,8 +1072,8 @@ export function Stage({
           />
         </div>
 
-        {/* Roundtable Area */}
-        {mode === 'playback' && (
+        {/* Roundtable Area — hidden in studio layout (chatAreaCollapsed forces it off) */}
+        {mode === 'playback' && !chatAreaCollapsed && false && (
           <div
             className={cn(
               'transition-opacity duration-300',

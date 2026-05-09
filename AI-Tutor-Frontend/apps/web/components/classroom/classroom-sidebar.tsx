@@ -56,6 +56,7 @@ export function ClassroomSidebar({ currentStageId }: ClassroomSidebarProps) {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadClassrooms();
   }, []);
 

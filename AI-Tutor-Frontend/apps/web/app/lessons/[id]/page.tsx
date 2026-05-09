@@ -2,13 +2,11 @@
 
 import { Stage } from '@/components/stage';
 import { ThemeProvider } from '@/lib/hooks/use-theme';
-import { SiteHeader } from '@/components/layout/site-header';
-import { ClassroomSidebar } from '@/components/classroom/classroom-sidebar';
 import { useStageStore } from '@/lib/store';
 import { loadImageMapping } from '@/lib/utils/image-storage';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { Download, Loader2, AlertCircle, ArrowUp, Sparkles, X } from 'lucide-react';
+import { Download, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import { useSceneGenerator } from '@/lib/hooks/use-scene-generator';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
 import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
@@ -22,17 +20,14 @@ import { useSettingsStore, type LearningMode } from '@/lib/store/settings';
 import { useUserProfileStore } from '@/lib/store/user-profile';
 import { nanoid } from 'nanoid';
 import { toast } from 'sonner';
-import { GenerationToolbar } from '@/components/generation/generation-toolbar';
-import { ModeSelector } from '@/components/generation/mode-selector';
-import { SpeechButton } from '@/components/audio/speech-button';
 import { LearningStyleDialog } from '@/components/lesson/learning-style-dialog';
+import { StudioInputBar } from '@/components/lesson/studio-input-bar';
+import { StudioSceneStrip } from '@/components/lesson/studio-scene-strip';
 import { cn } from '@/lib/utils';
 import type { UserRequirements } from '@/lib/types/generation';
+import { motion } from 'motion/react';
 
 const log = createLogger('LessonStudio');
-
-// ─── Studio bar height so Stage can account for it ───────────────────────────
-const STUDIO_BAR_HEIGHT = 120; // px — approximate, keeps Stage from being clipped
 
 export default function LessonStudioPage() {
   const params = useParams();
@@ -63,16 +58,6 @@ export default function LessonStudioPage() {
   const [studioGenerating, setStudioGenerating] = useState(false);
   const [studioError, setStudioError] = useState<string | null>(null);
   const [studioBarOpen, setStudioBarOpen] = useState(true);
-  const studioTextareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // ── Auto-resize textarea logic ──
-  useEffect(() => {
-    const textarea = studioTextareaRef.current;
-    if (textarea) {
-      textarea.style.height = 'auto';
-      textarea.style.height = `${textarea.scrollHeight}px`;
-    }
-  }, [studioInput]);
 
   // ── Learning style dialog state ──
   const [lsDialog, setLsDialog] = useState<{
@@ -123,8 +108,7 @@ export default function LessonStudioPage() {
 
       await useMediaGenerationStore.getState().restoreFromDB(classroomId);
 
-      const { loadGeneratedAgentsForStage, useAgentRegistry } =
-        await import('@/lib/orchestration/registry/store');
+      const { loadGeneratedAgentsForStage } = await import('@/lib/orchestration/registry/store');
       const { useSettingsStore: ss } = await import('@/lib/store/settings');
       const generatedAgentIds = await loadGeneratedAgentsForStage(classroomId);
       if (generatedAgentIds.length > 0) {
@@ -142,7 +126,6 @@ export default function LessonStudioPage() {
         ss.getState().setSelectedAgentIds(cleanIds?.length ? cleanIds : ['default-1']);
       }
 
-      // Pre-fill studio language from stage language
       const stageLanguage = useStageStore.getState().stage?.language;
       if (stageLanguage) setStudioLanguage(stageLanguage);
     } catch (err) {
@@ -239,7 +222,7 @@ export default function LessonStudioPage() {
       URL.revokeObjectURL(url);
     } catch (err) {
       log.error('Failed to export lesson video:', err);
-      setError(t('classroom.exportVideoFailed'));
+      toast.error('Export failed', { description: 'Could not export lesson video.' });
     } finally {
       setExporting(false);
     }
@@ -259,7 +242,6 @@ export default function LessonStudioPage() {
     setStudioGenerating(true);
 
     try {
-      // Billing guard
       const billingRes = await fetch('/api/billing/dashboard', {
         method: 'GET',
         headers: authHeaders(),
@@ -310,15 +292,8 @@ export default function LessonStudioPage() {
   }, [studioGenerating, studioInput, studioLanguage, studioWebSearch, router]);
 
   // ── Learning style intercept ──────────────────────────────────────────────
-  /**
-   * Called by ModeSelector when the user picks a different learning style.
-   * We show a confirmation dialog; if confirmed, set the new mode in the store
-   * THEN launch a new lesson on the same topic.
-   */
   const handleLearningModeChangeRequest = useCallback((mode: LearningMode) => {
-    const stage = useStageStore.getState().stage;
     setLsDialog({ open: true, pendingMode: mode });
-    // We'll use stage.name as the topic inside the dialog
   }, []);
 
   const handleLearningStyleConfirm = useCallback(async () => {
@@ -333,12 +308,9 @@ export default function LessonStudioPage() {
       return;
     }
 
-    // 1. Commit the new learning mode to the store BEFORE starting generation
     setLearningMode(lsDialog.pendingMode);
-
     setLsDialog({ open: false, pendingMode: null });
 
-    // 2. Build generation session with the current stage topic + new learning mode
     const userProfile = useUserProfileStore.getState();
     const requirements: UserRequirements = {
       requirement: topic,
@@ -348,7 +320,6 @@ export default function LessonStudioPage() {
       webSearch: studioWebSearch || undefined,
     };
 
-    // The generation-preview page reads learningMode from settingsStore (already updated above)
     const sessionState = {
       sessionId: nanoid(),
       requirements,
@@ -371,14 +342,17 @@ export default function LessonStudioPage() {
     setLsDialog({ open: false, pendingMode: null });
   }, []);
 
-  // ── Current stage for dialog ───────────────────────────────────────────────
+  // ── Current scene metadata ─────────────────────────────────────────────────
   const stageName = useStageStore((s) => s.stage?.name ?? '');
-  const stageLanguage = useStageStore((s) => s.stage?.language ?? 'en-US');
+  const { setCurrentSceneId } = useStageStore();
+
+  // ── Studio bar height constant (for Stage padding) ─────────────────────────
+  const STUDIO_BAR_HEIGHT = studioBarOpen ? 136 : 52;
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <ThemeProvider>
-      {/* Learning style change dialog — rendered at root to overlay everything */}
+      {/* Learning style change dialog */}
       <LearningStyleDialog
         open={lsDialog.open}
         topic={stageName}
@@ -388,44 +362,105 @@ export default function LessonStudioPage() {
         onCancel={handleLearningStyleCancel}
       />
 
-      <div className="flex h-screen overflow-hidden bg-[#F8FAFC] dark:bg-neutral-900/50">
-        <ClassroomSidebar currentStageId={classroomId} />
+      {/* Root layout: scene strip | main content */}
+      <div className="flex h-screen overflow-hidden bg-[#F0F4F8] dark:bg-[#0D1117]">
 
+        {/* ── Left: Vertical scene filmstrip (desktop) ───────────────────── */}
+        <div className="hidden md:flex flex-col border-r border-border/50 bg-white/60 dark:bg-neutral-900/60 backdrop-blur-sm">
+          {/* Back to classroom */}
+          <button
+            onClick={() => router.push('/classroom')}
+            className="flex items-center justify-center h-14 shrink-0 border-b border-border/50 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors"
+            title="Back to Classroom"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+
+          {loading ? (
+            <div className="flex-1 flex items-center justify-center w-[72px]">
+              <Loader2 className="w-4 h-4 animate-spin text-neutral-300" />
+            </div>
+          ) : (
+            <StudioSceneStrip
+              onSceneSelect={setCurrentSceneId}
+              orientation="vertical"
+              className="flex-1"
+            />
+          )}
+
+          {/* Export button at bottom of strip */}
+          {!loading && !error && (
+            <div className="p-2 border-t border-border/50">
+              <button
+                onClick={handleExportVideo}
+                disabled={exporting}
+                title="Export as video"
+                className={cn(
+                  'w-full flex flex-col items-center justify-center gap-1 py-2 rounded-xl text-[9px] font-bold uppercase tracking-wide transition-all',
+                  exporting
+                    ? 'text-neutral-300 dark:text-neutral-600'
+                    : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-emerald-600',
+                )}
+              >
+                {exporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                <span>Export</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── Right: Main content area ───────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-w-0 relative">
-          <SiteHeader variant="dashboard" />
+
+          {/* Mobile: horizontal scene strip at top */}
+          {!loading && !error && (
+            <div className="md:hidden border-b border-border/50 bg-white/60 dark:bg-neutral-900/60">
+              <StudioSceneStrip
+                onSceneSelect={setCurrentSceneId}
+                orientation="horizontal"
+              />
+            </div>
+          )}
 
           <MediaStageProvider value={classroomId}>
-            <div className="flex-1 flex flex-col overflow-hidden pt-16">
-
-              {/* ── Export button ── */}
-              {!loading && !error && (
-                <div className="fixed right-6 bottom-[calc(var(--studio-bar-h,136px)+16px)] z-40 flex flex-col gap-2">
-                  <button
-                    onClick={handleExportVideo}
-                    disabled={exporting}
-                    className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white/95 px-5 py-3 text-sm font-black shadow-xl backdrop-blur hover:bg-neutral-50 dark:hover:bg-neutral-900 transition-all disabled:opacity-60 text-[#0F172A] dark:text-white uppercase tracking-tight flex items-center gap-2"
-                  >
-                    {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4 text-[#10B981]" />}
-                    {exporting ? t('classroom.exportingVideo') : t('classroom.exportVideo')}
-                  </button>
-                </div>
-              )}
+            <div className="flex-1 flex flex-col overflow-hidden">
 
               {/* ── Stage / error / loading ── */}
               {loading ? (
-                <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] dark:bg-neutral-900/50">
-                  <div className="text-center">
-                    <Loader2 className="size-10 animate-spin text-[#10B981] mx-auto mb-4 opacity-40" />
-                    <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest">{t('classroom.loading')}</p>
-                  </div>
+                <div className="flex-1 flex items-center justify-center">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex flex-col items-center gap-5"
+                  >
+                    <div className="relative">
+                      <div className="absolute inset-0 bg-emerald-500/20 rounded-full animate-ping" />
+                      <div className="relative h-14 w-14 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 shadow-sm flex items-center justify-center">
+                        <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
+                      </div>
+                    </div>
+                    <p className="text-sm font-semibold text-neutral-400 uppercase tracking-widest">
+                      Loading lesson…
+                    </p>
+                  </motion.div>
                 </div>
               ) : error ? (
-                <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] dark:bg-neutral-900/50">
-                  <div className="text-center max-w-sm px-6">
-                    <div className="size-16 rounded-3xl bg-rose-50 text-rose-500 flex items-center justify-center mx-auto mb-6 border border-rose-100 shadow-sm">
-                      <AlertCircle className="size-8" />
+                <div className="flex-1 flex items-center justify-center">
+                  <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="text-center max-w-sm px-6"
+                  >
+                    <div className="h-16 w-16 rounded-3xl bg-rose-50 dark:bg-rose-900/20 text-rose-500 flex items-center justify-center mx-auto mb-6 border border-rose-100 dark:border-rose-700/30 shadow-sm">
+                      <AlertCircle className="w-8 h-8" />
                     </div>
-                    <h2 className="text-xl font-black text-[#0F172A] dark:text-white uppercase mb-2">Load Failed</h2>
+                    <h2 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">
+                      Lesson Unavailable
+                    </h2>
                     <p className="text-sm text-neutral-500 mb-8">{error}</p>
                     <button
                       onClick={() => {
@@ -433,131 +468,52 @@ export default function LessonStudioPage() {
                         setLoading(true);
                         loadClassroom();
                       }}
-                      className="w-full py-4 bg-[#0F172A] text-white rounded-2xl font-black uppercase tracking-widest hover:bg-black transition-all shadow-lg shadow-blue-900/20"
+                      className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl font-bold hover:opacity-90 transition-opacity shadow-lg shadow-emerald-500/20"
                     >
-                      {t('classroom.retry')}
+                      Try Again
                     </button>
-                  </div>
+                    <button
+                      onClick={() => router.push('/classroom')}
+                      className="mt-3 w-full py-3.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 rounded-2xl font-bold hover:opacity-90 transition-opacity"
+                    >
+                      Back to Classroom
+                    </button>
+                  </motion.div>
                 </div>
               ) : (
-                /* Stage consumes all remaining space above the studio bar */
+                /* Stage — full width, ChatArea hidden (still mounted for SSE wiring) */
                 <div
                   className="flex-1 overflow-hidden"
-                  style={{ paddingBottom: studioBarOpen ? STUDIO_BAR_HEIGHT : 40 }}
+                  style={{ paddingBottom: STUDIO_BAR_HEIGHT }}
                 >
                   <Stage onRetryOutline={retrySingleOutline} />
                 </div>
               )}
 
-              {/* ── Studio Input Bar ────────────────────────────────────────── */}
-              <div
-                className={cn(
-                  'fixed bottom-0 left-0 right-0 z-30 transition-transform duration-300',
-                  // Account for sidebar width — sidebar uses a fixed width; leave as-is,
-                  // the sidebar itself is inside the flex layout so we use inset-x-0 and
-                  // the sidebar renders above us in z-order. We rely on the sidebar's own
-                  // z-index being lower than this (z-30).
-                )}
-                style={{ '--studio-bar-h': `${STUDIO_BAR_HEIGHT}px` } as React.CSSProperties}
-              >
-                <div className="mx-auto max-w-4xl px-4 pb-3">
-                  {/* Pill bar */}
-                  <div className="rounded-2xl border border-border/60 bg-white/95 dark:bg-neutral-900/95 backdrop-blur-xl shadow-2xl shadow-black/10 dark:shadow-black/40">
-                    {/* Header row */}
-                    <div className="flex items-center px-4 pt-3 pb-1 gap-2">
-                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                        <Sparkles className="size-3.5 text-primary shrink-0" />
-                        <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400 uppercase tracking-widest">
-                          Studio
-                        </span>
-                        {stageName && (
-                          <>
-                            <span className="text-neutral-300 dark:text-neutral-700">·</span>
-                            <span className="text-[11px] text-neutral-400 dark:text-neutral-500 truncate">
-                              {stageName.length > 50 ? stageName.slice(0, 50) + '…' : stageName}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => setStudioBarOpen((v) => !v)}
-                        className="p-1 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors shrink-0"
-                        title={studioBarOpen ? 'Collapse studio' : 'Expand studio'}
-                      >
-                        <X className={cn('size-3.5 transition-transform', !studioBarOpen && 'rotate-45')} />
-                      </button>
-                    </div>
-
-                    {/* Input row */}
-                    {studioBarOpen && (
-                      <>
-                        <textarea
-                          ref={studioTextareaRef}
-                          rows={1}
-                          placeholder="Ask a new lesson, rephrase, or explore a related topic…"
-                          className="w-full resize-none border-0 bg-transparent px-4 pb-1 text-[13px] leading-relaxed placeholder:text-muted-foreground/40 focus:outline-none min-h-[36px] max-h-[160px] overflow-y-auto scrollbar-hide transition-[height] duration-200 ease-out"
-                          value={studioInput}
-                          onChange={(e) => setStudioInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault();
-                              handleStudioGenerate();
-                            }
-                          }}
-                        />
-
-                        {/* Toolbar row */}
-                        <div className="px-3 pb-3 flex items-center gap-2">
-                          <div className="flex-1 min-w-0 flex items-center gap-2">
-                            <GenerationToolbar
-                              language={studioLanguage}
-                              onLanguageChange={setStudioLanguage}
-                              webSearch={studioWebSearch}
-                              onWebSearchChange={setStudioWebSearch}
-                              onSettingsOpen={() => {}}
-                              pdfFile={studioPdfFile}
-                              onPdfFileChange={setStudioPdfFile}
-                              onPdfError={() => {}}
-                            />
-                            {/* Mode selector with learning style intercept */}
-                            <ModeSelector
-                              onLearningModeChange={handleLearningModeChangeRequest}
-                            />
-                          </div>
-
-                          <SpeechButton
-                            size="md"
-                            onTranscription={(text) => {
-                              setStudioInput((prev) => prev + (prev ? ' ' : '') + text);
-                            }}
-                          />
-
-                          <button
-                            onClick={handleStudioGenerate}
-                            disabled={!studioInput.trim() || studioGenerating}
-                            className={cn(
-                              'shrink-0 h-8 w-8 rounded-lg flex items-center justify-center transition-all',
-                              studioInput.trim() && !studioGenerating
-                                ? 'bg-primary text-primary-foreground hover:opacity-90 shadow-sm cursor-pointer'
-                                : 'bg-muted text-muted-foreground/40 cursor-not-allowed',
-                            )}
-                          >
-                            {studioGenerating ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <ArrowUp className="size-4" />
-                            )}
-                          </button>
-                        </div>
-
-                        {studioError && (
-                          <p className="px-4 pb-2 text-xs text-red-500">{studioError}</p>
-                        )}
-                      </>
-                    )}
+              {/* ── Studio Input Bar ─────────────────────────────────────── */}
+              {!error && (
+                <div className="fixed bottom-0 left-0 right-0 z-30 md:left-[88px]">
+                  <div className="mx-auto max-w-3xl px-4 pb-4">
+                    <StudioInputBar
+                      value={studioInput}
+                      onChange={setStudioInput}
+                      onSubmit={handleStudioGenerate}
+                      isSubmitting={studioGenerating}
+                      error={studioError}
+                      stageName={stageName}
+                      language={studioLanguage}
+                      onLanguageChange={setStudioLanguage}
+                      webSearch={studioWebSearch}
+                      onWebSearchChange={setStudioWebSearch}
+                      pdfFile={studioPdfFile}
+                      onPdfFileChange={setStudioPdfFile}
+                      onLearningModeChange={handleLearningModeChangeRequest}
+                      isOpen={studioBarOpen}
+                      onToggle={() => setStudioBarOpen((v) => !v)}
+                    />
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </MediaStageProvider>
         </div>
