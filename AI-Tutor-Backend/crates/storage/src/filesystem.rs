@@ -2373,9 +2373,86 @@ impl LessonAdaptiveRepository for FileStorage {
     }
 }
 
+impl FileStorage {
+    fn postgres_row_to_lesson_shelf_item(row: postgres::Row) -> Result<LessonShelfItem, String> {
+        let status_str: String = row.get("status");
+        let status: LessonShelfStatus = serde_json::from_str(&format!("\"{}\"", status_str))
+            .map_err(|err| format!("failed to parse status '{}': {}", status_str, err))?;
+
+        Ok(LessonShelfItem {
+            id: row.get("id"),
+            account_id: row.get("account_id"),
+            lesson_id: row.get("lesson_id"),
+            source_job_id: row.get("source_job_id"),
+            title: row.get("title"),
+            subject: row.get("subject"),
+            language: row.get("language"),
+            status,
+            progress_pct: row.get::<_, i32>("progress_pct") as i32,
+            thumbnail_url: row.get("thumbnail_url"),
+            failure_reason: row.get("failure_reason"),
+            last_opened_at: row.get("last_opened_at"),
+            archived_at: row.get("archived_at"),
+            group_id: row.get("group_id"),
+            is_shared: row.get("is_shared"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        })
+    }
+}
+
 #[async_trait]
 impl LessonShelfRepository for FileStorage {
     async fn upsert_lesson_shelf_item(&self, item: &LessonShelfItem) -> Result<(), String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let item = item.clone();
+            return tokio::task::spawn_blocking(move || -> Result<(), String> {
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+                let item_json = serde_json::to_string(&item).map_err(|err| err.to_string())?;
+                let status = serde_json::to_string(&item.status).map_err(|err| err.to_string())?;
+                let status = status.trim_matches('"');
+                client.execute(
+                    "INSERT INTO lesson_shelf_items (
+                        id, account_id, lesson_id, source_job_id, title, subject, language, 
+                        status, progress_pct, thumbnail_url, failure_reason, 
+                        last_opened_at, archived_at, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    ON CONFLICT (id) DO UPDATE SET
+                        account_id = EXCLUDED.account_id,
+                        lesson_id = EXCLUDED.lesson_id,
+                        source_job_id = EXCLUDED.source_job_id,
+                        title = EXCLUDED.title,
+                        subject = EXCLUDED.subject,
+                        language = EXCLUDED.language,
+                        status = EXCLUDED.status,
+                        progress_pct = EXCLUDED.progress_pct,
+                        thumbnail_url = EXCLUDED.thumbnail_url,
+                        failure_reason = EXCLUDED.failure_reason,
+                        last_opened_at = EXCLUDED.last_opened_at,
+                        archived_at = EXCLUDED.archived_at,
+                        updated_at = EXCLUDED.updated_at",
+                    &[
+                        &item.id,
+                        &item.account_id,
+                        &item.lesson_id,
+                        &item.source_job_id,
+                        &item.title,
+                        &item.subject,
+                        &item.language,
+                        &status,
+                        &(item.progress_pct as i32),
+                        &item.thumbnail_url,
+                        &item.failure_reason,
+                        &item.last_opened_at,
+                        &item.archived_at,
+                        &item.created_at,
+                        &item.updated_at,
+                    ],
+                ).map_err(|err| err.to_string())?;
+                Ok(())
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.lesson_db_path.clone() {
             Self::save_lesson_shelf_item_sqlite(db_path, item.clone())
                 .await
@@ -2388,6 +2465,25 @@ impl LessonShelfRepository for FileStorage {
     }
 
     async fn get_lesson_shelf_item(&self, item_id: &str) -> Result<Option<LessonShelfItem>, String> {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let item_id = item_id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Option<LessonShelfItem>, String> {
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+                let row = client.query_opt(
+                    "SELECT 
+                        id, account_id, lesson_id, source_job_id, title, subject, language, 
+                        status, progress_pct, thumbnail_url, failure_reason, 
+                        last_opened_at, archived_at, created_at, updated_at
+                     FROM lesson_shelf_items WHERE id = $1",
+                    &[&item_id],
+                ).map_err(|err| err.to_string())?;
+                
+                match row {
+                    Some(row) => Ok(Some(Self::postgres_row_to_lesson_shelf_item(row)?)),
+                    None => Ok(None),
+                }
+            }).await.map_err(|err| err.to_string())?;
+        }
         if let Some(db_path) = self.lesson_db_path.clone() {
             Self::get_lesson_shelf_item_sqlite(db_path, item_id.to_string())
                 .await
@@ -2405,7 +2501,46 @@ impl LessonShelfRepository for FileStorage {
         status: Option<LessonShelfStatus>,
         limit: usize,
     ) -> Result<Vec<LessonShelfItem>, String> {
-        if let Some(db_path) = self.lesson_db_path.clone() {
+        if let Some(postgres_url) = self.postgres_url.clone() {
+            let account_id = account_id.to_string();
+            return tokio::task::spawn_blocking(move || -> Result<Vec<LessonShelfItem>, String> {
+                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+                let status_str = status.as_ref().map(|s| {
+                    let s = serde_json::to_string(s).unwrap_or_default();
+                    s.trim_matches('"').to_string()
+                });
+                
+                let rows = if let Some(ref s) = status_str {
+                    client.query(
+                        "SELECT 
+                            id, account_id, lesson_id, source_job_id, title, subject, language, 
+                            status, progress_pct, thumbnail_url, failure_reason, 
+                            last_opened_at, archived_at, created_at, updated_at
+                         FROM lesson_shelf_items 
+                         WHERE account_id = $1 AND status = $2 
+                         ORDER BY updated_at DESC LIMIT $3",
+                        &[&account_id, s, &(limit as i64)],
+                    )
+                } else {
+                    client.query(
+                        "SELECT 
+                            id, account_id, lesson_id, source_job_id, title, subject, language, 
+                            status, progress_pct, thumbnail_url, failure_reason, 
+                            last_opened_at, archived_at, created_at, updated_at
+                         FROM lesson_shelf_items 
+                         WHERE account_id = $1 
+                         ORDER BY updated_at DESC LIMIT $2",
+                        &[&account_id, &(limit as i64)],
+                    )
+                }.map_err(|err| err.to_string())?;
+                
+                let mut items = Vec::new();
+                for row in rows {
+                    items.push(Self::postgres_row_to_lesson_shelf_item(row)?);
+                }
+                Ok(items)
+            }).await.map_err(|err| err.to_string())?;
+        } else if let Some(db_path) = self.lesson_db_path.clone() {
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<LessonShelfItem>, String> {
                 let connection = Connection::open(db_path).map_err(|err| err.to_string())?;
