@@ -312,47 +312,60 @@ function GenerationPreviewContent() {
         activeSteps = getActiveSteps(currentSession);
       }
 
-      // Step: Web Search (if enabled)
+      // Step: Web Search (if enabled) — graceful degradation on failure
       const webSearchStepIdx = activeSteps.findIndex((s) => s.id === 'web-search');
       if (currentSession.requirements.webSearch && webSearchStepIdx >= 0) {
         setCurrentStepIndex(webSearchStepIdx);
         setWebSearchSources([]);
 
-        const wsSettings = useSettingsStore.getState();
-        const wsApiKey =
-          wsSettings.webSearchProvidersConfig?.[wsSettings.webSearchProviderId]?.apiKey;
-        const res = await fetch('/api/web-search', {
-          method: 'POST',
-          headers: getApiHeaders(),
-          body: JSON.stringify({
-            query: currentSession.requirements.requirement,
-            pdfText: currentSession.pdfText || undefined,
-            apiKey: wsApiKey || undefined,
-          }),
-          signal,
-        });
+        try {
+          const wsSettings = useSettingsStore.getState();
+          const wsApiKey =
+            wsSettings.webSearchProvidersConfig?.[wsSettings.webSearchProviderId]?.apiKey;
+          const res = await fetch('/api/web-search', {
+            method: 'POST',
+            headers: getApiHeaders(),
+            body: JSON.stringify({
+              query: currentSession.requirements.requirement,
+              pdfText: currentSession.pdfText || undefined,
+              apiKey: wsApiKey || undefined,
+            }),
+            signal,
+          });
 
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({ error: 'Web search failed' }));
-          throw new Error(data.error || t('generation.webSearchFailed'));
+          if (res.ok) {
+            const searchData = await res.json();
+            const sources = (searchData.sources || []).map(
+              (s: { title: string; url: string }) => ({
+                title: s.title,
+                url: s.url,
+              }),
+            );
+            setWebSearchSources(sources);
+
+            const updatedSessionWithSearch = {
+              ...currentSession,
+              researchContext: searchData.context || '',
+              researchSources: sources,
+            };
+            setSession(updatedSessionWithSearch);
+            sessionStorage.setItem('generationSession', JSON.stringify(updatedSessionWithSearch));
+            currentSession = updatedSessionWithSearch;
+            activeSteps = getActiveSteps(currentSession);
+          } else {
+            // Non-fatal: web search failed (e.g. missing API key, upstream error)
+            // Continue generation without search context.
+            const errData = await res.json().catch(() => ({}));
+            log.warn(
+              `[GenerationPreview] Web search skipped (${res.status}): ${errData.error || 'unknown error'}`,
+            );
+          }
+        } catch (webErr) {
+          // Abort signal = user navigated away — propagate that.
+          if (webErr instanceof DOMException && webErr.name === 'AbortError') throw webErr;
+          // Any other error: skip web search, continue generation.
+          log.warn('[GenerationPreview] Web search failed, continuing without search context:', webErr);
         }
-
-        const searchData = await res.json();
-        const sources = (searchData.sources || []).map((s: { title: string; url: string }) => ({
-          title: s.title,
-          url: s.url,
-        }));
-        setWebSearchSources(sources);
-
-        const updatedSessionWithSearch = {
-          ...currentSession,
-          researchContext: searchData.context || '',
-          researchSources: sources,
-        };
-        setSession(updatedSessionWithSearch);
-        sessionStorage.setItem('generationSession', JSON.stringify(updatedSessionWithSearch));
-        currentSession = updatedSessionWithSearch;
-        activeSteps = getActiveSteps(currentSession);
       }
 
       // Load imageMapping early (needed for both outline and scene generation)
@@ -801,6 +814,31 @@ function GenerationPreviewContent() {
 
       sessionStorage.removeItem('generationSession');
       await store.saveToStorage();
+
+      // ── Credit Deduction ─────────────────────────────────────────────────────
+      // Fire-and-forget: deduct credits for this lesson from the user's balance.
+      // Non-blocking: a failure here should not prevent navigation to the lesson.
+      // The idempotency_key prevents double-deduction on page reload.
+      const debitSettings = useSettingsStore.getState();
+      const speechCharCount = (data.scene.actions || [])
+        .filter((a: { type: string; text?: string }) => a.type === 'speech' && a.text)
+        .reduce((sum: number, a: { text?: string }) => sum + (a.text?.length ?? 0), 0);
+      fetch('/api/credits/deduct-lesson', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(getSessionToken() ? { Authorization: `Bearer ${getSessionToken()}` } : {}),
+        },
+        body: JSON.stringify({
+          lessonId: stage.id,
+          qualityMode: currentSession.qualityMode || debitSettings.qualityMode || 'standard',
+          learningMode: currentSession.learningMode || debitSettings.learningMode || 'explain',
+          sceneCount: outlines.length,
+          speechCharCount,
+        }),
+      }).catch((err) => log.warn('Credit deduction failed (non-fatal):', err));
+      // ─────────────────────────────────────────────────────────────────────────
+
       router.push(`/lessons/${stage.id}`);
     } catch (err) {
       // AbortError is expected when navigating away — don't show as error

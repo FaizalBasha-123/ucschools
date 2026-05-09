@@ -25,6 +25,9 @@ export interface GenerationSessionState {
   // Web search context
   researchContext?: string;
   researchSources?: Array<{ title: string; url: string }>;
+  // Generation quality / learning settings (for credit deduction)
+  qualityMode?: string;
+  learningMode?: string;
 }
 
 export type GenerationStep = {

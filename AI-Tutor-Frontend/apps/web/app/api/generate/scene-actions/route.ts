@@ -26,6 +26,7 @@ import type { SpeechAction } from '@/lib/types/action';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
+import { reportTokenUsage, extractTokenCounts } from '@/lib/server/token-usage';
 
 const log = createLogger('Scene Actions API');
 
@@ -84,7 +85,10 @@ export async function POST(req: NextRequest) {
     // Detect vision capability
     const hasVision = !!modelInfo?.capabilities?.vision;
 
-    // AI call function (actions typically don't use vision, but kept for consistency)
+    // ── AI call function with token accumulation ──
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+
     const aiCall = async (
       systemPrompt: string,
       userPrompt: string,
@@ -105,6 +109,9 @@ export async function POST(req: NextRequest) {
           },
           'scene-actions',
         );
+        const counts = extractTokenCounts(result);
+        totalInputTokens += counts.inputTokens;
+        totalOutputTokens += counts.outputTokens;
         return result.text;
       }
       const result = await callLLM(
@@ -116,6 +123,9 @@ export async function POST(req: NextRequest) {
         },
         'scene-actions',
       );
+      const counts = extractTokenCounts(result);
+      totalInputTokens += counts.inputTokens;
+      totalOutputTokens += counts.outputTokens;
       return result.text;
     };
 
@@ -153,6 +163,15 @@ export async function POST(req: NextRequest) {
     log.info(
       `Scene assembled successfully: "${outline.title}" — ${scene.actions?.length ?? 0} actions`,
     );
+
+    // ── Report token usage (fire-and-forget) ──
+    reportTokenUsage(req, {
+      model: modelString,
+      step: 'scene-actions',
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      qualityMode: req.headers.get('x-quality-mode') || 'standard',
+    });
 
     return apiSuccess({ scene, previousSpeeches: outputPreviousSpeeches });
   } catch (error) {

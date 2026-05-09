@@ -521,6 +521,8 @@ function HomePage() {
         webSearch: form.webSearch || undefined,
       };
 
+      const settings = useSettingsStore.getState();
+
       let pdfStorageKey: string | undefined;
       let pdfFileName: string | undefined;
       let pdfProviderId: string | undefined;
@@ -530,7 +532,6 @@ function HomePage() {
         pdfStorageKey = await storePdfBlob(form.pdfFile);
         pdfFileName = form.pdfFile.name;
 
-        const settings = useSettingsStore.getState();
         pdfProviderId = settings.pdfProviderId;
         const providerCfg = settings.pdfProvidersConfig?.[settings.pdfProviderId];
         if (providerCfg) {
@@ -553,6 +554,9 @@ function HomePage() {
         pdfProviderConfig,
         sceneOutlines: null,
         currentStep: 'generating' as const,
+        // Snapshot quality/learning mode at generation start for credit deduction
+        qualityMode: settings.qualityMode || 'standard',
+        learningMode: settings.learningMode || 'explain',
       };
       sessionStorage.setItem('generationSession', JSON.stringify(sessionState));
 

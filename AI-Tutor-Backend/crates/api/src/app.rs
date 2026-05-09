@@ -241,6 +241,7 @@ fn session_auth_required(path: &str) -> bool {
     path == "/api/credits/me"
         || path == "/api/credits/ledger"
         || path == "/api/credits/redeem"
+        || path == "/api/credits/debit"
         || path == "/api/billing/dashboard"
         || path == "/api/billing/checkout"
         || path == "/api/billing/orders"
@@ -1520,6 +1521,14 @@ pub trait LessonAppService: Send + Sync {
         account_id: &str,
         code: &str,
     ) -> Result<RedeemPromoCodeResponse>;
+    /// Debit credits from user's balance (called after client-side lesson generation)
+    async fn debit_lesson_credits_for_account(
+        &self,
+        account_id: &str,
+        amount: f64,
+        idempotency_key: &str,
+        reason: &str,
+    ) -> Result<CreditBalanceResponse>;
     /// Load enriched billing context for auth middleware
     async fn load_billing_context(&self, account_id: &str) -> Result<BillingContext>;
     /// Create a new subscription for the account
@@ -4986,6 +4995,37 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
+        async fn debit_lesson_credits_for_account(
+        &self,
+        account_id: &str,
+        amount: f64,
+        idempotency_key: &str,
+        reason: &str,
+    ) -> Result<CreditBalanceResponse> {
+        let entry = CreditLedgerEntry {
+            id: idempotency_key.to_string(),
+            account_id: account_id.to_string(),
+            kind: CreditEntryKind::Debit,
+            amount,
+            reason: reason.to_string(),
+            created_at: chrono::Utc::now(),
+        };
+        self.storage
+            .apply_credit_entry(&entry)
+            .await
+            .map_err(|err| anyhow!("credit debit failed: {}", err))?;
+        
+        let balance = self.storage
+            .get_credit_balance(account_id)
+            .await
+            .map_err(|err| anyhow!(err))?;
+            
+        Ok(CreditBalanceResponse {
+            account_id: balance.account_id,
+            balance: balance.balance,
+        })
+    }
+
     async fn get_credit_ledger(
         &self,
         account_id: &str,
@@ -7586,6 +7626,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/credits/me", get(get_credit_balance))
         .route("/api/credits/ledger", get(get_credit_ledger))
         .route("/api/credits/redeem", post(redeem_promo_code))
+        .route("/api/credits/debit", post(debit_lesson_credits))
         .route("/api/operator/overview", get(get_operator_overview))
         .route("/api/operator/stats/users", get(get_operator_user_stats))
         .route("/api/operator/stats/subscriptions", get(get_operator_subscription_stats))
@@ -8175,6 +8216,79 @@ async fn redeem_promo_code(
         .await
         .map(Json)
         .map_err(ApiError::internal)
+}
+
+/// Request body for POST /api/credits/debit
+#[derive(Debug, serde::Deserialize)]
+struct DebitLessonCreditsRequest {
+    /// Unique key to prevent double-deduction (e.g. "lesson-debit-<lessonId>")
+    idempotency_key: String,
+    /// Credit amount to deduct (must be > 0)
+    amount: f64,
+    /// Human-readable reason for the ledger entry
+    reason: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct DebitLessonCreditsResponse {
+    debited: f64,
+    balance: f64,
+}
+
+/// POST /api/credits/debit
+///
+/// Deducts credits from the authenticated user's balance.
+/// Called by the Next.js generation-preview pipeline after client-side
+/// lesson generation completes (PATH A — no Rust orchestrator involved).
+///
+/// Uses idempotency_key to prevent double-deduction on retry.
+async fn debit_lesson_credits(
+    State(state): State<AppState>,
+    Extension(account): Extension<AuthenticatedAccountContext>,
+    Json(payload): Json<DebitLessonCreditsRequest>,
+) -> Result<Json<DebitLessonCreditsResponse>, ApiError> {
+    if payload.amount <= 0.0 {
+        return Err(ApiError {
+            status: axum::http::StatusCode::BAD_REQUEST,
+            message: "amount must be greater than 0".to_string(),
+        });
+    }
+
+    let account_id = &account.account_id;
+
+    // Balance check before debit
+    let balance = state
+        .service
+        .get_credit_balance(account_id)
+        .await
+        .map_err(|e| ApiError::internal(anyhow!("credit balance lookup failed: {e}")))?;
+
+    if credits_required() && balance.balance < payload.amount {
+        return Err(ApiError {
+            status: axum::http::StatusCode::PAYMENT_REQUIRED,
+            message: format!(
+                "Insufficient credits: required {:.4}, balance {:.4}",
+                payload.amount, balance.balance
+            ),
+        });
+    }
+
+    // Debit via service (handles apply_credit_entry internally)
+    let updated = state
+        .service
+        .debit_lesson_credits_for_account(
+            account_id,
+            payload.amount,
+            &payload.idempotency_key,
+            &payload.reason,
+        )
+        .await
+        .map_err(|e| ApiError::internal(anyhow!("credit debit failed: {e}")))?;
+
+    Ok(Json(DebitLessonCreditsResponse {
+        debited: payload.amount,
+        balance: updated.balance,
+    }))
 }
 
 async fn get_operator_user_stats(
@@ -11874,6 +11988,20 @@ mod tests {
                 message: "Promo code redeemed successfully".to_string(),
                 credits_granted: 3.0,
             })
+        }
+
+        async fn debit_lesson_credits_for_account(
+            &self,
+            _account_id: &str,
+            _amount: f64,
+            _idempotency_key: &str,
+            _reason: &str,
+        ) -> Result<CreditBalanceResponse> {
+            self.credit_balance
+                .read()
+                .unwrap()
+                .clone()
+                .ok_or_else(|| anyhow!("missing credit balance response"))
         }
 
         async fn load_billing_context(&self, _account_id: &str) -> Result<BillingContext> {

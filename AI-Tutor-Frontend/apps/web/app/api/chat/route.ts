@@ -13,13 +13,10 @@
  */
 
 import { NextRequest } from 'next/server';
-import { statelessGenerate } from '@/lib/orchestration/stateless-generate';
-import type { StatelessChatRequest, StatelessEvent } from '@/lib/types/chat';
-import type { ThinkingConfig } from '@/lib/types/provider';
 import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
-import { resolveModel } from '@/lib/server/resolve-model';
 import { backendUrl } from '@/lib/server/backend-url';
+
 const log = createLogger('Chat API');
 
 // Allow streaming responses up to 60 seconds
@@ -70,11 +67,16 @@ export async function POST(req: NextRequest) {
 
     const rustBackendUrl = backendUrl();
 
+    // Forward the Authorization header so the Rust auth middleware lets it through.
+    // /api/runtime/chat/stream is in the authenticated-routes block in app.rs.
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization');
+
     // Route request directly to Rust backend
     const backendRes = await fetch(`${rustBackendUrl}/api/runtime/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(authHeader ? { Authorization: authHeader } : {}),
       },
       body: JSON.stringify(body),
       signal: req.signal, // Link abort signal natively
@@ -112,4 +114,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-

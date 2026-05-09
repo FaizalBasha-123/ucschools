@@ -1,41 +1,69 @@
 /**
- * Web Search Integration
+ * Web Search Integration — Tavily
  *
- * Proxies search requests to the Rust backend to keep the API keys secure.
+ * Calls the Tavily Search API directly. API key is resolved server-side
+ * from the TAVILY_API_KEY environment variable or server-providers.yml.
  */
 
-import { proxyFetch } from '@/lib/server/proxy-fetch';
+import { resolveWebSearchApiKey } from '@/lib/server/provider-config';
 import type { WebSearchResult, WebSearchSource } from '@/lib/types/web-search';
-import { backendUrl } from '@/lib/server/backend-url';
+
+const TAVILY_API_URL = 'https://api.tavily.com/search';
 
 /**
- * Search the web by proxying the request to our secure Rust backend.
+ * Search the web using Tavily. API key is resolved server-side — never
+ * passed from the client.
  */
 export async function searchWithTavily(params: {
   query: string;
   pdfText?: string;
-  apiKey?: string; // Kept for signature compatibility, but ignored
+  apiKey?: string;
   maxResults?: number;
 }): Promise<WebSearchResult> {
-  const { query, pdfText } = params;  const res = await proxyFetch(`${backendUrl()}/api/tools/web-search`, {
+  const { query, apiKey: clientKey, maxResults = 5 } = params;
+
+  const apiKey = resolveWebSearchApiKey(clientKey);
+  if (!apiKey) {
+    throw new Error(
+      'No Tavily API key configured. Set TAVILY_API_KEY in environment or server-providers.yml.',
+    );
+  }
+
+  const res = await fetch(TAVILY_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      query,
-      pdfText,
+      query: query.trim(),
+      search_depth: 'basic',
+      include_answer: true,
+      include_raw_content: false,
+      max_results: maxResults,
     }),
   });
 
   if (!res.ok) {
     const errorText = await res.text().catch(() => '');
-    throw new Error(`Backend search error (${res.status}): ${errorText || res.statusText}`);
+    throw new Error(`Tavily search error (${res.status}): ${errorText || res.statusText}`);
   }
 
-  const data = (await res.json()) as WebSearchResult;
+  const raw = await res.json();
 
-  return data;
+  return {
+    answer: raw.answer || '',
+    query: raw.query || query,
+    responseTime: raw.response_time || 0,
+    sources: (raw.results || []).map(
+      (r: { title: string; url: string; content: string; score: number }): WebSearchSource => ({
+        title: r.title || '',
+        url: r.url || '',
+        content: r.content || '',
+        score: r.score || 0,
+      }),
+    ),
+  };
 }
 
 /**
