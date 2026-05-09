@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     sync::Arc,
@@ -7,12 +6,10 @@ use std::{
 };
 
 use chrono::Utc;
-use uuid::Uuid;
 use anyhow::Result as AnyResult;
 use async_trait::async_trait;
 use postgres::Client;
-use rusqlite::{params, Connection, OptionalExtension};
-use tokio::{fs, sync::Mutex};
+use tokio::fs;
 
 use ai_tutor_domain::{
     auth::{TutorAccount, TutorAccountStatus},
@@ -116,7 +113,6 @@ pub struct FileStorage {
     root: PathBuf,
     postgres_url: String,
     postgres_ready: Arc<AtomicBool>,
-    job_lock: Arc<Mutex<()>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -549,6 +545,94 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
 ];
 
 impl FileStorage {
+    pub fn with_databases(
+        root: impl Into<PathBuf>,
+        _lesson_db_path: Option<PathBuf>,
+        _runtime_db_path: Option<PathBuf>,
+        _job_db_path: Option<PathBuf>,
+        postgres_url: Option<String>,
+    ) -> Self {
+        Self {
+            root: root.into(),
+            postgres_url: postgres_url.expect("AI_TUTOR_POSTGRES_URL is required"),
+            postgres_ready: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn ensure_postgres_ready_blocking(
+        postgres_url: &str,
+        postgres_ready: &AtomicBool,
+    ) -> Result<(), String> {
+        if postgres_ready.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let _client = get_pg_client(postgres_url).map_err(|err| err.to_string())?;
+        postgres_ready.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    pub async fn ensure_postgres_ready(&self) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        let postgres_ready = Arc::clone(&self.postgres_ready);
+        tokio::task::spawn_blocking(move || {
+            Self::ensure_postgres_ready_blocking(&postgres_url, postgres_ready.as_ref())
+        })
+        .await
+        .map_err(|err| err.to_string())?
+    }
+
+    pub fn root_dir(&self) -> &std::path::Path {
+        &self.root
+    }
+
+    pub fn lessons_dir(&self) -> PathBuf {
+        self.root.join("lessons")
+    }
+
+    pub fn jobs_dir(&self) -> PathBuf {
+        self.root.join("lesson-jobs")
+    }
+
+    pub fn assets_dir(&self) -> PathBuf {
+        self.root.join("assets")
+    }
+
+    pub fn runtime_sessions_dir(&self) -> PathBuf {
+        self.root.join("runtime-sessions")
+    }
+
+    pub fn runtime_session_backend(&self) -> &'static str {
+        "postgres"
+    }
+
+    pub fn lesson_backend(&self) -> &'static str {
+        "postgres"
+    }
+
+    pub fn job_backend(&self) -> &'static str {
+        "postgres"
+    }
+
+    pub async fn deduct_credits(&self, account_id: &str, amount: f64) -> Result<f64, String> {
+        if amount <= 0.0 {
+            return self
+                .get_credit_balance(account_id)
+                .await
+                .map(|balance| balance.balance);
+        }
+        let entry = CreditLedgerEntry {
+            id: format!("manual-debit-{}-{}", account_id, uuid::Uuid::new_v4()),
+            account_id: account_id.to_string(),
+            kind: CreditEntryKind::Debit,
+            amount,
+            reason: "manual_deduct".to_string(),
+            created_at: chrono::Utc::now(),
+        };
+        self.apply_credit_entry(&entry)
+            .await
+            .map(|balance| balance.balance)
+    }
+
     fn tutor_account_status_to_db(status: &TutorAccountStatus) -> &'static str {
         match status {
             TutorAccountStatus::PreRegistered => "pre_registered",
@@ -680,7 +764,7 @@ impl FileStorage {
 
     fn run_postgres_migrations(client: &mut Client) -> AnyResult<()> {
         static MIGRATIONS_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if MIGRATIONS_DONE.load(std::sync::atomic::Ordering::Acquire) {
+        if MIGRATIONS_DONE.load(Ordering::Acquire) {
             return Ok(());
         }
 
@@ -716,168 +800,18 @@ impl FileStorage {
             )?;
             tx.commit()?;
         }
-        MIGRATIONS_DONE.store(true, std::sync::atomic::Ordering::Release);
+        MIGRATIONS_DONE.store(true, Ordering::Release);
         Ok(())
     }
 
-    fn stable_path_key(value: &str) -> String {
-        let mut encoded = String::with_capacity(value.len() * 2);
-        for byte in value.as_bytes() {
-            use std::fmt::Write as _;
-            let _ = write!(&mut encoded, "{byte:02x}");
-        }
-        encoded
-    }
+    // ─── Filesystem helpers (used by promo codes and queued-job snapshots) ───
 
-    pub fn with_databases(
-        root: impl Into<PathBuf>,
-        _lesson_db_path: Option<PathBuf>,
-        _runtime_db_path: Option<PathBuf>,
-        _job_db_path: Option<PathBuf>,
-        postgres_url: Option<String>,
-    ) -> Self {
-        Self {
-            root: root.into(),
-            postgres_url: postgres_url.expect("AI_TUTOR_POSTGRES_URL is required"),
-            postgres_ready: Arc::new(AtomicBool::new(false)),
-            job_lock: Arc::new(Mutex::new(())),
-        }
-    }
-    fn ensure_postgres_ready_blocking(
-        postgres_url: &str,
-        postgres_ready: &AtomicBool,
-    ) -> Result<(), String> {
-        if postgres_ready.load(Ordering::Acquire) {
-            return Ok(());
-        }
-
-        let _client = get_pg_client(postgres_url).map_err(|err| err.to_string())?;
-        postgres_ready.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    pub async fn ensure_postgres_ready(&self) -> Result<(), String> {
-        let postgres_url = self.postgres_url.clone();
-        let postgres_ready = Arc::clone(&self.postgres_ready);
-        tokio::task::spawn_blocking(move || {
-            Self::ensure_postgres_ready_blocking(&postgres_url, postgres_ready.as_ref())
-        })
-        .await
-        .map_err(|err| err.to_string())?
-    }
-
-    pub fn root_dir(&self) -> &Path {
-        &self.root
-    }
-
-    pub async fn deduct_credits(&self, account_id: &str, amount: f64) -> Result<f64, String> {
-        if amount <= 0.0 {
-            return self
-                .get_credit_balance(account_id)
-                .await
-                .map(|balance| balance.balance);
-        }
-
-        let entry = CreditLedgerEntry {
-            id: format!("manual-debit-{}-{}", account_id, Uuid::new_v4()),
-            account_id: account_id.to_string(),
-            kind: CreditEntryKind::Debit,
-            amount,
-            reason: "manual_deduct".to_string(),
-            created_at: chrono::Utc::now(),
-        };
-
-        self.apply_credit_entry(&entry)
-            .await
-            .map(|balance| balance.balance)
-    }
-
-    pub fn runtime_session_backend(&self) -> &'static str {
-        "postgres"
-    }
-
-    pub fn lesson_backend(&self) -> &'static str {
-        "postgres"
-    }
-
-    pub fn job_backend(&self) -> &'static str {
-        "postgres"
-    }
-
-    pub fn lessons_dir(&self) -> PathBuf {
-        self.root.join("lessons")
-    }
-
-    pub fn jobs_dir(&self) -> PathBuf {
-        self.root.join("lesson-jobs")
-    }
-
-    pub fn assets_dir(&self) -> PathBuf {
-        self.root.join("assets")
-    }
-
-    pub fn runtime_sessions_dir(&self) -> PathBuf {
-        self.root.join("runtime-sessions")
-    }
-
-    pub fn runtime_action_executions_dir(&self) -> PathBuf {
-        self.root.join("runtime-action-executions")
-    }
-
-    pub fn lesson_adaptive_dir(&self) -> PathBuf {
-        self.root.join("lesson-adaptive")
-    }
-
-    pub fn lesson_shelf_dir(&self) -> PathBuf {
-        self.root.join("lesson-shelf")
-    }
-
-    pub fn queued_job_snapshots_dir(&self) -> PathBuf {
+    fn queued_job_snapshots_dir(&self) -> PathBuf {
         self.root.join("queued-job-snapshots")
     }
 
-    pub fn tutor_accounts_dir(&self) -> PathBuf {
-        self.root.join("tutor-accounts")
-    }
-
-    pub fn credit_entries_dir(&self) -> PathBuf {
-        self.root.join("credits").join("entries")
-    }
-
-    pub fn credit_balances_dir(&self) -> PathBuf {
-        self.root.join("credits").join("balances")
-    }
-
-    pub fn payment_orders_dir(&self) -> PathBuf {
-        self.root.join("payment-orders")
-    }
-
-    pub fn subscriptions_dir(&self) -> PathBuf {
-        self.root.join("subscriptions")
-    }
-
-    pub fn invoices_dir(&self) -> PathBuf {
-        self.root.join("invoices")
-    }
-
-    pub fn invoice_lines_dir(&self) -> PathBuf {
-        self.root.join("invoice-lines")
-    }
-
-    pub fn payment_intents_dir(&self) -> PathBuf {
-        self.root.join("payment-intents")
-    }
-
-    pub fn dunning_cases_dir(&self) -> PathBuf {
-        self.root.join("dunning-cases")
-    }
-
-    pub fn webhook_events_dir(&self) -> PathBuf {
-        self.root.join("webhook-events")
-    }
-
-    pub fn financial_audit_logs_dir(&self) -> PathBuf {
-        self.root.join("financial-audit-logs")
+    fn queued_job_snapshot_path(&self, job_id: &str) -> PathBuf {
+        self.queued_job_snapshots_dir().join(format!("{job_id}.json"))
     }
 
     pub fn promo_codes_dir(&self) -> PathBuf {
@@ -895,10 +829,8 @@ impl FileStorage {
 
     async fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> AnyResult<()> {
         if let Some(parent) = path.parent() {
-            Self::ensure_dir(parent).await?
-
+            Self::ensure_dir(parent).await?;
         }
-
         let tmp = path.with_extension(format!(
             "tmp.{}.{}",
             std::process::id(),
@@ -907,7 +839,6 @@ impl FileStorage {
                 .unwrap_or_default()
                 .as_millis()
         ));
-
         let content = serde_json::to_vec_pretty(value)?;
         fs::write(&tmp, content).await?;
         fs::rename(&tmp, path).await?;
@@ -923,302 +854,6 @@ impl FileStorage {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err.into()),
         }
-    }
-
-    fn lesson_path(&self, lesson_id: &str) -> PathBuf {
-        self.lessons_dir().join(format!("{lesson_id}.json"))
-    }
-
-    fn job_path(&self, job_id: &str) -> PathBuf {
-        self.jobs_dir().join(format!("{job_id}.json"))
-    }
-
-    fn runtime_session_path(&self, session_id: &str) -> PathBuf {
-        self.runtime_sessions_dir()
-            .join(format!("{session_id}.json"))
-    }
-
-    fn runtime_action_execution_path(&self, execution_id: &str) -> PathBuf {
-        self.runtime_action_executions_dir()
-            .join(format!("{}.json", Self::stable_path_key(execution_id)))
-    }
-
-    fn lesson_adaptive_path(&self, lesson_id: &str) -> PathBuf {
-        self.lesson_adaptive_dir()
-            .join(format!("{}.json", Self::stable_path_key(lesson_id)))
-    }
-
-    fn lesson_shelf_path(&self, item_id: &str) -> PathBuf {
-        self.lesson_shelf_dir().join(format!("{item_id}.json"))
-    }
-
-    fn queued_job_snapshot_path(&self, job_id: &str) -> PathBuf {
-        self.queued_job_snapshots_dir()
-            .join(format!("{job_id}.json"))
-    }
-
-    fn tutor_account_path(&self, account_id: &str) -> PathBuf {
-        self.tutor_accounts_dir().join(format!("{account_id}.json"))
-    }
-
-    fn credit_entry_path(&self, entry_id: &str) -> PathBuf {
-        self.credit_entries_dir().join(format!("{entry_id}.json"))
-    }
-
-    fn credit_balance_path(&self, account_id: &str) -> PathBuf {
-        self.credit_balances_dir()
-            .join(format!("{account_id}.json"))
-    }
-
-    fn payment_order_path(&self, order_id: &str) -> PathBuf {
-        self.payment_orders_dir().join(format!("{order_id}.json"))
-    }
-
-    fn subscription_path(&self, subscription_id: &str) -> PathBuf {
-        self.subscriptions_dir()
-            .join(format!("{subscription_id}.json"))
-    }
-
-    fn invoice_path(&self, invoice_id: &str) -> PathBuf {
-        self.invoices_dir().join(format!("{invoice_id}.json"))
-    }
-
-    fn invoice_line_path(&self, line_id: &str) -> PathBuf {
-        self.invoice_lines_dir().join(format!("{line_id}.json"))
-    }
-
-    fn payment_intent_path(&self, intent_id: &str) -> PathBuf {
-        self.payment_intents_dir().join(format!("{intent_id}.json"))
-    }
-
-    fn dunning_case_path(&self, case_id: &str) -> PathBuf {
-        self.dunning_cases_dir().join(format!("{case_id}.json"))
-    }
-
-    fn webhook_event_path(&self, event_identifier: &str) -> PathBuf {
-        self.webhook_events_dir()
-            .join(format!("{}.json", Self::stable_path_key(event_identifier)))
-    }
-
-    fn financial_audit_log_path(&self, audit_id: &str) -> PathBuf {
-        self.financial_audit_logs_dir()
-            .join(format!("{audit_id}.json"))
-    }
-
-    async fn list_tutor_accounts(&self) -> Result<Vec<TutorAccount>, String> {
-        let dir = self.tutor_accounts_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut accounts = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(account) = Self::read_json::<TutorAccount>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                accounts.push(account);
-            }
-        }
-
-        Ok(accounts)
-    }
-
-    async fn list_payment_orders(&self) -> Result<Vec<PaymentOrder>, String> {
-        let dir = self.payment_orders_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut orders = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(order) = Self::read_json::<PaymentOrder>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                orders.push(order);
-            }
-        }
-
-        Ok(orders)
-    }
-
-    async fn list_subscriptions(&self) -> Result<Vec<Subscription>, String> {
-        let dir = self.subscriptions_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut subscriptions = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(subscription) = Self::read_json::<Subscription>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                subscriptions.push(subscription);
-            }
-        }
-
-        Ok(subscriptions)
-    }
-
-    async fn list_invoices(&self) -> Result<Vec<Invoice>, String> {
-        let dir = self.invoices_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut invoices = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(invoice) = Self::read_json::<Invoice>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                invoices.push(invoice);
-            }
-        }
-
-        Ok(invoices)
-    }
-
-    async fn list_invoice_lines(&self) -> Result<Vec<InvoiceLine>, String> {
-        let dir = self.invoice_lines_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut lines = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(line) = Self::read_json::<InvoiceLine>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                lines.push(line);
-            }
-        }
-
-        Ok(lines)
-    }
-
-    async fn list_payment_intents(&self) -> Result<Vec<PaymentIntent>, String> {
-        let dir = self.payment_intents_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut intents = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(intent) = Self::read_json::<PaymentIntent>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                intents.push(intent);
-            }
-        }
-
-        Ok(intents)
-    }
-
-    async fn list_dunning_cases(&self) -> Result<Vec<DunningCase>, String> {
-        let dir = self.dunning_cases_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut cases = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(case_item) = Self::read_json::<DunningCase>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                cases.push(case_item);
-            }
-        }
-
-        Ok(cases)
-    }
-
-    async fn list_financial_audit_logs(&self) -> Result<Vec<FinancialAuditLog>, String> {
-        let dir = self.financial_audit_logs_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut logs = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(log) = Self::read_json::<FinancialAuditLog>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                logs.push(log);
-            }
-        }
-
-        Ok(logs)
-    }
-
-    async fn list_lesson_shelf_items(&self) -> Result<Vec<LessonShelfItem>, String> {
-        let dir = self.lesson_shelf_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
-        let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
-        let mut items = Vec::new();
-
-        while let Some(entry) = entries.next_entry().await.map_err(|err| err.to_string())? {
-            let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                continue;
-            }
-            if let Some(item) = Self::read_json::<LessonShelfItem>(&path)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                items.push(item);
-            }
-        }
-
-        Ok(items)
     }
 
     fn billing_product_kind_to_db(kind: &BillingProductKind) -> &'static str {
@@ -1656,530 +1291,6 @@ impl FileStorage {
             .map_err(|err| err.to_string())
     }
 
-    async fn save_runtime_session_sqlite(
-        db_path: PathBuf,
-        session_id: String,
-        director_state: DirectorState,
-    ) -> AnyResult<()> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        let payload = serde_json::to_string_pretty(&director_state)?;
-        tokio::task::spawn_blocking(move || -> AnyResult<()> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS runtime_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    director_state_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-            connection.execute(
-                "INSERT INTO runtime_sessions (session_id, director_state_json, updated_at)
-                 VALUES (?1, ?2, CURRENT_TIMESTAMP)
-                 ON CONFLICT(session_id) DO UPDATE SET
-                    director_state_json = excluded.director_state_json,
-                    updated_at = CURRENT_TIMESTAMP;",
-                params![session_id, payload],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn get_runtime_session_sqlite(
-        db_path: PathBuf,
-        session_id: String,
-    ) -> AnyResult<Option<DirectorState>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Option<DirectorState>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS runtime_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    director_state_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-
-            let mut statement = connection.prepare(
-                "SELECT director_state_json
-                 FROM runtime_sessions
-                 WHERE session_id = ?1",
-            )?;
-            let mut rows = statement.query(params![session_id])?;
-            if let Some(row) = rows.next()? {
-                let json: String = row.get(0)?;
-                let value = serde_json::from_str::<DirectorState>(&json)?;
-                Ok(Some(value))
-            } else {
-                Ok(None)
-            }
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn save_job_sqlite(db_path: PathBuf, job: LessonGenerationJob) -> AnyResult<()> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        let payload = serde_json::to_string_pretty(&job)?;
-        tokio::task::spawn_blocking(move || -> AnyResult<()> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lesson_jobs (
-                    job_id TEXT PRIMARY KEY,
-                    job_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-            connection.execute(
-                "INSERT INTO lesson_jobs (job_id, job_json, updated_at)
-                 VALUES (?1, ?2, CURRENT_TIMESTAMP)
-                 ON CONFLICT(job_id) DO UPDATE SET
-                    job_json = excluded.job_json,
-                    updated_at = CURRENT_TIMESTAMP;",
-                params![job.id, payload],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn get_job_sqlite(
-        db_path: PathBuf,
-        job_id: String,
-    ) -> AnyResult<Option<LessonGenerationJob>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Option<LessonGenerationJob>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lesson_jobs (
-                    job_id TEXT PRIMARY KEY,
-                    job_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-
-            let json: Option<String> = connection
-                .query_row(
-                    "SELECT job_json FROM lesson_jobs WHERE job_id = ?1",
-                    params![job_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-
-            let Some(json) = json else {
-                return Ok(None);
-            };
-
-            let mut job = serde_json::from_str::<LessonGenerationJob>(&json)?;
-            let now = chrono::Utc::now();
-            if job.status == LessonGenerationJobStatus::Running {
-                let updated_age = now
-                    .signed_duration_since(job.updated_at)
-                    .to_std()
-                    .unwrap_or_default();
-                if updated_age > STALE_JOB_TIMEOUT {
-                    job.status = LessonGenerationJobStatus::Failed;
-                    job.step = LessonGenerationStep::Failed;
-                    job.message =
-                        "Job appears stale (no progress update for 30 minutes)".to_string();
-                    job.error =
-                        Some("Stale job: process may have restarted during generation".to_string());
-                    job.updated_at = now;
-                    job.completed_at = Some(now);
-
-                    let payload = serde_json::to_string_pretty(&job)?;
-                    connection.execute(
-                        "UPDATE lesson_jobs
-                         SET job_json = ?2, updated_at = CURRENT_TIMESTAMP
-                         WHERE job_id = ?1",
-                        params![job.id, payload],
-                    )?;
-                }
-            }
-
-            Ok(Some(job))
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn save_lesson_sqlite(db_path: PathBuf, lesson: Lesson) -> AnyResult<()> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        let payload = serde_json::to_string_pretty(&lesson)?;
-        tokio::task::spawn_blocking(move || -> AnyResult<()> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lessons (
-                    lesson_id TEXT PRIMARY KEY,
-                    lesson_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-            connection.execute(
-                "INSERT INTO lessons (lesson_id, lesson_json, updated_at)
-                 VALUES (?1, ?2, CURRENT_TIMESTAMP)
-                 ON CONFLICT(lesson_id) DO UPDATE SET
-                    lesson_json = excluded.lesson_json,
-                    updated_at = CURRENT_TIMESTAMP;",
-                params![lesson.id, payload],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn get_lesson_sqlite(db_path: PathBuf, lesson_id: String) -> AnyResult<Option<Lesson>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Option<Lesson>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lessons (
-                    lesson_id TEXT PRIMARY KEY,
-                    lesson_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-
-            let json: Option<String> = connection
-                .query_row(
-                    "SELECT lesson_json FROM lessons WHERE lesson_id = ?1",
-                    params![lesson_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-
-            let Some(json) = json else {
-                return Ok(None);
-            };
-
-            let lesson = serde_json::from_str::<Lesson>(&json)?;
-            Ok(Some(lesson))
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn save_lesson_adaptive_state_sqlite(
-        db_path: PathBuf,
-        state: LessonAdaptiveState,
-    ) -> AnyResult<()> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        let payload = serde_json::to_string_pretty(&state)?;
-        tokio::task::spawn_blocking(move || -> AnyResult<()> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lesson_adaptive_state (
-                    lesson_id TEXT PRIMARY KEY,
-                    state_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-            connection.execute(
-                "INSERT INTO lesson_adaptive_state (lesson_id, state_json, updated_at)
-                 VALUES (?1, ?2, CURRENT_TIMESTAMP)
-                 ON CONFLICT(lesson_id) DO UPDATE SET
-                    state_json = excluded.state_json,
-                    updated_at = CURRENT_TIMESTAMP;",
-                params![state.lesson_id, payload],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn get_lesson_adaptive_state_sqlite(
-        db_path: PathBuf,
-        lesson_id: String,
-    ) -> AnyResult<Option<LessonAdaptiveState>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Option<LessonAdaptiveState>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lesson_adaptive_state (
-                    lesson_id TEXT PRIMARY KEY,
-                    state_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-
-            let json: Option<String> = connection
-                .query_row(
-                    "SELECT state_json FROM lesson_adaptive_state WHERE lesson_id = ?1",
-                    params![lesson_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-
-            let Some(json) = json else {
-                return Ok(None);
-            };
-
-            let state = serde_json::from_str::<LessonAdaptiveState>(&json)?;
-            Ok(Some(state))
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn save_lesson_shelf_item_sqlite(
-        db_path: PathBuf,
-        item: LessonShelfItem,
-    ) -> AnyResult<()> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        let payload = serde_json::to_string_pretty(&item)?;
-        tokio::task::spawn_blocking(move || -> AnyResult<()> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lesson_shelf_items (
-                    item_id TEXT PRIMARY KEY,
-                    account_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    item_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE INDEX IF NOT EXISTS idx_lesson_shelf_items_account_id
-                    ON lesson_shelf_items(account_id);
-                CREATE INDEX IF NOT EXISTS idx_lesson_shelf_items_account_status
-                    ON lesson_shelf_items(account_id, status);",
-            )?;
-            connection.execute(
-                "INSERT INTO lesson_shelf_items (item_id, account_id, status, item_json, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, CURRENT_TIMESTAMP)
-                 ON CONFLICT(item_id) DO UPDATE SET
-                    account_id = excluded.account_id,
-                    status = excluded.status,
-                    item_json = excluded.item_json,
-                    updated_at = CURRENT_TIMESTAMP;",
-                params![
-                    item.id,
-                    item.account_id,
-                    serde_json::to_string(&item.status)?,
-                    payload
-                ],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn get_lesson_shelf_item_sqlite(
-        db_path: PathBuf,
-        item_id: String,
-    ) -> AnyResult<Option<LessonShelfItem>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Option<LessonShelfItem>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lesson_shelf_items (
-                    item_id TEXT PRIMARY KEY,
-                    account_id TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    item_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE INDEX IF NOT EXISTS idx_lesson_shelf_items_account_id
-                    ON lesson_shelf_items(account_id);
-                CREATE INDEX IF NOT EXISTS idx_lesson_shelf_items_account_status
-                    ON lesson_shelf_items(account_id, status);",
-            )?;
-
-            let json: Option<String> = connection
-                .query_row(
-                    "SELECT item_json FROM lesson_shelf_items WHERE item_id = ?1",
-                    params![item_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-
-            let Some(json) = json else {
-                return Ok(None);
-            };
-
-            let item = serde_json::from_str::<LessonShelfItem>(&json)?;
-            Ok(Some(item))
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn save_runtime_action_execution_sqlite(
-        db_path: PathBuf,
-        record: RuntimeActionExecutionRecord,
-    ) -> AnyResult<()> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<()> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS runtime_action_executions (
-                    execution_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    runtime_session_mode TEXT NOT NULL,
-                    action_name TEXT NOT NULL,
-                    status_json TEXT NOT NULL,
-                    record_json TEXT NOT NULL,
-                    updated_at_unix_ms INTEGER NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_runtime_action_executions_session_id
-                    ON runtime_action_executions(session_id);",
-            )?;
-            let status_json = serde_json::to_string(&record.status)?;
-            let record_json = serde_json::to_string_pretty(&record)?;
-            connection.execute(
-                "INSERT INTO runtime_action_executions (
-                    execution_id, session_id, runtime_session_mode, action_name, status_json, record_json, updated_at_unix_ms
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(execution_id) DO UPDATE SET
-                    session_id = excluded.session_id,
-                    runtime_session_mode = excluded.runtime_session_mode,
-                    action_name = excluded.action_name,
-                    status_json = excluded.status_json,
-                    record_json = excluded.record_json,
-                    updated_at_unix_ms = excluded.updated_at_unix_ms;",
-                params![
-                    record.execution_id,
-                    record.session_id,
-                    record.runtime_session_mode,
-                    record.action_name,
-                    status_json,
-                    record_json,
-                    record.updated_at_unix_ms
-                ],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn get_runtime_action_execution_sqlite(
-        db_path: PathBuf,
-        execution_id: String,
-    ) -> AnyResult<Option<RuntimeActionExecutionRecord>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Option<RuntimeActionExecutionRecord>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS runtime_action_executions (
-                    execution_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    runtime_session_mode TEXT NOT NULL,
-                    action_name TEXT NOT NULL,
-                    status_json TEXT NOT NULL,
-                    record_json TEXT NOT NULL,
-                    updated_at_unix_ms INTEGER NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_runtime_action_executions_session_id
-                    ON runtime_action_executions(session_id);",
-            )?;
-            let payload = connection
-                .query_row(
-                    "SELECT record_json FROM runtime_action_executions WHERE execution_id = ?1",
-                    params![execution_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?;
-            payload
-                .map(|json| serde_json::from_str::<RuntimeActionExecutionRecord>(&json))
-                .transpose()
-                .map_err(Into::into)
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn list_runtime_action_executions_for_session_sqlite(
-        db_path: PathBuf,
-        session_id: String,
-    ) -> AnyResult<Vec<RuntimeActionExecutionRecord>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?
-
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Vec<RuntimeActionExecutionRecord>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS runtime_action_executions (
-                    execution_id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    runtime_session_mode TEXT NOT NULL,
-                    action_name TEXT NOT NULL,
-                    status_json TEXT NOT NULL,
-                    record_json TEXT NOT NULL,
-                    updated_at_unix_ms INTEGER NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_runtime_action_executions_session_id
-                    ON runtime_action_executions(session_id);",
-            )?;
-            let mut statement = connection.prepare(
-                "SELECT record_json
-                 FROM runtime_action_executions
-                 WHERE session_id = ?1
-                 ORDER BY updated_at_unix_ms ASC",
-            )?;
-            let rows = statement.query_map(params![session_id], |row| row.get::<_, String>(0))?;
-            let mut records = Vec::new();
-            for row in rows {
-                records.push(serde_json::from_str::<RuntimeActionExecutionRecord>(&row?)?);
-            }
-            Ok(records)
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
 }
 
 #[async_trait]
@@ -2916,19 +2027,19 @@ impl TutorAccountRepository for FileStorage {
                         if db_err.code().code() == "23505" {
                             let detail = db_err.detail().unwrap_or_default();
                             if detail.contains("google_id") {
-                                format!(
+                                return format!(
                                     "google account {} is already linked to another tutor account",
                                     account.google_id
                                 );
                             }
                             if detail.contains("phone_number") {
                                 if let Some(phone_number) = account.phone_number.as_deref() {
-                                    format!(
+                                    return format!(
                                         "phone number {} is already linked to another tutor account",
                                         phone_number
                                     );
                                 }
-                                "phone number is already linked to another tutor account"
+                                return "phone number is already linked to another tutor account"
                                     .to_string();
                             }
                         }
@@ -3096,13 +2207,14 @@ impl CreditLedgerRepository for FileStorage {
                         &entry.created_at,
                     ],
                 )
-                .map_err(|err| {
+                .or_else(|err| {
                     if let Some(db_err) = err.as_db_error() {
                         if db_err.code().code() == "23505" {
-                            format!("credit entry {} already exists", entry.id);
+                            // Duplicate credit entry — already applied, skip
+                            return Ok(1u64);
                         }
                     }
-                    err.to_string()
+                    Err(err.to_string())
                 })?;
 
             let delta = match entry.kind {
@@ -4996,7 +4108,7 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use PathBuf;
 
     use chrono::{Duration as ChronoDuration, Utc};
     use tokio::runtime::Runtime;
@@ -5025,7 +4137,7 @@ mod tests {
     fn temp_root() -> PathBuf {
         std::env::temp_dir().join(format!(
             "ai-tutor-storage-test-{}",
-            std::time::SystemTime::now()
+            SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()

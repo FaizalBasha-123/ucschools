@@ -26,8 +26,9 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
       });
       if (res.ok) {
         const data = await res.json();
-        // Backend returns { success: true, data: { entitlement: { credit_balance: N } } }
-        const balance = data?.data?.entitlement?.credit_balance ?? data?.entitlement?.credit_balance ?? null;
+        // apiSuccess() spreads data at root: { success: true, entitlement: {...}, ... }
+        // The fallback to .data.entitlement handles any wrapped format for safety.
+        const balance = data?.entitlement?.credit_balance ?? data?.data?.entitlement?.credit_balance ?? null;
         if (balance !== null) {
           setCredits(balance);
         }

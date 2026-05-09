@@ -249,9 +249,12 @@ export default function LessonStudioPage() {
       });
       if (billingRes.ok) {
         const bd = await billingRes.json();
-        const credits = bd.data?.entitlement?.credit_balance ?? 0;
-        const hasSub = bd.data?.entitlement?.has_active_subscription ?? false;
-        if (!hasSub && credits <= 0) {
+        // apiSuccess() spreads data at root: { success, entitlement, ... }
+        const entitlement = bd?.entitlement ?? bd?.data?.entitlement;
+        const credits: number = entitlement?.credit_balance ?? 0;
+        const hasSub: boolean = entitlement?.has_active_subscription ?? false;
+        const canGenerate: boolean = entitlement?.can_generate ?? (credits > 0);
+        if (!canGenerate && !hasSub && credits <= 0) {
           toast.error('Insufficient credits', { description: 'Please choose a plan.' });
           router.push('/pricing');
           return;

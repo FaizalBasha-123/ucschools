@@ -34,9 +34,7 @@ use sha2::Digest;
 
 use crate::billing_catalog::{billing_catalog, BillingProductDefinition};
 use crate::notifications::{notification_service_from_env, GracePeriodWarningNotification, NotificationService, OperatorOtpNotification, PaymentFailedNotification, PaymentSuccessNotification, ServiceRestrictedNotification};
-use crate::queue::{LessonQueue, QueuedLessonRequest, QueueLeaseCounts, QueueCancelResult, claim_heartbeat_interval_ms, spawn_one_shot_queue_kick, stale_working_timeout_ms};
-use crate::queue_redis::RedisLessonQueue;
-use crate::redis_storage::RedisRuntimeSessionRepository;
+use crate::queue::{LessonQueue, QueuedLessonRequest, QueueCancelResult, claim_heartbeat_interval_ms, spawn_one_shot_queue_kick, stale_working_timeout_ms};
 use crate::telemetry::TelemetryService;
 use redis::AsyncCommands;
 use crate::telemetry_provider::{

@@ -259,9 +259,6 @@ async fn main() -> Result<()> {
     let port = std::env::var("AI_TUTOR_API_PORT").unwrap_or_else(|_| "8099".to_string());
     let storage_root =
         std::env::var("AI_TUTOR_STORAGE_ROOT").expect("AI_TUTOR_STORAGE_ROOT is required");
-    let lesson_db_path = std::env::var("AI_TUTOR_LESSON_DB_PATH").ok();
-    let runtime_db_path = std::env::var("AI_TUTOR_RUNTIME_DB_PATH").ok();
-    let job_db_path = std::env::var("AI_TUTOR_JOB_DB_PATH").ok();
     let postgres_url = std::env::var("AI_TUTOR_NEON_DATABASE_URL")
         .ok()
         .or_else(|| std::env::var("AI_TUTOR_POSTGRES_URL").ok())
