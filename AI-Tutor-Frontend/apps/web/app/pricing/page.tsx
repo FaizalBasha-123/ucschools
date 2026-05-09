@@ -473,7 +473,7 @@ function PricingContent() {
               <p className="text-neutral-600 dark:text-neutral-400 mb-8 leading-relaxed">
                 We are currently finalizing our secure payment integration with Stripe & Easebuzz to provide you with a seamless experience.
                 <br /><br />
-                Your interest has been noted! We'll notify you as soon as premium plans are live.
+                Your interest has been noted! We&apos;ll notify you as soon as premium plans are live.
               </p>
               <button
                 onClick={() => setShowComingSoon(false)}

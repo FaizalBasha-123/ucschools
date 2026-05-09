@@ -330,7 +330,7 @@ function VerifyPhoneContent() {
           Security Protocol
         </p>
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Verification is a one-time step to protect your identity. We will never contact you to ask for this code. If you receive a code you didn't request, please secure your account immediately.
+          Verification is a one-time step to protect your identity. We will never contact you to ask for this code. If you receive a code you didn&apos;t request, please secure your account immediately.
         </p>
       </div>
     </main>

@@ -252,6 +252,12 @@ fn session_auth_required(path: &str) -> bool {
         || path == "/api/billing/orders"
         || path == "/api/subscriptions/me"
         || path == "/api/subscriptions/create"
+        || path == "/api/lesson-shelf"
+        || path == "/api/lesson-shelf/mark-opened"
+        || path.starts_with("/api/lesson-shelf/")
+        || path.starts_with("/api/lessons/")
+        || path.starts_with("/api/runtime/")
+        || path.starts_with("/api/schools/")
         || (path.starts_with("/api/subscriptions/") && path.ends_with("/cancel"))
 }
 
@@ -10387,8 +10393,31 @@ fn credits_required() -> bool {
 }
 
 fn extract_account_id(headers: &axum::http::HeaderMap) -> Option<String> {
-    let token = extract_session_token(headers)?;
-    verify_session_token(&token).ok().map(|claims| claims.sub)
+    // 1. Try Authorization header first (typical for direct browser-to-backend or mobile)
+    if let Some(value) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        if let Some(token) = value.trim().strip_prefix("Bearer ") {
+            if !token.trim().is_empty() {
+                if let Ok(claims) = verify_session_token(token.trim()) {
+                    return Some(claims.sub);
+                }
+            }
+        }
+    }
+
+    // 2. Try session cookie (typical for proxied requests where Authorization is a static API token)
+    let cookie_name = auth_session_cookie_name();
+    if let Some(cookie_header) = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()) {
+        if let Some(token) = parse_cookie(cookie_header, &cookie_name) {
+            if let Ok(claims) = verify_session_token(&token) {
+                return Some(claims.sub);
+            }
+        }
+    }
+
+    None
 }
 
 fn extract_session_token(headers: &axum::http::HeaderMap) -> Option<String> {
