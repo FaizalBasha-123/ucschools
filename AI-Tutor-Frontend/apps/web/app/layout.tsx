@@ -39,7 +39,7 @@ export default function RootLayout({
             <CreditsProvider>
               <ServerProvidersInit />
               {children}
-              <Toaster position="top-center" />
+              <Toaster />
             </CreditsProvider>
           </I18nProvider>
         </ThemeProvider>
