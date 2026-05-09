@@ -3124,15 +3124,10 @@ impl CreditLedgerRepository for FileStorage {
                 .map_err(|err| err.to_string())?;
             transaction.commit().map_err(|err| err.to_string())?;
 
-            let updated_at = balance
-                .get::<_, String>("updated_at")
-                .parse::<chrono::DateTime<Utc>>()
-                .map_err(|err| err.to_string())?;
-
             Ok(CreditBalance {
                 account_id: balance.get("account_id"),
                 balance: balance.get("balance"),
-                updated_at,
+                updated_at: balance.get("updated_at"),
             })
         })
         .await

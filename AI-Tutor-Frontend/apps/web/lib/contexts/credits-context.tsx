@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { apiFetch, hasAuthSessionHint } from '@/lib/auth/session';
 
 interface CreditsContextType {
@@ -11,23 +11,13 @@ interface CreditsContextType {
 
 const CreditsContext = createContext<CreditsContextType | undefined>(undefined);
 
-const CREDITS_CACHE_KEY = 'ai_tutor_credits_cache';
-
 export function CreditsProvider({ children }: { children: ReactNode }) {
   const [credits, setCredits] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 1. Instant hydration from localStorage
-  useEffect(() => {
-    const cached = localStorage.getItem(CREDITS_CACHE_KEY);
-    if (cached !== null) {
-      setCredits(Number(cached));
-    }
-  }, []);
-
-  const refreshCredits = async () => {
+  const refreshCredits = useCallback(async () => {
     if (!hasAuthSessionHint()) return;
-    
+
     setLoading(true);
     try {
       const res = await apiFetch('/api/billing/dashboard', {
@@ -36,25 +26,27 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
       });
       if (res.ok) {
         const data = await res.json();
-        const balance = data.data?.entitlement?.credit_balance ?? 0;
-        setCredits(balance);
-        localStorage.setItem(CREDITS_CACHE_KEY, String(balance));
+        // Backend returns { success: true, data: { entitlement: { credit_balance: N } } }
+        const balance = data?.data?.entitlement?.credit_balance ?? data?.entitlement?.credit_balance ?? null;
+        if (balance !== null) {
+          setCredits(balance);
+        }
       }
     } catch (err) {
       console.error('Failed to refresh credits:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // 2. Initial background refresh
+  // Initial fetch on mount
   useEffect(() => {
     refreshCredits();
-    
-    // Auto refresh every 60s
-    const interval = setInterval(refreshCredits, 60000);
+
+    // Auto-refresh every 60s to keep in sync
+    const interval = setInterval(refreshCredits, 60_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshCredits]);
 
   return (
     <CreditsContext.Provider value={{ credits, refreshCredits, loading }}>

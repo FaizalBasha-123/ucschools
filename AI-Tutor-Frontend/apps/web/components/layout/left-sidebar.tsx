@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react';
 import { clearAuthSession, authHeaders } from '@/lib/auth/session';
+import { useCredits } from '@/lib/contexts/credits-context';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface LeftSidebarProps {
@@ -39,12 +40,16 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
   const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [billingData, setBillingData] = useState<any>(null);
+  const [planName, setPlanName] = useState('Free');
+
+  // Use the shared CreditsContext — single source of truth
+  const { credits } = useCredits();
 
   const isBillingContext = pathname.startsWith('/billing');
 
+  // Only fetch plan name (not credits — credits come from context)
   useEffect(() => {
-    async function fetchBilling() {
+    async function fetchPlan() {
       try {
         const res = await fetch('/api/billing/dashboard', {
           headers: authHeaders(),
@@ -52,14 +57,15 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
         });
         if (res.ok) {
           const json = await res.json();
-          // Support both wrapped { success: true, data: { ... } } and direct format
-          setBillingData(json.data || json);
+          const entitlement = (json.data || json)?.entitlement;
+          const plan = entitlement?.active_subscription?.plan_code?.split('_')[0] || 'Free';
+          setPlanName(plan);
         }
       } catch (err) {
-        console.error('Failed to fetch billing data for sidebar:', err);
+        console.error('Failed to fetch plan name for sidebar:', err);
       }
     }
-    fetchBilling();
+    fetchPlan();
   }, [pathname]);
 
   const userLinks = [
@@ -85,9 +91,7 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
 
   let links = variant === 'operator' ? operatorLinks : (isBillingContext ? billingLinks : userLinks);
 
-  const entitlement = billingData?.entitlement;
-  const planName = entitlement?.active_subscription?.plan_code?.split('_')[0] || 'Free';
-  const credits = entitlement?.credit_balance ?? 0;
+  const displayCredits = credits ?? 0;
 
   return (
     <>
@@ -233,7 +237,7 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
                 <div className="min-w-0">
                   <div className="flex items-baseline gap-1">
                     <span className="text-2xl font-bold text-sidebar-foreground group-hover:text-sidebar-primary transition-colors">
-                      {credits.toFixed(0)}
+                      {displayCredits.toFixed(0)}
                     </span>
                     <span className="text-[10px] font-bold uppercase tracking-widest text-sidebar-foreground/30">
                       Credits
