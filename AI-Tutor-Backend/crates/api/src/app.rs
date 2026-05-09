@@ -33,11 +33,12 @@ use rand::Rng;
 use sha2::Digest;
 
 use crate::billing_catalog::{billing_catalog, BillingProductDefinition};
-use crate::queue::{
-    claim_heartbeat_interval_ms, spawn_one_shot_queue_kick, stale_working_timeout_ms,
-    QueueCancelResult, QueuedLessonRequest, LessonQueue,
-};
+use crate::notifications::{notification_service_from_env, GracePeriodWarningNotification, NotificationService, OperatorOtpNotification, PaymentFailedNotification, PaymentSuccessNotification, ServiceRestrictedNotification};
+use crate::queue::{LessonQueue, QueuedLessonRequest, QueueLeaseCounts, QueueCancelResult, claim_heartbeat_interval_ms, spawn_one_shot_queue_kick, stale_working_timeout_ms};
+use crate::queue_redis::RedisLessonQueue;
+use crate::redis_storage::RedisRuntimeSessionRepository;
 use crate::telemetry::TelemetryService;
+use redis::AsyncCommands;
 use crate::telemetry_provider::{
     account_id_from_scoped_session_id, TelemetryImageProvider, TelemetryLlmProvider,
     TelemetryTtsProvider, TelemetryVideoProvider,
@@ -98,11 +99,6 @@ use ai_tutor_storage::{
         RuntimeActionExecutionRepository, RuntimeSessionRepository, SchoolRepository,
         SubscriptionRepository, TutorAccountRepository, WebhookEventRepository,
     },
-};
-use crate::notifications::{
-    notification_service_from_env, GracePeriodWarningNotification, NotificationService,
-    OperatorOtpNotification, PaymentFailedNotification, PaymentSuccessNotification,
-    ServiceRestrictedNotification,
 };
 
 use chrono::{Datelike, LocalResult, TimeZone};
@@ -1647,6 +1643,8 @@ pub struct LiveLessonAppService {
     notification_service: Arc<dyn NotificationService>,
     base_url: String,
     queue: Arc<dyn LessonQueue>,
+    runtime_sessions: Arc<dyn RuntimeSessionRepository>,
+    redis_client: Option<redis::Client>,
     telemetry: Arc<TelemetryService>,
 }
 
@@ -1661,6 +1659,8 @@ impl LiveLessonAppService {
         tts_provider_factory: Arc<dyn TtsProviderFactory>,
         asr_provider_factory: Arc<dyn AsrProviderFactory>,
         queue: Arc<dyn LessonQueue>,
+        runtime_sessions: Arc<dyn RuntimeSessionRepository>,
+        redis_client: Option<redis::Client>,
         telemetry: Arc<TelemetryService>,
         base_url: String,
     ) -> Self {
@@ -1676,6 +1676,8 @@ impl LiveLessonAppService {
             notification_service: notification_service_from_env(base_url.clone()),
             base_url,
             queue,
+            runtime_sessions,
+            redis_client,
             telemetry,
         }
     }
@@ -6573,10 +6575,33 @@ impl LessonAppService for LiveLessonAppService {
     }
 
     async fn get_lesson(&self, id: &str) -> Result<Option<Lesson>> {
-        self.storage
-            .get_lesson(id)
-            .await
-            .map_err(|err| anyhow!(err))
+        if let Some(client) = &self.redis_client {
+            let mut conn = client.get_multiplexed_async_connection().await.map_err(|e| anyhow!(e))?;
+            let cache_key = format!("lesson:cache:{}", id);
+            let cached: Option<String> = conn.get(&cache_key).await.ok();
+            if let Some(payload) = cached {
+                if let Ok(lesson) = serde_json::from_str::<Lesson>(&payload) {
+                    return Ok(Some(lesson));
+                }
+            }
+            
+            let lesson = self.storage
+                .get_lesson(id)
+                .await
+                .map_err(|err| anyhow!(err))?;
+            
+            if let Some(ref l) = lesson {
+                if let Ok(payload) = serde_json::to_string(l) {
+                    let _: () = conn.set_ex(&cache_key, payload, 3600).await.unwrap_or_default();
+                }
+            }
+            Ok(lesson)
+        } else {
+            self.storage
+                .get_lesson(id)
+                .await
+                .map_err(|err| anyhow!(err))
+        }
     }
 
     async fn get_audio_asset(&self, lesson_id: &str, file_name: &str) -> Result<Option<Vec<u8>>> {
@@ -7076,8 +7101,7 @@ impl LiveLessonAppService {
                 persistence_session_id,
                 create_if_missing,
             } => {
-                let loaded = self
-                    .storage
+                let loaded = self.runtime_sessions
                     .get_runtime_session(persistence_session_id)
                     .await
                     .map_err(|err| anyhow!(err))?;
@@ -7150,7 +7174,7 @@ impl LiveLessonAppService {
                 .rev()
                 .find_map(|event| event.director_state.clone())
             {
-                self.storage
+                self.runtime_sessions
                     .save_runtime_session(persistence_session_id, &final_state)
                     .await
                     .map_err(|err| anyhow!(err))?;

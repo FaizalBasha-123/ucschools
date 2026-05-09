@@ -5,7 +5,9 @@ use reqwest::Url;
 use tracing::{error, info};
 
 use ai_tutor_api::app::{build_router, LessonAppService, LiveLessonAppService};
-use ai_tutor_api::queue::FileBackedLessonQueue;
+use ai_tutor_api::queue::{FileBackedLessonQueue, LessonQueue};
+use ai_tutor_api::queue_redis::RedisLessonQueue;
+use ai_tutor_api::redis_storage::RedisRuntimeSessionRepository;
 use ai_tutor_api::telemetry::TelemetryService;
 use ai_tutor_media::storage::LocalFileAssetStore;
 use ai_tutor_providers::{
@@ -16,7 +18,7 @@ use ai_tutor_providers::{
     },
 };
 use ai_tutor_storage::filesystem::FileStorage;
-use ai_tutor_storage::repositories::ApiUsageRepository;
+use ai_tutor_storage::repositories::{ApiUsageRepository, RuntimeSessionRepository};
 
 mod cleanup;
 use cleanup::{run_cleanup_loop, CleanupConfig};
@@ -250,7 +252,7 @@ async fn run_startup_readiness_checks(
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
 
     let host = std::env::var("AI_TUTOR_API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
@@ -262,16 +264,17 @@ async fn main() {
     let job_db_path = std::env::var("AI_TUTOR_JOB_DB_PATH").ok();
     let postgres_url = std::env::var("AI_TUTOR_NEON_DATABASE_URL")
         .ok()
-        .or_else(|| std::env::var("AI_TUTOR_POSTGRES_URL").ok());
+        .or_else(|| std::env::var("AI_TUTOR_POSTGRES_URL").ok())
+        .expect("AI_TUTOR_POSTGRES_URL is required for production persistence");
     let base_url =
         std::env::var("AI_TUTOR_BASE_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
 
     let storage = Arc::new(FileStorage::with_databases(
         storage_root,
-        lesson_db_path.map(Into::into),
-        runtime_db_path.map(Into::into),
-        job_db_path.map(Into::into),
-        postgres_url,
+        None, // Local SQLite fallbacks removed
+        None,
+        None,
+        Some(postgres_url.clone()),
     ));
     storage
         .ensure_postgres_ready()
@@ -298,7 +301,28 @@ async fn main() {
         storage.root_dir(),
         &base_url,
     ));
-    let queue = Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
+    let redis_url = std::env::var("AI_TUTOR_REDIS_URL")
+        .ok()
+        .or_else(|| std::env::var("REDIS_URL").ok())
+        .expect("AI_TUTOR_REDIS_URL is required for production queue and sessions");
+
+    let queue: Arc<dyn LessonQueue> = {
+        info!("Initializing Redis-backed lesson queue");
+        Arc::new(RedisLessonQueue::new(&redis_url)?)
+    };
+
+    let runtime_sessions: Arc<dyn RuntimeSessionRepository> = {
+        info!("Initializing Redis-backed runtime session storage");
+        let client = redis::Client::open(redis_url.as_str())?;
+        Arc::new(RedisRuntimeSessionRepository::new(client))
+    };
+
+    let redis_client = if let Some(url) = &redis_url {
+        Some(redis::Client::open(url.as_str())?)
+    } else {
+        None
+    };
+
     let telemetry = Arc::new(TelemetryService::new(
         Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
     ));
@@ -313,6 +337,8 @@ async fn main() {
         Arc::new(DefaultTtsProviderFactory::new((*provider_config).clone())),
         Arc::new(DefaultAsrProviderFactory::new((*provider_config).clone())),
         queue,
+        runtime_sessions,
+        redis_client,
         telemetry,
         base_url,
     ));
@@ -370,4 +396,6 @@ async fn main() {
     }
 
     axum::serve(listener, app).await.expect("serve api");
+
+    Ok(())
 }

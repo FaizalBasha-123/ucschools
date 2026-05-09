@@ -99,7 +99,7 @@ fn get_pg_client(url: &str) -> AnyResult<PooledPgConnection> {
         } else {
             let manager = r2d2_postgres::PostgresConnectionManager::new(
                 url.parse().unwrap(),
-                postgres::NoTls,
+                NoTls
             );
             PgPool::NoTls(
                 r2d2::Pool::builder()
@@ -112,35 +112,18 @@ fn get_pg_client(url: &str) -> AnyResult<PooledPgConnection> {
                     .unwrap(),
             )
         };
-
-        // Run migrations once on startup
-        let mut client = match &pool {
-            PgPool::Tls(p) => PooledPgConnection::Tls(p.get().unwrap()),
-            PgPool::NoTls(p) => PooledPgConnection::NoTls(p.get().unwrap()),
-        };
-        FileStorage::run_postgres_migrations(&mut client).expect("failed to run postgres migrations");
-
         pool
     });
-
-    match pool {
-        PgPool::Tls(p) => Ok(PooledPgConnection::Tls(p.get()?)),
-        PgPool::NoTls(p) => Ok(PooledPgConnection::NoTls(p.get()?)),
-    }
+    
+    pool.get().map_err(|e| anyhow!("Failed to get connection from pool: {}", e))
 }
 
 #[derive(Debug, Clone)]
 pub struct FileStorage {
     root: PathBuf,
-    lesson_db_path: Option<PathBuf>,
-    runtime_db_path: Option<PathBuf>,
-    job_db_path: Option<PathBuf>,
-    postgres_url: Option<String>,
+    postgres_url: String,
     postgres_ready: Arc<AtomicBool>,
     job_lock: Arc<Mutex<()>>,
-    /// Per-account lock for file-backed credit operations to prevent TOCTOU races.
-    /// Only used when postgres_url is None (file-backed mode).
-    credit_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -779,20 +762,16 @@ impl FileStorage {
 
     pub fn with_databases(
         root: impl Into<PathBuf>,
-        lesson_db_path: Option<PathBuf>,
-        runtime_db_path: Option<PathBuf>,
-        job_db_path: Option<PathBuf>,
+        _lesson_db_path: Option<PathBuf>,
+        _runtime_db_path: Option<PathBuf>,
+        _job_db_path: Option<PathBuf>,
         postgres_url: Option<String>,
     ) -> Self {
         Self {
             root: root.into(),
-            lesson_db_path,
-            runtime_db_path,
-            job_db_path,
-            postgres_url,
+            postgres_url: postgres_url.expect("Postgres URL is now mandatory"),
             postgres_ready: Arc::new(AtomicBool::new(false)),
             job_lock: Arc::new(Mutex::new(())),
-            credit_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -860,26 +839,17 @@ impl FileStorage {
     pub fn runtime_session_backend(&self) -> &'static str {
         if self.runtime_db_path.is_some() {
             "sqlite"
-        } else {
-            "file"
         }
-    }
 
     pub fn lesson_backend(&self) -> &'static str {
         if self.lesson_db_path.is_some() {
             "sqlite"
-        } else {
-            "file"
         }
-    }
 
     pub fn job_backend(&self) -> &'static str {
         if self.job_db_path.is_some() {
             "sqlite"
-        } else {
-            "file"
         }
-    }
 
     pub fn lessons_dir(&self) -> PathBuf {
         self.root.join("lessons")
@@ -965,42 +935,6 @@ impl FileStorage {
         self.promo_codes_dir().join(format!("{}.json", code))
     }
 
-    async fn ensure_dir(dir: &Path) -> AnyResult<()> {
-        fs::create_dir_all(dir).await?;
-        Ok(())
-    }
-
-    async fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> AnyResult<()> {
-        if let Some(parent) = path.parent() {
-            Self::ensure_dir(parent).await?;
-        }
-
-        let tmp = path.with_extension(format!(
-            "tmp.{}.{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-        ));
-
-        let content = serde_json::to_vec_pretty(value)?;
-        fs::write(&tmp, content).await?;
-        fs::rename(&tmp, path).await?;
-        Ok(())
-    }
-
-    async fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> AnyResult<Option<T>> {
-        match fs::read(path).await {
-            Ok(bytes) => {
-                let value = serde_json::from_slice::<T>(&bytes)?;
-                Ok(Some(value))
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(err.into()),
-        }
-    }
-
     fn lesson_path(&self, lesson_id: &str) -> PathBuf {
         self.lessons_dir().join(format!("{lesson_id}.json"))
     }
@@ -1083,9 +1017,6 @@ impl FileStorage {
 
     async fn list_tutor_accounts(&self) -> Result<Vec<TutorAccount>, String> {
         let dir = self.tutor_accounts_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
         let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
         let mut accounts = Vec::new();
 
@@ -1107,9 +1038,6 @@ impl FileStorage {
 
     async fn list_payment_orders(&self) -> Result<Vec<PaymentOrder>, String> {
         let dir = self.payment_orders_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
         let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
         let mut orders = Vec::new();
 
@@ -1131,9 +1059,6 @@ impl FileStorage {
 
     async fn list_subscriptions(&self) -> Result<Vec<Subscription>, String> {
         let dir = self.subscriptions_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
         let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
         let mut subscriptions = Vec::new();
 
@@ -1155,9 +1080,6 @@ impl FileStorage {
 
     async fn list_invoices(&self) -> Result<Vec<Invoice>, String> {
         let dir = self.invoices_dir();
-        Self::ensure_dir(&dir)
-            .await
-            .map_err(|err| err.to_string())?;
         let mut entries = fs::read_dir(&dir).await.map_err(|err| err.to_string())?;
         let mut invoices = Vec::new();
 
@@ -1765,133 +1687,19 @@ impl FileStorage {
         .map_err(|err| anyhow::anyhow!(err))?
     }
 
-    async fn get_runtime_session_sqlite(
-        db_path: PathBuf,
-        session_id: String,
-    ) -> AnyResult<Option<DirectorState>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?;
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Option<DirectorState>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS runtime_sessions (
-                    session_id TEXT PRIMARY KEY,
-                    director_state_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-
-            let mut statement = connection.prepare(
-                "SELECT director_state_json
-                 FROM runtime_sessions
-                 WHERE session_id = ?1",
-            )?;
-            let mut rows = statement.query(params![session_id])?;
-            if let Some(row) = rows.next()? {
-                let json: String = row.get(0)?;
-                let value = serde_json::from_str::<DirectorState>(&json)?;
-                Ok(Some(value))
-            } else {
-                Ok(None)
-            }
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
+    async fn stable_path_key(input: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(input.as_bytes());
+        format!("{:x}", hasher.finalize())
     }
-
-    async fn save_job_sqlite(db_path: PathBuf, job: LessonGenerationJob) -> AnyResult<()> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?;
-        }
-
-        let payload = serde_json::to_string_pretty(&job)?;
-        tokio::task::spawn_blocking(move || -> AnyResult<()> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lesson_jobs (
-                    job_id TEXT PRIMARY KEY,
-                    job_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-            connection.execute(
-                "INSERT INTO lesson_jobs (job_id, job_json, updated_at)
-                 VALUES (?1, ?2, CURRENT_TIMESTAMP)
-                 ON CONFLICT(job_id) DO UPDATE SET
-                    job_json = excluded.job_json,
-                    updated_at = CURRENT_TIMESTAMP;",
-                params![job.id, payload],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow::anyhow!(err))?
-    }
-
-    async fn get_job_sqlite(
-        db_path: PathBuf,
-        job_id: String,
-    ) -> AnyResult<Option<LessonGenerationJob>> {
-        if let Some(parent) = db_path.parent() {
-            Self::ensure_dir(parent).await?;
-        }
-
-        tokio::task::spawn_blocking(move || -> AnyResult<Option<LessonGenerationJob>> {
-            let connection = Connection::open(db_path)?;
-            connection.execute_batch(
-                "CREATE TABLE IF NOT EXISTS lesson_jobs (
-                    job_id TEXT PRIMARY KEY,
-                    job_json TEXT NOT NULL,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );",
-            )?;
-
-            let json: Option<String> = connection
-                .query_row(
-                    "SELECT job_json FROM lesson_jobs WHERE job_id = ?1",
-                    params![job_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-
-            let Some(json) = json else {
-                return Ok(None);
-            };
-
-            let mut job = serde_json::from_str::<LessonGenerationJob>(&json)?;
-            let now = chrono::Utc::now();
-            if job.status == LessonGenerationJobStatus::Running {
-                let updated_age = now
-                    .signed_duration_since(job.updated_at)
-                    .to_std()
-                    .unwrap_or_default();
-                if updated_age > STALE_JOB_TIMEOUT {
-                    job.status = LessonGenerationJobStatus::Failed;
-                    job.step = LessonGenerationStep::Failed;
-                    job.message =
-                        "Job appears stale (no progress update for 30 minutes)".to_string();
-                    job.error =
-                        Some("Stale job: process may have restarted during generation".to_string());
-                    job.updated_at = now;
-                    job.completed_at = Some(now);
-
-                    let payload = serde_json::to_string_pretty(&job)?;
-                    connection.execute(
-                        "UPDATE lesson_jobs
-                         SET job_json = ?2, updated_at = CURRENT_TIMESTAMP
-                         WHERE job_id = ?1",
-                        params![job.id, payload],
-                    )?;
-                }
+}
             }
 
             Ok(Some(job))
         })
         .await
         .map_err(|err| anyhow::anyhow!(err))?
-    }
 
     async fn save_lesson_sqlite(db_path: PathBuf, lesson: Lesson) -> AnyResult<()> {
         if let Some(parent) = db_path.parent() {
@@ -2243,88 +2051,61 @@ impl FileStorage {
         .await
         .map_err(|err| anyhow::anyhow!(err))?
     }
-}
 
 #[async_trait]
 impl LessonRepository for FileStorage {
     async fn save_lesson(&self, lesson: &Lesson) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let lesson = lesson.clone();
-            return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let data_json = serde_json::to_string(&lesson).map_err(|err| err.to_string())?;
-                client.execute(
-                    "INSERT INTO lessons (id, account_id, school_id, title, language, description, data_json, created_at, updated_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                     ON CONFLICT (id) DO UPDATE SET
-                         account_id = EXCLUDED.account_id,
-                         school_id = EXCLUDED.school_id,
-                         title = EXCLUDED.title,
-                         language = EXCLUDED.language,
-                         description = EXCLUDED.description,
-                         data_json = EXCLUDED.data_json,
-                         updated_at = EXCLUDED.updated_at",
-                    &[
-                        &lesson.id,
-                        &lesson.account_id,
-                        &lesson.school_id,
-                        &lesson.title,
-                        &lesson.language,
-                        &lesson.description,
-                        &data_json,
-                        &lesson.created_at,
-                        &lesson.updated_at,
-                    ],
-                ).map_err(|err| err.to_string())?;
-                Ok(())
-            }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.lesson_db_path.clone() {
-            Self::save_lesson_sqlite(db_path, lesson.clone())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::write_json_atomic(&self.lesson_path(&lesson.id), lesson)
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
+        let postgres_url = self.postgres_url.clone();
+        let lesson = lesson.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            let data_json = serde_json::to_string(&lesson).map_err(|err| err.to_string())?;
+            client.execute(
+                "INSERT INTO lessons (id, account_id, school_id, title, language, description, data_json, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 ON CONFLICT (id) DO UPDATE SET
+                     account_id = EXCLUDED.account_id,
+                     school_id = EXCLUDED.school_id,
+                     title = EXCLUDED.title,
+                     language = EXCLUDED.language,
+                     description = EXCLUDED.description,
+                     data_json = EXCLUDED.data_json,
+                     updated_at = EXCLUDED.updated_at",
+                &[
+                    &lesson.id,
+                    &lesson.account_id,
+                    &lesson.school_id,
+                    &lesson.title,
+                    &lesson.language,
+                    &lesson.description,
+                    &data_json,
+                    &lesson.created_at,
+                    &lesson.updated_at,
+                ],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
+        }).await.map_err(|err| err.to_string())?
 
     async fn get_lesson(&self, lesson_id: &str) -> Result<Option<Lesson>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let lesson_id = lesson_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Option<Lesson>, String> {
-                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let row = client.query_opt(
-                    "SELECT data_json FROM lessons WHERE id = $1",
-                    &[&lesson_id],
-                ).map_err(|err| err.to_string())?;
-                
-                if let Some(row) = row {
-                    let data_json: String = row.get(0);
-                    let lesson = serde_json::from_str::<Lesson>(&data_json).map_err(|err| err.to_string())?;
-                    Ok(Some(lesson))
-                } else {
-                    Ok(None)
-                }
-            }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.lesson_db_path.clone() {
-            Self::get_lesson_sqlite(db_path, lesson_id.to_string())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::read_json(&self.lesson_path(lesson_id))
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
-}
+        let postgres_url = self.postgres_url.clone();
+        let lesson_id = lesson_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Option<Lesson>, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            let row = client.query_opt(
+                "SELECT data_json FROM lessons WHERE id = $1",
+                &[&lesson_id],
+            ).map_err(|err| err.to_string())?;
+            
+            if let Some(row) = row {
+                let data_json: String = row.get(0);
+                let lesson = serde_json::from_str::<Lesson>(&data_json).map_err(|err| err.to_string())?;
+                Ok(Some(lesson))
+            }).await.map_err(|err| err.to_string())?
 
 #[async_trait]
 impl LessonAdaptiveRepository for FileStorage {
     async fn save_lesson_adaptive_state(&self, state: &LessonAdaptiveState) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let state = state.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -2345,17 +2126,6 @@ impl LessonAdaptiveRepository for FileStorage {
                 ).map_err(|err| err.to_string())?;
                 Ok(())
             }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.lesson_db_path.clone() {
-            Self::save_lesson_adaptive_state_sqlite(db_path, state.clone())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::write_json_atomic(&self.lesson_adaptive_path(&state.lesson_id), state)
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
 
     async fn get_lesson_adaptive_state(
         &self,
@@ -2365,12 +2135,7 @@ impl LessonAdaptiveRepository for FileStorage {
             Self::get_lesson_adaptive_state_sqlite(db_path, lesson_id.to_string())
                 .await
                 .map_err(|err| err.to_string())
-        } else {
-            Self::read_json(&self.lesson_adaptive_path(lesson_id))
-                .await
-                .map_err(|err| err.to_string())
         }
-    }
 }
 
 impl FileStorage {
@@ -2404,11 +2169,11 @@ impl FileStorage {
 #[async_trait]
 impl LessonShelfRepository for FileStorage {
     async fn upsert_lesson_shelf_item(&self, item: &LessonShelfItem) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let item = item.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let item_json = serde_json::to_string(&item).map_err(|err| err.to_string())?;
+                let _item_json = serde_json::to_string(&item).map_err(|err| err.to_string())?;
                 let status = serde_json::to_string(&item.status).map_err(|err| err.to_string())?;
                 let status = status.trim_matches('"');
                 client.execute(
@@ -2452,20 +2217,9 @@ impl LessonShelfRepository for FileStorage {
                 ).map_err(|err| err.to_string())?;
                 Ok(())
             }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.lesson_db_path.clone() {
-            Self::save_lesson_shelf_item_sqlite(db_path, item.clone())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::write_json_atomic(&self.lesson_shelf_path(&item.id), item)
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
 
     async fn get_lesson_shelf_item(&self, item_id: &str) -> Result<Option<LessonShelfItem>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let item_id = item_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<LessonShelfItem>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -2483,17 +2237,6 @@ impl LessonShelfRepository for FileStorage {
                     None => Ok(None),
                 }
             }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.lesson_db_path.clone() {
-            Self::get_lesson_shelf_item_sqlite(db_path, item_id.to_string())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::read_json(&self.lesson_shelf_path(item_id))
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
 
     async fn list_lesson_shelf_items_for_account(
         &self,
@@ -2501,7 +2244,7 @@ impl LessonShelfRepository for FileStorage {
         status: Option<LessonShelfStatus>,
         limit: usize,
     ) -> Result<Vec<LessonShelfItem>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<LessonShelfItem>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -2521,73 +2264,6 @@ impl LessonShelfRepository for FileStorage {
                          ORDER BY updated_at DESC LIMIT $3",
                         &[&account_id, s, &(limit as i64)],
                     )
-                } else {
-                    client.query(
-                        "SELECT 
-                            id, account_id, lesson_id, source_job_id, title, subject, language, 
-                            status, progress_pct, thumbnail_url, failure_reason, 
-                            last_opened_at, archived_at, created_at, updated_at
-                         FROM lesson_shelf_items 
-                         WHERE account_id = $1 
-                         ORDER BY updated_at DESC LIMIT $2",
-                        &[&account_id, &(limit as i64)],
-                    )
-                }.map_err(|err| err.to_string())?;
-                
-                let mut items = Vec::new();
-                for row in rows {
-                    items.push(Self::postgres_row_to_lesson_shelf_item(row)?);
-                }
-                Ok(items)
-            }).await.map_err(|err| err.to_string())?;
-        } else if let Some(db_path) = self.lesson_db_path.clone() {
-            let account_id = account_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Vec<LessonShelfItem>, String> {
-                let connection = Connection::open(db_path).map_err(|err| err.to_string())?;
-                connection
-                    .execute_batch(
-                        "CREATE TABLE IF NOT EXISTS lesson_shelf_items (
-                            item_id TEXT PRIMARY KEY,
-                            account_id TEXT NOT NULL,
-                            status TEXT NOT NULL,
-                            item_json TEXT NOT NULL,
-                            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                        );
-                        CREATE INDEX IF NOT EXISTS idx_lesson_shelf_items_account_id
-                            ON lesson_shelf_items(account_id);
-                        CREATE INDEX IF NOT EXISTS idx_lesson_shelf_items_account_status
-                            ON lesson_shelf_items(account_id, status);",
-                    )
-                    .map_err(|err| err.to_string())?;
-
-                let mut items = Vec::new();
-                if let Some(status) = status {
-                    let mut statement = connection
-                        .prepare(
-                            "SELECT item_json
-                             FROM lesson_shelf_items
-                             WHERE account_id = ?1 AND status = ?2
-                             ORDER BY updated_at DESC
-                             LIMIT ?3",
-                        )
-                        .map_err(|err| err.to_string())?;
-                    let rows = statement
-                        .query_map(
-                            params![
-                                account_id,
-                                serde_json::to_string(&status).map_err(|err| err.to_string())?,
-                                limit as i64
-                            ],
-                            |row| row.get::<_, String>(0),
-                        )
-                        .map_err(|err| err.to_string())?;
-                    for row in rows {
-                        let json = row.map_err(|err| err.to_string())?;
-                        items.push(
-                            serde_json::from_str::<LessonShelfItem>(&json)
-                                .map_err(|err| err.to_string())?,
-                        );
-                    }
                 } else {
                     let mut statement = connection
                         .prepare(
@@ -2680,199 +2356,107 @@ impl LessonShelfRepository for FileStorage {
 #[async_trait]
 impl LessonJobRepository for FileStorage {
     async fn create_job(&self, job: &LessonGenerationJob) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let job = job.clone();
-            return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
-                let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
-                let result_json = job.result.as_ref().map(|r| serde_json::to_string(r)).transpose().map_err(|err| err.to_string())?;
-                let input_summary_json = serde_json::to_string(&job.input_summary).map_err(|err| err.to_string())?;
-                let lesson_id = job.result.as_ref().map(|r| r.lesson_id.clone());
-                
-                client.execute(
-                    "INSERT INTO lesson_jobs (id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, lesson_id, created_at, started_at, completed_at, updated_at, scenes_generated, total_scenes)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-                     ON CONFLICT (id) DO UPDATE SET
-                         account_id = EXCLUDED.account_id,
-                         school_id = EXCLUDED.school_id,
-                         status = EXCLUDED.status,
-                         step = EXCLUDED.step,
-                         progress = EXCLUDED.progress,
-                         message = EXCLUDED.message,
-                         error = EXCLUDED.error,
-                         result_json = EXCLUDED.result_json,
-                         input_summary_json = EXCLUDED.input_summary_json,
-                         lesson_id = EXCLUDED.lesson_id,
-                         started_at = EXCLUDED.started_at,
-                         completed_at = EXCLUDED.completed_at,
-                         updated_at = EXCLUDED.updated_at,
-                         scenes_generated = EXCLUDED.scenes_generated,
-                         total_scenes = EXCLUDED.total_scenes",
-                    &[
-                        &job.id,
-                        &job.account_id,
-                        &job.school_id,
-                        &status_str,
-                        &step_str,
-                        &job.progress,
-                        &job.message,
-                        &job.error,
-                        &result_json,
-                        &input_summary_json,
-                        &lesson_id,
-                        &job.created_at,
-                        &job.started_at,
-                        &job.completed_at,
-                        &job.updated_at,
-                        &job.scenes_generated,
-                        &job.total_scenes,
-                    ],
-                ).map_err(|err| err.to_string())?;
-                Ok(())
-            }).await.map_err(|err| err.to_string())?;
-        }
-        let _guard = self.job_lock.lock().await;
-        if let Some(db_path) = self.job_db_path.clone() {
-            Self::save_job_sqlite(db_path, job.clone())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::write_json_atomic(&self.job_path(&job.id), job)
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
+        let postgres_url = self.postgres_url.clone();
+        let job = job.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
+            let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
+            let result_json = job.result.as_ref().map(|r| serde_json::to_string(r)).transpose().map_err(|err| err.to_string())?;
+            let input_summary_json = serde_json::to_string(&job.input_summary).map_err(|err| err.to_string())?;
+            let lesson_id = job.result.as_ref().map(|r| r.lesson_id.clone());
+            
+            client.execute(
+                "INSERT INTO lesson_jobs (id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, lesson_id, created_at, started_at, completed_at, updated_at, scenes_generated, total_scenes)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                 ON CONFLICT (id) DO UPDATE SET
+                     account_id = EXCLUDED.account_id,
+                     school_id = EXCLUDED.school_id,
+                     status = EXCLUDED.status,
+                     step = EXCLUDED.step,
+                     progress = EXCLUDED.progress,
+                     message = EXCLUDED.message,
+                     error = EXCLUDED.error,
+                     result_json = EXCLUDED.result_json,
+                     input_summary_json = EXCLUDED.input_summary_json,
+                     lesson_id = EXCLUDED.lesson_id,
+                     started_at = EXCLUDED.started_at,
+                     completed_at = EXCLUDED.completed_at,
+                     updated_at = EXCLUDED.updated_at,
+                     scenes_generated = EXCLUDED.scenes_generated,
+                     total_scenes = EXCLUDED.total_scenes",
+                &[
+                    &job.id,
+                    &job.account_id,
+                    &job.school_id,
+                    &status_str,
+                    &step_str,
+                    &job.progress,
+                    &job.message,
+                    &job.error,
+                    &result_json,
+                    &input_summary_json,
+                    &lesson_id,
+                    &job.created_at,
+                    &job.started_at,
+                    &job.completed_at,
+                    &job.updated_at,
+                    &job.scenes_generated,
+                    &job.total_scenes,
+                ],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
+        }).await.map_err(|err| err.to_string())?
 
     async fn update_job(&self, job: &LessonGenerationJob) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let job = job.clone();
-            return tokio::task::spawn_blocking(move || -> Result<(), String> {
-                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
-                let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
-                let result_json = job.result.as_ref().map(|r| serde_json::to_string(r)).transpose().map_err(|err| err.to_string())?;
-                let input_summary_json = serde_json::to_string(&job.input_summary).map_err(|err| err.to_string())?;
-                let lesson_id = job.result.as_ref().map(|r| r.lesson_id.clone());
-                
-                client.execute(
-                    "UPDATE lesson_jobs SET
-                         account_id = $2,
-                         school_id = $3,
-                         status = $4,
-                         step = $5,
-                         progress = $6,
-                         message = $7,
-                         error = $8,
-                         result_json = $9,
-                         input_summary_json = $10,
-                         lesson_id = $11,
-                         started_at = $12,
-                         completed_at = $13,
-                         updated_at = $14
-                     WHERE id = $1",
-                    &[
-                        &job.id,
-                        &job.account_id,
-                        &job.school_id,
-                        &status_str,
-                        &step_str,
-                        &job.progress,
-                        &job.message,
-                        &job.error,
-                        &result_json,
-                        &input_summary_json,
-                        &lesson_id,
-                        &job.started_at,
-                        &job.completed_at,
-                        &job.updated_at,
-                    ],
-                ).map_err(|err| err.to_string())?;
-                Ok(())
-            }).await.map_err(|err| err.to_string())?;
-        }
-        let _guard = self.job_lock.lock().await;
-        if let Some(db_path) = self.job_db_path.clone() {
-            Self::save_job_sqlite(db_path, job.clone())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::write_json_atomic(&self.job_path(&job.id), job)
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
+        let postgres_url = self.postgres_url.clone();
+        let job = job.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
+            let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
+            let result_json = job.result.as_ref().map(|r| serde_json::to_string(r)).transpose().map_err(|err| err.to_string())?;
+            let input_summary_json = serde_json::to_string(&job.input_summary).map_err(|err| err.to_string())?;
+            let lesson_id = job.result.as_ref().map(|r| r.lesson_id.clone());
+            
+            client.execute(
+                "UPDATE lesson_jobs SET
+                     account_id = $2,
+                     school_id = $3,
+                     status = $4,
+                     step = $5,
+                     progress = $6,
+                     message = $7,
+                     error = $8,
+                     result_json = $9,
+                     input_summary_json = $10,
+                     lesson_id = $11,
+                     started_at = $12,
+                     completed_at = $13,
+                     updated_at = $14
+                 WHERE id = $1",
+                &[
+                    &job.id,
+                    &job.account_id,
+                    &job.school_id,
+                    &status_str,
+                    &step_str,
+                    &job.progress,
+                    &job.message,
+                    &job.error,
+                    &result_json,
+                    &input_summary_json,
+                    &lesson_id,
+                    &job.started_at,
+                    &job.completed_at,
+                    &job.updated_at,
+                ],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
+        }).await.map_err(|err| err.to_string())?
 
     async fn get_job(&self, job_id: &str) -> Result<Option<LessonGenerationJob>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let job_id = job_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Option<LessonGenerationJob>, String> {
-                let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let row = client.query_opt(
-                    "SELECT id, account_id, school_id, status, step, progress, message, error, result_json, input_summary_json, created_at, started_at, completed_at, updated_at, scenes_generated, total_scenes
-                     FROM lesson_jobs WHERE id = $1",
-                    &[&job_id],
-                ).map_err(|err| err.to_string())?;
-                
-                if let Some(row) = row {
-                    let status_str: String = row.get(3);
-                    let step_str: String = row.get(4);
-                    let result_json: Option<String> = row.get(8);
-                    let input_summary_json: String = row.get(9);
-                    
-                    let mut job = LessonGenerationJob {
-                        id: row.get(0),
-                        account_id: row.get(1),
-                        school_id: row.get(2),
-                        status: serde_json::from_str(&format!("\"{}\"", status_str)).map_err(|err| err.to_string())?,
-                        step: serde_json::from_str(&format!("\"{}\"", step_str)).map_err(|err| err.to_string())?,
-                        progress: row.get(5),
-                        message: row.get(6),
-                        error: row.get(7),
-                        result: result_json.map(|s| serde_json::from_str(&s)).transpose().map_err(|err| err.to_string())?,
-                        input_summary: serde_json::from_str(&input_summary_json).map_err(|err| err.to_string())?,
-                        created_at: row.get(10),
-                        started_at: row.get(11),
-                        completed_at: row.get(12),
-                        updated_at: row.get(13),
-                        scenes_generated: row.get(14),
-                        total_scenes: row.get(15),
-                    };
-                    
-                    let now = chrono::Utc::now();
-                    if job.status == LessonGenerationJobStatus::Running {
-                        let updated_age = now
-                            .signed_duration_since(job.updated_at)
-                            .to_std()
-                            .unwrap_or_default();
-                        if updated_age > STALE_JOB_TIMEOUT {
-                            job.status = LessonGenerationJobStatus::Failed;
-                            job.step = LessonGenerationStep::Failed;
-                            job.message = "Job appears stale (no progress update for 30 minutes)".to_string();
-                            job.error = Some("Stale job: process may have restarted during generation".to_string());
-                            job.updated_at = now;
-                            job.completed_at = Some(now);
-                            
-                            // Update in postgres
-                            let status_str = serde_json::to_string(&job.status).map_err(|err| err.to_string())?.replace("\"", "");
-                            let step_str = serde_json::to_string(&job.step).map_err(|err| err.to_string())?.replace("\"", "");
-                            client.execute(
-                                "UPDATE lesson_jobs SET status = $2, step = $3, message = $4, error = $5, updated_at = $6, completed_at = $7 WHERE id = $1",
-                                &[&job.id, &status_str, &step_str, &job.message, &job.error, &job.updated_at, &job.completed_at],
-                            ).map_err(|err| err.to_string())?;
-                        }
-                    }
-                    
-                    Ok(Some(job))
-                } else {
-                    Ok(None)
-                }
-            }).await.map_err(|err| err.to_string())?;
-        }
-        let _guard = self.job_lock.lock().await;
-        if let Some(db_path) = self.job_db_path.clone() {
-            return Self::get_job_sqlite(db_path, job_id.to_string())
-                .await
+        let postgres_url = self.postgres_url.clone();
                 .map_err(|err| err.to_string());
         }
         let Some(mut job) = Self::read_json::<LessonGenerationJob>(&self.job_path(job_id))
@@ -2906,7 +2490,7 @@ impl LessonJobRepository for FileStorage {
     }
 
     async fn list_all_jobs(&self, limit: usize) -> Result<Vec<LessonGenerationJob>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             return tokio::task::spawn_blocking(move || -> Result<Vec<LessonGenerationJob>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
                 let rows = client.query(
@@ -2943,7 +2527,6 @@ impl LessonJobRepository for FileStorage {
                 }
                 Ok(jobs)
             }).await.map_err(|err| err.to_string())?;
-        }
         let _guard = self.job_lock.lock().await;
         if let Some(db_path) = self.job_db_path.clone() {
             return tokio::task::spawn_blocking(move || -> Result<Vec<LessonGenerationJob>, String> {
@@ -2965,7 +2548,6 @@ impl LessonJobRepository for FileStorage {
                 }
                 Ok(jobs)
             }).await.map_err(|e| e.to_string())?;
-        }
         
         Self::ensure_dir(&self.jobs_dir()).await.map_err(|e| e.to_string())?;
         let mut reader = fs::read_dir(self.jobs_dir()).await.map_err(|e| e.to_string())?;
@@ -2988,7 +2570,7 @@ impl RuntimeSessionRepository for FileStorage {
         session_id: &str,
         director_state: &DirectorState,
     ) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let session_id = session_id.to_string();
             let director_state = director_state.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
@@ -3008,33 +2590,13 @@ impl RuntimeSessionRepository for FileStorage {
                 ).map_err(|err| err.to_string())?;
                 Ok(())
             }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.runtime_db_path.clone() {
-            Self::save_runtime_session_sqlite(
-                db_path,
-                session_id.to_string(),
-                director_state.clone(),
-            )
-            .await
-            .map_err(|err| err.to_string())
-        } else {
-            Self::write_json_atomic(&self.runtime_session_path(session_id), director_state)
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
 
     async fn get_runtime_session(&self, session_id: &str) -> Result<Option<DirectorState>, String> {
         if let Some(db_path) = self.runtime_db_path.clone() {
             Self::get_runtime_session_sqlite(db_path, session_id.to_string())
                 .await
                 .map_err(|err| err.to_string())
-        } else {
-            Self::read_json(&self.runtime_session_path(session_id))
-                .await
-                .map_err(|err| err.to_string())
         }
-    }
 }
 
 #[async_trait]
@@ -3043,7 +2605,7 @@ impl RuntimeActionExecutionRepository for FileStorage {
         &self,
         record: &RuntimeActionExecutionRecord,
     ) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let record = record.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3062,26 +2624,12 @@ impl RuntimeActionExecutionRepository for FileStorage {
                 ).map_err(|err| err.to_string())?;
                 Ok(())
             }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.runtime_db_path.clone() {
-            Self::save_runtime_action_execution_sqlite(db_path, record.clone())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::write_json_atomic(
-                &self.runtime_action_execution_path(&record.execution_id),
-                record,
-            )
-            .await
-            .map_err(|err| err.to_string())
-        }
-    }
 
     async fn get_runtime_action_execution(
         &self,
         execution_id: &str,
     ) -> Result<Option<RuntimeActionExecutionRecord>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let execution_id = execution_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<RuntimeActionExecutionRecord>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3094,27 +2642,13 @@ impl RuntimeActionExecutionRepository for FileStorage {
                     let record_json: String = row.get(0);
                     let record = serde_json::from_str::<RuntimeActionExecutionRecord>(&record_json).map_err(|err| err.to_string())?;
                     Ok(Some(record))
-                } else {
-                    Ok(None)
-                }
-            }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.runtime_db_path.clone() {
-            Self::get_runtime_action_execution_sqlite(db_path, execution_id.to_string())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::read_json(&self.runtime_action_execution_path(execution_id))
-                .await
-                .map_err(|err| err.to_string())
-        }
-    }
+                }).await.map_err(|err| err.to_string())?;
 
     async fn list_runtime_action_executions_for_session(
         &self,
         session_id: &str,
     ) -> Result<Vec<RuntimeActionExecutionRecord>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let session_id = session_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<RuntimeActionExecutionRecord>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3131,29 +2665,6 @@ impl RuntimeActionExecutionRepository for FileStorage {
                 }
                 Ok(records)
             }).await.map_err(|err| err.to_string())?;
-        }
-        if let Some(db_path) = self.runtime_db_path.clone() {
-            Self::list_runtime_action_executions_for_session_sqlite(db_path, session_id.to_string())
-                .await
-                .map_err(|err| err.to_string())
-        } else {
-            Self::ensure_dir(&self.runtime_action_executions_dir())
-                .await
-                .map_err(|err| err.to_string())?;
-            let mut reader = fs::read_dir(self.runtime_action_executions_dir())
-                .await
-                .map_err(|err| err.to_string())?;
-            let mut records = Vec::new();
-            while let Some(entry) = reader.next_entry().await.map_err(|err| err.to_string())? {
-                if let Some(record) = Self::read_json::<RuntimeActionExecutionRecord>(&entry.path())
-                    .await
-                    .map_err(|err| err.to_string())?
-                {
-                    if record.session_id == session_id {
-                        records.push(record);
-                    }
-                }
-            }
             records.sort_by(|left, right| left.updated_at_unix_ms.cmp(&right.updated_at_unix_ms));
             Ok(records)
         }
@@ -3272,7 +2783,7 @@ impl crate::repositories::RefreshTokenRepository for FileStorage {
 #[async_trait]
 impl TutorAccountRepository for FileStorage {
     async fn save_tutor_account(&self, account: &TutorAccount) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account = account.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3361,7 +2872,7 @@ impl TutorAccountRepository for FileStorage {
         &self,
         account_id: &str,
     ) -> Result<Option<TutorAccount>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3389,7 +2900,7 @@ impl TutorAccountRepository for FileStorage {
         &self,
         google_id: &str,
     ) -> Result<Option<TutorAccount>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let google_id = google_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| {
@@ -3425,7 +2936,7 @@ impl TutorAccountRepository for FileStorage {
         &self,
         phone_number: &str,
     ) -> Result<Option<TutorAccount>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let phone_number = phone_number.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3454,7 +2965,7 @@ impl TutorAccountRepository for FileStorage {
         &self,
         email: &str,
     ) -> Result<Option<TutorAccount>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let email = email.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<TutorAccount>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3480,7 +2991,7 @@ impl TutorAccountRepository for FileStorage {
     }
 
     async fn list_all_tutor_accounts(&self, limit: usize) -> Result<Vec<TutorAccount>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             return tokio::task::spawn_blocking(move || -> Result<Vec<TutorAccount>, String> {
                 let mut client =
                     get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3513,7 +3024,7 @@ impl TutorAccountRepository for FileStorage {
 #[async_trait]
 impl CreditLedgerRepository for FileStorage {
     async fn apply_credit_entry(&self, entry: &CreditLedgerEntry) -> Result<CreditBalance, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let entry = entry.clone();
             return tokio::task::spawn_blocking(move || -> Result<CreditBalance, String> {
                 let mut client =
@@ -3633,7 +3144,7 @@ impl CreditLedgerRepository for FileStorage {
     }
 
     async fn get_credit_balance(&self, account_id: &str) -> Result<CreditBalance, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<CreditBalance, String> {
                 let mut client =
@@ -3689,7 +3200,7 @@ impl CreditLedgerRepository for FileStorage {
         account_id: &str,
         limit: usize,
     ) -> Result<Vec<CreditLedgerEntry>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<CreditLedgerEntry>, String> {
                 let mut client =
@@ -3737,7 +3248,7 @@ impl CreditLedgerRepository for FileStorage {
     }
 
     async fn list_all_credit_entries(&self, limit: usize) -> Result<Vec<CreditLedgerEntry>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             return tokio::task::spawn_blocking(move || -> Result<Vec<CreditLedgerEntry>, String> {
                 let mut client =
                     get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -3846,7 +3357,7 @@ impl PromoCodeRepository for FileStorage {
 #[async_trait]
 impl PaymentOrderRepository for FileStorage {
     async fn save_payment_order(&self, order: &PaymentOrder) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let order = order.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -3924,169 +3435,12 @@ impl PaymentOrderRepository for FileStorage {
             .map_err(|err| err.to_string())?
         {
             self.payment_order_path(&existing.id)
-        } else {
-            self.payment_order_path(&order.id)
-        };
-
-        Self::write_json_atomic(&order_path, order)
-            .await
-            .map_err(|err| err.to_string())
-    }
-
-    async fn get_payment_order_by_id(&self, order_id: &str) -> Result<Option<PaymentOrder>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let order_id = order_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Option<PaymentOrder>, String> {
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let row = client
-                    .query_opt(
-                        "
-                        SELECT id, account_id, product_code, product_kind, gateway, gateway_txn_id,
-                               gateway_payment_id, amount_minor, currency, credits_to_grant, status,
-                               checkout_url, udf1, udf2, udf3, udf4, udf5, raw_response,
-                               created_at,
-                               updated_at,
-                               completed_at
-                        FROM payment_orders
-                        WHERE id = $1
-                        ",
-                        &[&order_id],
-                    )
-                    .map_err(|err| err.to_string())?;
-                row.map(Self::postgres_row_to_payment_order).transpose()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
         }
-
-        Self::read_json(&self.payment_order_path(order_id))
-            .await
-            .map_err(|err| err.to_string())
-    }
-
-    async fn get_payment_order_by_gateway_txn_id(
-        &self,
-        gateway_txn_id: &str,
-    ) -> Result<Option<PaymentOrder>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let gateway_txn_id = gateway_txn_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Option<PaymentOrder>, String> {
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let row = client
-                    .query_opt(
-                        "
-                        SELECT id, account_id, product_code, product_kind, gateway, gateway_txn_id,
-                               gateway_payment_id, amount_minor, currency, credits_to_grant, status,
-                               checkout_url, udf1, udf2, udf3, udf4, udf5, raw_response,
-                               created_at,
-                               updated_at,
-                               completed_at
-                        FROM payment_orders
-                        WHERE gateway_txn_id = $1
-                        ",
-                        &[&gateway_txn_id],
-                    )
-                    .map_err(|err| err.to_string())?;
-                row.map(Self::postgres_row_to_payment_order).transpose()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        let orders = self.list_payment_orders().await?;
-        Ok(orders
-            .into_iter()
-            .find(|order| order.gateway_txn_id == gateway_txn_id))
-    }
-
-    async fn list_payment_orders_for_account(
-        &self,
-        account_id: &str,
-        limit: usize,
-    ) -> Result<Vec<PaymentOrder>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let account_id = account_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Vec<PaymentOrder>, String> {
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let rows = client
-                    .query(
-                        "
-                        SELECT id, account_id, product_code, product_kind, gateway, gateway_txn_id,
-                               gateway_payment_id, amount_minor, currency, credits_to_grant, status,
-                               checkout_url, udf1, udf2, udf3, udf4, udf5, raw_response,
-                               created_at,
-                               updated_at,
-                               completed_at
-                        FROM payment_orders
-                        WHERE account_id = $1
-                        ORDER BY created_at DESC
-                        LIMIT $2
-                        ",
-                        &[&account_id, &(limit as i64)],
-                    )
-                    .map_err(|err| err.to_string())?;
-                rows.into_iter()
-                    .map(Self::postgres_row_to_payment_order)
-                    .collect()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        let mut orders = self
-            .list_payment_orders()
-            .await?
-            .into_iter()
-            .filter(|order| order.account_id == account_id)
-            .collect::<Vec<_>>();
-        orders.sort_by(|left, right| right.created_at.cmp(&left.created_at));
-        orders.truncate(limit);
-        Ok(orders)
-    }
-
-    async fn list_all_payment_orders(&self, limit: usize) -> Result<Vec<PaymentOrder>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            return tokio::task::spawn_blocking(move || -> Result<Vec<PaymentOrder>, String> {
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let rows = client
-                    .query(
-                        "
-                        SELECT id, account_id, product_code, product_kind, gateway, gateway_txn_id,
-                               gateway_payment_id, amount_minor, currency, credits_to_grant, status,
-                               checkout_url, udf1, udf2, udf3, udf4, udf5, raw_response,
-                               created_at,
-                               updated_at,
-                               completed_at
-                        FROM payment_orders
-                        ORDER BY created_at DESC
-                        LIMIT $1
-                        ",
-                        &[&(limit as i64)],
-                    )
-                    .map_err(|err| err.to_string())?;
-                rows.into_iter()
-                    .map(Self::postgres_row_to_payment_order)
-                    .collect()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        let mut orders = self.list_payment_orders().await?;
-        orders.sort_by(|left, right| right.created_at.cmp(&left.created_at));
-        orders.truncate(limit);
-        Ok(orders)
-    }
-}
 
 #[async_trait]
 impl SubscriptionRepository for FileStorage {
     async fn save_subscription(&self, subscription: &Subscription) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let subscription = subscription.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -4149,341 +3503,12 @@ impl SubscriptionRepository for FileStorage {
                             ],
                         )
                         .map_err(|err| err.to_string())?;
-                } else {
-                    client
-                        .execute(
-                            "
-                            INSERT INTO subscriptions (
-                                id, account_id, plan_code, gateway, gateway_subscription_id,
-                                status, billing_interval, credits_per_cycle, autopay_enabled,
-                                current_period_start, current_period_end, next_renewal_at,
-                                grace_period_until, cancelled_at, last_payment_order_id,
-                                created_at, updated_at
-                            ) VALUES (
-                                $1, $2, $3, $4, $5,
-                                $6, $7, $8, $9,
-                                $10, $11, $12,
-                                $13, $14, $15,
-                                $16, $17
-                            )
-                            ON CONFLICT (id) DO UPDATE SET
-                                account_id = EXCLUDED.account_id,
-                                plan_code = EXCLUDED.plan_code,
-                                gateway = EXCLUDED.gateway,
-                                gateway_subscription_id = EXCLUDED.gateway_subscription_id,
-                                status = EXCLUDED.status,
-                                billing_interval = EXCLUDED.billing_interval,
-                                credits_per_cycle = EXCLUDED.credits_per_cycle,
-                                autopay_enabled = EXCLUDED.autopay_enabled,
-                                current_period_start = EXCLUDED.current_period_start,
-                                current_period_end = EXCLUDED.current_period_end,
-                                next_renewal_at = EXCLUDED.next_renewal_at,
-                                grace_period_until = EXCLUDED.grace_period_until,
-                                cancelled_at = EXCLUDED.cancelled_at,
-                                last_payment_order_id = EXCLUDED.last_payment_order_id,
-                                updated_at = EXCLUDED.updated_at
-                            ",
-                            &[
-                                &subscription.id,
-                                &subscription.account_id,
-                                &subscription.plan_code,
-                                &subscription.gateway,
-                                &subscription.gateway_subscription_id,
-                                &Self::subscription_status_to_db(&subscription.status),
-                                &Self::billing_interval_to_db(&subscription.billing_interval),
-                                &subscription.credits_per_cycle,
-                                &subscription.autopay_enabled,
-                                &subscription.current_period_start,
-                                &subscription.current_period_end,
-                                &subscription.next_renewal_at,
-                                &subscription
-                                    .grace_period_until
-                                    ,
-                                &subscription.cancelled_at,
-                                &subscription.last_payment_order_id,
-                                &subscription.created_at,
-                                &subscription.updated_at,
-                            ],
-                        )
-                        .map_err(|err| err.to_string())?;
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        let subscription_path = if let Some(gateway_subscription_id) = subscription
-            .gateway_subscription_id
-            .as_deref()
-        {
-            if let Some(existing) = self
-                .get_subscription_by_gateway_subscription_id(gateway_subscription_id)
-                .await
-                .map_err(|err| err.to_string())?
-            {
-                self.subscription_path(&existing.id)
-            } else {
-                self.subscription_path(&subscription.id)
-            }
-        } else if let Some(existing) = self
-            .get_subscription_by_id(&subscription.id)
-            .await
-            .map_err(|err| err.to_string())?
-        {
-            self.subscription_path(&existing.id)
-        } else {
-            self.subscription_path(&subscription.id)
-        };
-
-        Self::write_json_atomic(&subscription_path, subscription)
-            .await
-            .map_err(|err| err.to_string())
-    }
-
-    async fn get_subscription_by_id(
-        &self,
-        subscription_id: &str,
-    ) -> Result<Option<Subscription>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let subscription_id = subscription_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Option<Subscription>, String> {
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let row = client
-                    .query_opt(
-                        "
-                        SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
-                               status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start,
-                               current_period_end,
-                               next_renewal_at,
-                               grace_period_until,
-                               cancelled_at,
-                               last_payment_order_id,
-                               created_at,
-                               updated_at
-                        FROM subscriptions
-                        WHERE id = $1
-                        ",
-                        &[&subscription_id],
-                    )
-                    .map_err(|err| err.to_string())?;
-                row.map(Self::postgres_row_to_subscription).transpose()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        Self::read_json(&self.subscription_path(subscription_id))
-            .await
-            .map_err(|err| err.to_string())
-    }
-
-    async fn get_subscription_by_gateway_subscription_id(
-        &self,
-        gateway_subscription_id: &str,
-    ) -> Result<Option<Subscription>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let gateway_subscription_id = gateway_subscription_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Option<Subscription>, String> {
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let row = client
-                    .query_opt(
-                        "
-                        SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
-                               status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start,
-                               current_period_end,
-                               next_renewal_at,
-                               grace_period_until,
-                               cancelled_at,
-                               last_payment_order_id,
-                               created_at,
-                               updated_at
-                        FROM subscriptions
-                        WHERE gateway_subscription_id = $1
-                        ",
-                        &[&gateway_subscription_id],
-                    )
-                    .map_err(|err| err.to_string())?;
-                row.map(Self::postgres_row_to_subscription).transpose()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        let subscriptions = self.list_subscriptions().await?;
-        Ok(subscriptions
-            .into_iter()
-            .find(|subscription| {
-                subscription
-                    .gateway_subscription_id
-                    .as_deref()
-                    == Some(gateway_subscription_id)
-            }))
-    }
-
-    async fn list_all_subscriptions(&self, limit: usize) -> Result<Vec<Subscription>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            return tokio::task::spawn_blocking(move || -> Result<Vec<Subscription>, String> {
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let rows = client
-                    .query(
-                        "
-                        SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
-                               status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start,
-                               current_period_end,
-                               next_renewal_at,
-                               grace_period_until,
-                               cancelled_at,
-                               last_payment_order_id,
-                               created_at,
-                               updated_at
-                        FROM subscriptions
-                        ORDER BY updated_at DESC
-                        LIMIT $1
-                        ",
-                        &[&(limit as i64)],
-                    )
-                    .map_err(|err| err.to_string())?;
-                rows.into_iter()
-                    .map(Self::postgres_row_to_subscription)
-                    .collect()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        let mut subscriptions = self.list_subscriptions().await?;
-        subscriptions.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-        subscriptions.truncate(limit);
-        Ok(subscriptions)
-    }
-
-    async fn list_subscriptions_for_account(
-        &self,
-        account_id: &str,
-        limit: usize,
-    ) -> Result<Vec<Subscription>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let account_id = account_id.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Vec<Subscription>, String> {
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let rows = client
-                    .query(
-                        "
-                        SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
-                               status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start,
-                               current_period_end,
-                               next_renewal_at,
-                               grace_period_until,
-                               cancelled_at,
-                               last_payment_order_id,
-                               created_at,
-                               updated_at
-                        FROM subscriptions
-                        WHERE account_id = $1
-                        ORDER BY updated_at DESC
-                        LIMIT $2
-                        ",
-                        &[&account_id, &(limit as i64)],
-                    )
-                    .map_err(|err| err.to_string())?;
-                rows.into_iter()
-                    .map(Self::postgres_row_to_subscription)
-                    .collect()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        let mut subscriptions = self
-            .list_subscriptions()
-            .await?
-            .into_iter()
-            .filter(|subscription| subscription.account_id == account_id)
-            .collect::<Vec<_>>();
-        subscriptions.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-        subscriptions.truncate(limit);
-        Ok(subscriptions)
-    }
-
-    async fn list_subscriptions_due_for_renewal(
-        &self,
-        renewal_cutoff_rfc3339: &str,
-        limit: usize,
-    ) -> Result<Vec<Subscription>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
-            let renewal_cutoff_rfc3339 = renewal_cutoff_rfc3339.to_string();
-            return tokio::task::spawn_blocking(move || -> Result<Vec<Subscription>, String> {
-                let cutoff_dt = renewal_cutoff_rfc3339
-                    .parse::<chrono::DateTime<chrono::Utc>>()
-                    .map_err(|err| err.to_string())?;
-                let mut client =
-                    get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
-                let rows = client
-                    .query(
-                        "
-                        SELECT id, account_id, plan_code, gateway, gateway_subscription_id,
-                               status, billing_interval, credits_per_cycle, autopay_enabled,
-                               current_period_start,
-                               current_period_end,
-                               next_renewal_at,
-                               grace_period_until,
-                               cancelled_at,
-                               last_payment_order_id,
-                               created_at,
-                               updated_at
-                        FROM subscriptions
-                        WHERE next_renewal_at IS NOT NULL
-                          AND next_renewal_at <= $1
-                          AND status IN ('active', 'past_due')
-                        ORDER BY next_renewal_at ASC
-                        LIMIT $2
-                        ",
-                        &[&cutoff_dt, &(limit as i64)],
-                    )
-                    .map_err(|err| err.to_string())?;
-                rows.into_iter()
-                    .map(Self::postgres_row_to_subscription)
-                    .collect()
-            })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        let cutoff = renewal_cutoff_rfc3339
-            .parse::<chrono::DateTime<Utc>>()
-            .map_err(|err| err.to_string())?;
-        let mut subscriptions = self
-            .list_subscriptions()
-            .await?
-            .into_iter()
-            .filter(|subscription| {
-                matches!(
-                    subscription.status,
-                    SubscriptionStatus::Active | SubscriptionStatus::PastDue
-                ) && subscription
-                    .next_renewal_at
-                    .is_some_and(|next_renewal_at| next_renewal_at <= cutoff)
-            })
-            .collect::<Vec<_>>();
-        subscriptions.sort_by(|left, right| left.next_renewal_at.cmp(&right.next_renewal_at));
-        subscriptions.truncate(limit);
-        Ok(subscriptions)
-    }
-}
+            }).await.map_err(|err| err.to_string())?
 
 #[async_trait]
 impl InvoiceRepository for FileStorage {
     async fn create_invoice(&self, invoice: &Invoice) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice = invoice.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -4534,16 +3559,10 @@ impl InvoiceRepository for FileStorage {
                 Ok(())
             })
             .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        Self::write_json_atomic(&self.invoice_path(&invoice.id), invoice)
-            .await
-            .map_err(|err| err.to_string())
-    }
+        }).await.map_err(|err| err.to_string())?
 
     async fn get_invoice(&self, invoice_id: &str) -> Result<Option<Invoice>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<Invoice>, String> {
                 let mut client =
@@ -4569,16 +3588,10 @@ impl InvoiceRepository for FileStorage {
                 row.map(Self::postgres_row_to_invoice).transpose()
             })
             .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        Self::read_json(&self.invoice_path(invoice_id))
-            .await
-            .map_err(|err| err.to_string())
-    }
+        }).await.map_err(|err| err.to_string())?
 
     async fn get_invoice_for_update(&self, invoice_id: &str) -> Result<Option<Invoice>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<Invoice>, String> {
                 let mut client =
@@ -4603,19 +3616,14 @@ impl InvoiceRepository for FileStorage {
                     .map_err(|err| err.to_string())?;
                 row.map(Self::postgres_row_to_invoice).transpose()
             })
-            .await
-            .map_err(|err| err.to_string())?;
-        }
-
-        self.get_invoice(invoice_id).await
-    }
+        }).await.map_err(|err| err.to_string())?
 
     async fn list_invoices_for_account(
         &self,
         account_id: &str,
         limit: usize,
     ) -> Result<Vec<Invoice>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<Invoice>, String> {
                 let mut client =
@@ -4661,7 +3669,7 @@ impl InvoiceRepository for FileStorage {
         &self,
         account_id: &str,
     ) -> Result<Vec<Invoice>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account_id = account_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<Invoice>, String> {
                 let mut client =
@@ -4708,7 +3716,7 @@ impl InvoiceRepository for FileStorage {
         invoice_id: &str,
         status: InvoiceStatus,
     ) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -4747,7 +3755,7 @@ impl InvoiceRepository for FileStorage {
         invoice_id: &str,
         due_at_rfc3339: &str,
     ) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice_id = invoice_id.to_string();
             let due_at_rfc3339 = due_at_rfc3339.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
@@ -4796,7 +3804,7 @@ impl InvoiceRepository for FileStorage {
 #[async_trait]
 impl InvoiceLineRepository for FileStorage {
     async fn add_line(&self, line: &InvoiceLine) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let line = line.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -4854,7 +3862,7 @@ impl InvoiceLineRepository for FileStorage {
     }
 
     async fn list_lines_for_invoice(&self, invoice_id: &str) -> Result<Vec<InvoiceLine>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<InvoiceLine>, String> {
                 let mut client =
@@ -4894,7 +3902,7 @@ impl InvoiceLineRepository for FileStorage {
     }
 
     async fn delete_line(&self, line_id: &str) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let line_id = line_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -4918,7 +3926,7 @@ impl InvoiceLineRepository for FileStorage {
     }
 
     async fn sum_invoice_lines(&self, invoice_id: &str) -> Result<i64, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<i64, String> {
                 let mut client =
@@ -4953,7 +3961,7 @@ impl InvoiceLineRepository for FileStorage {
 #[async_trait]
 impl PaymentIntentRepository for FileStorage {
     async fn create_payment_intent(&self, pi: &PaymentIntent) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let pi = pi.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -5018,7 +4026,7 @@ impl PaymentIntentRepository for FileStorage {
     }
 
     async fn get_payment_intent(&self, pi_id: &str) -> Result<Option<PaymentIntent>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let pi_id = pi_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<PaymentIntent>, String> {
                 let mut client =
@@ -5057,7 +4065,7 @@ impl PaymentIntentRepository for FileStorage {
         &self,
         invoice_id: &str,
     ) -> Result<Option<PaymentIntent>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<PaymentIntent>, String> {
                 let mut client =
@@ -5099,7 +4107,7 @@ impl PaymentIntentRepository for FileStorage {
         pi_id: &str,
         status: PaymentIntentStatus,
     ) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let pi_id = pi_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -5131,7 +4139,7 @@ impl PaymentIntentRepository for FileStorage {
         &self,
         now_rfc3339: &str,
     ) -> Result<Vec<PaymentIntent>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let now_rfc3339 = now_rfc3339.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<PaymentIntent>, String> {
                 let now_dt = now_rfc3339
@@ -5191,7 +4199,7 @@ impl PaymentIntentRepository for FileStorage {
 #[async_trait]
 impl DunningCaseRepository for FileStorage {
     async fn create_dunning_case(&self, dc: &DunningCase) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let dc = dc.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -5244,7 +4252,7 @@ impl DunningCaseRepository for FileStorage {
     }
 
     async fn get_dunning_case(&self, dc_id: &str) -> Result<Option<DunningCase>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let dc_id = dc_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<DunningCase>, String> {
                 let mut client =
@@ -5279,7 +4287,7 @@ impl DunningCaseRepository for FileStorage {
         &self,
         invoice_id: &str,
     ) -> Result<Option<DunningCase>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice_id = invoice_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<DunningCase>, String> {
                 let mut client =
@@ -5313,7 +4321,7 @@ impl DunningCaseRepository for FileStorage {
     }
 
     async fn list_active_dunning_cases(&self) -> Result<Vec<DunningCase>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             return tokio::task::spawn_blocking(move || -> Result<Vec<DunningCase>, String> {
                 let mut client =
                     get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
@@ -5354,7 +4362,7 @@ impl DunningCaseRepository for FileStorage {
         dc_id: &str,
         status: DunningStatus,
     ) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let dc_id = dc_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -5400,7 +4408,7 @@ impl DunningCaseRepository for FileStorage {
 #[async_trait]
 impl WebhookEventRepository for FileStorage {
     async fn create_webhook_event(&self, event: &WebhookEvent) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let event = event.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -5440,7 +4448,7 @@ impl WebhookEventRepository for FileStorage {
         &self,
         event_identifier: &str,
     ) -> Result<Option<WebhookEvent>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let event_identifier = event_identifier.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<WebhookEvent>, String> {
                 let mut client =
@@ -5473,7 +4481,7 @@ impl WebhookEventRepository for FileStorage {
 #[async_trait]
 impl FinancialAuditRepository for FileStorage {
     async fn log_event(&self, audit: &FinancialAuditLog) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let audit = audit.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client =
@@ -5519,7 +4527,7 @@ impl FinancialAuditRepository for FileStorage {
         account_id: &str,
         limit: usize,
     ) -> Result<Vec<FinancialAuditLog>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account_id = account_id.to_string();
             let sql_limit = i64::try_from(limit).map_err(|_| "limit exceeds i64".to_string())?;
             return tokio::task::spawn_blocking(move || -> Result<Vec<FinancialAuditLog>, String> {
@@ -5559,7 +4567,7 @@ impl FinancialAuditRepository for FileStorage {
     }
 
     async fn list_all_audit_logs(&self, limit: usize) -> Result<Vec<FinancialAuditLog>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let sql_limit = i64::try_from(limit).map_err(|_| "limit exceeds i64".to_string())?;
             return tokio::task::spawn_blocking(move || -> Result<Vec<FinancialAuditLog>, String> {
                 let mut client =
@@ -5595,7 +4603,7 @@ impl FinancialAuditRepository for FileStorage {
 #[async_trait]
 impl SchoolRepository for FileStorage {
     async fn save_school(&self, school: &ai_tutor_domain::school::School) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let school = school.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
@@ -5626,7 +4634,6 @@ impl SchoolRepository for FileStorage {
                 ).map_err(|e| e.to_string())?;
                 Ok(())
             }).await.map_err(|e| e.to_string())?;
-        }
         // Filesystem fallback: store as JSON
         let path = self.root_dir().join("schools").join(format!("{}.json", school.id));
         tokio::fs::create_dir_all(path.parent().unwrap()).await.map_err(|e| e.to_string())?;
@@ -5635,7 +4642,7 @@ impl SchoolRepository for FileStorage {
     }
 
     async fn get_school(&self, id: &str) -> Result<Option<ai_tutor_domain::school::School>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let id = id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<ai_tutor_domain::school::School>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
@@ -5646,7 +4653,6 @@ impl SchoolRepository for FileStorage {
                 ).map_err(|e| e.to_string())?;
                 row.map(Self::postgres_row_to_school).transpose()
             }).await.map_err(|e| e.to_string())?;
-        }
         let path = self.root_dir().join("schools").join(format!("{id}.json"));
         match Self::read_json::<ai_tutor_domain::school::School>(&path).await {
             Ok(val) => Ok(val),
@@ -5655,7 +4661,7 @@ impl SchoolRepository for FileStorage {
     }
 
     async fn list_schools(&self, limit: usize) -> Result<Vec<ai_tutor_domain::school::School>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let sql_limit = i64::try_from(limit).map_err(|_| "limit overflow".to_string())?;
             return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::school::School>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
@@ -5666,7 +4672,6 @@ impl SchoolRepository for FileStorage {
                 ).map_err(|e| e.to_string())?;
                 rows.into_iter().map(Self::postgres_row_to_school).collect()
             }).await.map_err(|e| e.to_string())?;
-        }
         // Filesystem fallback
         let dir = self.root_dir().join("schools");
         let Ok(mut reader) = tokio::fs::read_dir(&dir).await else { return Ok(vec![]); };
@@ -5682,7 +4687,7 @@ impl SchoolRepository for FileStorage {
     }
 
     async fn set_user_school(&self, account_id: &str, school_id: Option<&str>) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let account_id = account_id.to_string();
             let school_id = school_id.map(|s| s.to_string());
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
@@ -5694,7 +4699,6 @@ impl SchoolRepository for FileStorage {
                 ).map_err(|e| e.to_string())?;
                 Ok(())
             }).await.map_err(|e| e.to_string())?;
-        }
         // Filesystem: update the JSON file for the account
         let accounts_dir = self.root_dir().join("accounts");
         let path = accounts_dir.join(format!("{account_id}.json"));
@@ -5702,12 +4706,11 @@ impl SchoolRepository for FileStorage {
             account.school_id = school_id.map(|s| s.to_string());
             let bytes = serde_json::to_vec_pretty(&account).map_err(|e| e.to_string())?;
             tokio::fs::write(&path, bytes).await.map_err(|e| e.to_string())?;
-        }
         Ok(())
     }
 
     async fn list_school_members(&self, school_id: &str) -> Result<Vec<ai_tutor_domain::auth::TutorAccount>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let school_id = school_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::auth::TutorAccount>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
@@ -5719,14 +4722,13 @@ impl SchoolRepository for FileStorage {
                 ).map_err(|e| e.to_string())?;
                 rows.into_iter().map(Self::postgres_row_to_tutor_account).collect()
             }).await.map_err(|e| e.to_string())?;
-        }
         // Filesystem fallback: scan all accounts
         let all = self.list_all_tutor_accounts(100_000).await?;
         Ok(all.into_iter().filter(|a| a.school_id.as_deref() == Some(school_id)).collect())
     }
 
     async fn save_school_invoice(&self, invoice: &ai_tutor_domain::school::SchoolInvoice) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let invoice = invoice.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
@@ -5749,7 +4751,6 @@ impl SchoolRepository for FileStorage {
                 ).map_err(|e| e.to_string())?;
                 Ok(())
             }).await.map_err(|e| e.to_string())?;
-        }
         let path = self.root_dir().join("school_invoices").join(format!("{}.json", invoice.id));
         tokio::fs::create_dir_all(path.parent().unwrap()).await.map_err(|e| e.to_string())?;
         let bytes = serde_json::to_vec_pretty(invoice).map_err(|e| e.to_string())?;
@@ -5757,7 +4758,7 @@ impl SchoolRepository for FileStorage {
     }
 
     async fn get_school_invoice(&self, id: &str) -> Result<Option<ai_tutor_domain::school::SchoolInvoice>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let id = id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Option<ai_tutor_domain::school::SchoolInvoice>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
@@ -5768,7 +4769,6 @@ impl SchoolRepository for FileStorage {
                 ).map_err(|e| e.to_string())?;
                 row.map(Self::postgres_row_to_school_invoice).transpose()
             }).await.map_err(|e| e.to_string())?;
-        }
         let path = self.root_dir().join("school_invoices").join(format!("{id}.json"));
         match Self::read_json::<ai_tutor_domain::school::SchoolInvoice>(&path).await {
             Ok(val) => Ok(val),
@@ -5777,7 +4777,7 @@ impl SchoolRepository for FileStorage {
     }
 
     async fn list_school_invoices(&self, school_id: &str) -> Result<Vec<ai_tutor_domain::school::SchoolInvoice>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let school_id = school_id.to_string();
             return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::school::SchoolInvoice>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
@@ -5789,7 +4789,6 @@ impl SchoolRepository for FileStorage {
                 ).map_err(|e| e.to_string())?;
                 rows.into_iter().map(Self::postgres_row_to_school_invoice).collect()
             }).await.map_err(|e| e.to_string())?;
-        }
         let dir = self.root_dir().join("school_invoices");
         let Ok(mut reader) = tokio::fs::read_dir(&dir).await else { return Ok(vec![]); };
         let mut invoices = Vec::new();
@@ -5812,7 +4811,7 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
         &self,
         record: &ai_tutor_domain::billing::ApiUsageRecord,
     ) -> Result<(), String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             let record = record.clone();
             return tokio::task::spawn_blocking(move || -> Result<(), String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
@@ -5866,7 +4865,7 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
         &self,
         since: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String> {
-        if let Some(postgres_url) = self.postgres_url.clone() {
+        let postgres_url = self.postgres_url.clone();
             return tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String> {
                 let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
                 // Return empty if table doesn't exist yet

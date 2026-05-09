@@ -3,6 +3,7 @@ pub mod tools;
 pub mod notifications;
 pub mod queue;
 pub mod queue_redis;
+pub mod redis_storage;
 pub mod telemetry;
 pub mod telemetry_provider;
 pub mod startup_readiness;
