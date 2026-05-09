@@ -317,11 +317,7 @@ async fn main() -> Result<()> {
         Arc::new(RedisRuntimeSessionRepository::new(client))
     };
 
-    let redis_client = if let Some(url) = &redis_url {
-        Some(redis::Client::open(url.as_str())?)
-    } else {
-        None
-    };
+    let redis_client = Some(redis::Client::open(redis_url.as_str())?);
 
     let telemetry = Arc::new(TelemetryService::new(
         Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
