@@ -2,7 +2,7 @@
  * Web Search Integration — Tavily
  *
  * Calls the Tavily Search API directly. API key is resolved server-side
- * from the TAVILY_API_KEY environment variable or server-providers.yml.
+ * from the AI_TUTOR_TAVILY_API_KEY environment variable or server-providers.yml.
  */
 
 import { resolveWebSearchApiKey } from '@/lib/server/provider-config';
@@ -25,7 +25,7 @@ export async function searchWithTavily(params: {
   const apiKey = resolveWebSearchApiKey(clientKey);
   if (!apiKey) {
     throw new Error(
-      'No Tavily API key configured. Set TAVILY_API_KEY in environment or server-providers.yml.',
+      'No Tavily API key configured. Set AI_TUTOR_TAVILY_API_KEY in environment or server-providers.yml.',
     );
   }
 

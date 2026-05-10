@@ -885,14 +885,16 @@ export const useSettingsStore = create<SettingsState>()(
                   };
                 }
               }
-              for (const [pid, info] of Object.entries(data.pdf)) {
-                const key = pid as PDFProviderId;
-                if (newPDFConfig[key]) {
-                  newPDFConfig[key] = {
-                    ...newPDFConfig[key],
-                    isServerConfigured: true,
-                    serverBaseUrl: info.baseUrl,
-                  };
+              if (data.pdf) {
+                for (const [pid, info] of Object.entries(data.pdf)) {
+                  const key = pid as PDFProviderId;
+                  if (newPDFConfig[key]) {
+                    newPDFConfig[key] = {
+                      ...newPDFConfig[key],
+                      isServerConfigured: true,
+                      serverBaseUrl: info.baseUrl,
+                    };
+                  }
                 }
               }
 

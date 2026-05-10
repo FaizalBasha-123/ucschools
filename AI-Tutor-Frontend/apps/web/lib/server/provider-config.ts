@@ -368,10 +368,10 @@ export function getServerWebSearchProviders(): Record<string, { baseUrl?: string
   return result;
 }
 
-/** Resolve Tavily API key: client key > server key > TAVILY_API_KEY env > empty */
+/** Resolve Tavily API key: client key > server key > AI_TUTOR_TAVILY_API_KEY env > empty */
 export function resolveWebSearchApiKey(clientKey?: string): string {
   if (clientKey) return clientKey;
   const serverKey = getConfig().webSearch.tavily?.apiKey;
   if (serverKey) return serverKey;
-  return process.env.TAVILY_API_KEY || '';
+  return process.env.AI_TUTOR_TAVILY_API_KEY || '';
 }

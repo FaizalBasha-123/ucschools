@@ -27,14 +27,14 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'query is required');
     }
 
-    // Resolve API key: client-supplied (user's own key) → server env TAVILY_API_KEY
+    // Resolve API key: client-supplied (user's own key) → server env AI_TUTOR_TAVILY_API_KEY
     const apiKey = resolveWebSearchApiKey(body.apiKey);
     if (!apiKey) {
       log.warn('No Tavily API key configured — web search unavailable');
       return apiError(
         'MISSING_API_KEY',
         401,
-        'Web search is not configured. Set TAVILY_API_KEY in environment.',
+        'Web search is not configured. Set AI_TUTOR_TAVILY_API_KEY in environment.',
       );
     }
 

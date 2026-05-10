@@ -115,7 +115,7 @@ function GenerationPreviewContent() {
       'x-base-url': modelConfig.baseUrl,
       'x-provider-type': modelConfig.providerType || '',
       'x-requires-api-key': modelConfig.requiresApiKey ? 'true' : 'false',
-      'x-model': modelConfig.modelString,
+      'x-model': modelConfig.providerId && modelConfig.modelId ? modelConfig.modelString : '',
       // Quality and learning mode headers
       'x-quality-mode': settings.qualityMode || 'standard',
       'x-learning-mode': settings.learningMode || 'explain',
