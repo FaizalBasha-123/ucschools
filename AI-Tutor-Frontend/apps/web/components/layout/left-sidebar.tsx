@@ -16,6 +16,7 @@ import {
   ListTodo,
   Building2,
   Ticket,
+  DollarSign,
   ChevronLeft,
   ChevronRight,
   ArrowLeft,
@@ -87,6 +88,7 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
     { href: '/operator/schools', label: 'Schools', icon: Building2 },
     { href: '/operator/health', label: 'System Health', icon: Database },
     { href: '/operator/settings', label: 'Settings', icon: Settings },
+    { href: '/operator/billing', label: 'Billing & Costs', icon: DollarSign },
   ];
 
   let links = variant === 'operator' ? operatorLinks : (isBillingContext ? billingLinks : userLinks);
