@@ -94,6 +94,7 @@ export function resolveModel(params: {
  */
 export function resolveModelFromHeaders(req: NextRequest): ResolvedModel {
   return resolveModel({
+    modelString: req.headers.get('x-model') || undefined,
     apiKey: req.headers.get('x-api-key') || undefined,
     baseUrl: req.headers.get('x-base-url') || undefined,
     requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,

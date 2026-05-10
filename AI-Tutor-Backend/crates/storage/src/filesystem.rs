@@ -83,13 +83,29 @@ fn get_pg_client(url: &str) -> AnyResult<PooledPgConnection> {
                 url.parse().unwrap(),
                 connector
             );
-            PgPool::Tls(r2d2::Pool::builder().max_size(15).build(manager).unwrap())
+            PgPool::Tls(
+                r2d2::Pool::builder()
+                    .max_size(15)
+                    .max_lifetime(Some(Duration::from_secs(30 * 60)))
+                    .idle_timeout(Some(Duration::from_secs(10 * 60)))
+                    .connection_timeout(Duration::from_secs(10))
+                    .build(manager)
+                    .unwrap()
+            )
         } else {
             let manager = r2d2_postgres::PostgresConnectionManager::new(
                 url.parse().unwrap(),
                 postgres::NoTls
             );
-            PgPool::NoTls(r2d2::Pool::builder().max_size(15).build(manager).unwrap())
+            PgPool::NoTls(
+                r2d2::Pool::builder()
+                    .max_size(15)
+                    .max_lifetime(Some(Duration::from_secs(30 * 60)))
+                    .idle_timeout(Some(Duration::from_secs(10 * 60)))
+                    .connection_timeout(Duration::from_secs(10))
+                    .build(manager)
+                    .unwrap()
+            )
         };
 
         // Run migrations once on startup

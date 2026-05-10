@@ -2,11 +2,17 @@
 
 import { useEffect, useState, Suspense, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, Sparkles, AlertCircle, AlertTriangle, ArrowLeft, Bot } from 'lucide-react';
+import { motion } from 'motion/react';
+import {
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
+  XCircle,
+  Loader2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useStageStore } from '@/lib/store/stage';
 import { useSettingsStore } from '@/lib/store/settings';
@@ -29,7 +35,6 @@ import { AgentRevealModal } from '@/components/agent/agent-reveal-modal';
 import { createLogger } from '@/lib/logger';
 import { getSessionToken, hasAuthSessionHint } from '@/lib/auth/session';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
-import { StepVisualizer } from './components/visualizers';
 
 const log = createLogger('GenerationPreview');
 
@@ -111,6 +116,7 @@ function GenerationPreviewContent() {
       'x-base-url': modelConfig.baseUrl,
       'x-provider-type': modelConfig.providerType || '',
       'x-requires-api-key': modelConfig.requiresApiKey ? 'true' : 'false',
+      'x-model': modelConfig.modelString,
       // Quality and learning mode headers
       'x-quality-mode': settings.qualityMode || 'standard',
       'x-learning-mode': settings.learningMode || 'explain',
@@ -868,10 +874,8 @@ function GenerationPreviewContent() {
   // Still loading session from sessionStorage
   if (!sessionLoaded) {
     return (
-      <div className="min-h-[100dvh] w-full bg-gradient-to-b from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900 flex items-center justify-center p-4">
-        <div className="text-center text-muted-foreground">
-          <div className="size-8 border-2 border-current border-t-transparent rounded-full animate-spin mx-auto" />
-        </div>
+      <div className="min-h-[100dvh] bg-neutral-950 flex items-center justify-center">
+        <Loader2 className="size-6 text-neutral-500 animate-spin" />
       </div>
     );
   }
@@ -879,12 +883,14 @@ function GenerationPreviewContent() {
   // No session found
   if (!session) {
     return (
-      <div className="min-h-[100dvh] w-full bg-gradient-to-b from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900 flex items-center justify-center p-4">
-        <Card className="p-8 max-w-md w-full">
+      <div className="min-h-[100dvh] bg-neutral-950 flex items-center justify-center p-4">
+        <Card className="p-8 max-w-md w-full bg-neutral-900 border-neutral-800">
           <div className="text-center space-y-4">
-            <AlertCircle className="size-12 text-muted-foreground mx-auto" />
-            <h2 className="text-xl font-semibold">{t('generation.sessionNotFound')}</h2>
-            <p className="text-sm text-muted-foreground">{t('generation.sessionNotFoundDesc')}</p>
+            <AlertCircle className="size-12 text-neutral-500 mx-auto" />
+            <h2 className="text-xl font-semibold text-neutral-100">
+              {t('generation.sessionNotFound')}
+            </h2>
+            <p className="text-sm text-neutral-500">{t('generation.sessionNotFoundDesc')}</p>
             <Button onClick={() => router.push('/')} className="w-full">
               <ArrowLeft className="size-4 mr-2" />
               {t('generation.backToHome')}
@@ -901,221 +907,175 @@ function GenerationPreviewContent() {
       : ALL_STEPS[0];
 
   return (
-    <div className="min-h-[100dvh] w-full bg-gradient-to-b from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900 flex flex-col items-center justify-center p-4 relative overflow-hidden text-center">
-      {/* Background Decor */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div
-          className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl animate-pulse"
-          style={{ animationDuration: '4s' }}
-        />
-        <div
-          className="absolute bottom-0 right-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl animate-pulse"
-          style={{ animationDuration: '6s' }}
-        />
-      </div>
-
-      {/* Back button */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="absolute top-4 left-4 z-20"
-      >
-        <Button variant="ghost" size="sm" onClick={goBackToHome}>
-          <ArrowLeft className="size-4 mr-2" />
-          {t('generation.backToHome')}
-        </Button>
-      </motion.div>
-
-      <div className="z-10 w-full max-w-lg space-y-8 flex flex-col items-center">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="w-full"
+    <div className="min-h-[100dvh] bg-neutral-950 flex flex-col">
+      {/* Header */}
+      <header className="border-b border-neutral-800/60 px-6 py-4 flex items-center shrink-0">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={goBackToHome}
+          className="text-neutral-400 hover:text-white"
         >
-          <Card className="relative overflow-hidden border-muted/40 shadow-2xl bg-white/80 dark:bg-neutral-900/80 backdrop-blur-xl min-h-[400px] flex flex-col items-center justify-center p-8 md:p-12">
-            {/* Progress Dots */}
-            <div className="absolute top-6 left-0 right-0 flex justify-center gap-2">
-              {activeSteps.map((step, idx) => (
+          <ArrowLeft className="size-4 mr-2" />
+          Back
+        </Button>
+        <div className="ml-4">
+          <h1 className="text-sm font-medium text-neutral-200">Lesson Generation</h1>
+          <p className="text-xs text-neutral-600">
+            {activeStep ? t(activeStep.title) : 'Preparing...'}
+          </p>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <main className="flex-1 flex items-center justify-center p-6">
+        <div className="w-full max-w-lg">
+          {/* Progress bar */}
+          <div className="mb-8">
+            <div className="flex justify-between text-xs text-neutral-500 mb-2">
+              <span>Overall Progress</span>
+              <span className="text-neutral-400">
+                {Math.min(currentStepIndex, activeSteps.length)} of {activeSteps.length} steps
+              </span>
+            </div>
+            <div className="h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+              <motion.div
+                className={cn(
+                  'h-full rounded-full',
+                  error ? 'bg-red-500' : 'bg-emerald-500'
+                )}
+                initial={{ width: 0 }}
+                animate={{
+                  width: `${activeSteps.length > 0 ? (Math.min(currentStepIndex, activeSteps.length) / activeSteps.length) * 100 : 0}%`,
+                }}
+                transition={{ duration: 0.5, ease: 'easeOut' }}
+              />
+            </div>
+          </div>
+
+          {/* Steps list */}
+          <div className="space-y-2">
+            {activeSteps.map((step, idx) => {
+              const isCompleted = idx < currentStepIndex;
+              const isActive = idx === currentStepIndex && !error;
+              const isFailed = idx === currentStepIndex && !!error;
+              const isPending = idx > currentStepIndex;
+
+              return (
                 <div
                   key={step.id}
                   className={cn(
-                    'h-1.5 rounded-full transition-all duration-500',
-                    idx < currentStepIndex
-                      ? 'w-1.5 bg-blue-500/30'
-                      : idx === currentStepIndex
-                        ? 'w-8 bg-blue-500'
-                        : 'w-1.5 bg-muted/50',
+                    'flex items-start gap-4 p-4 rounded-xl border transition-all duration-300',
+                    isActive && 'bg-neutral-900/80 border-neutral-700/50',
+                    isFailed && 'bg-red-950/10 border-red-900/30',
+                    isCompleted && 'bg-transparent border-transparent opacity-70',
+                    isPending && 'bg-transparent border-transparent opacity-40'
                   )}
-                />
-              ))}
-            </div>
+                >
+                  {/* Status icon */}
+                  <div className="mt-0.5 shrink-0">
+                    {isCompleted ? (
+                      <CheckCircle2 className="size-5 text-emerald-500" />
+                    ) : isFailed ? (
+                      <XCircle className="size-5 text-red-500" />
+                    ) : isActive ? (
+                      <Loader2 className="size-5 text-blue-500 animate-spin" />
+                    ) : (
+                      <div className="size-5 rounded-full border-2 border-neutral-700" />
+                    )}
+                  </div>
 
-            {/* Central Content */}
-            <div className="flex-1 flex flex-col items-center justify-center w-full space-y-8 mt-4">
-              {/* Icon / Visualizer Container */}
-              <div className="relative size-48 flex items-center justify-center">
-                <AnimatePresence mode="popLayout">
-                  {error ? (
-                    <motion.div
-                      key="error"
-                      initial={{ scale: 0.5, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="size-32 rounded-full bg-red-500/10 flex items-center justify-center border-2 border-red-500/20"
+                  {/* Step text */}
+                  <div className="flex-1 min-w-0">
+                    <h3
+                      className={cn(
+                        'text-sm font-medium',
+                        isCompleted && 'text-emerald-400 line-through',
+                        isFailed && 'text-red-300',
+                        isActive && 'text-white',
+                        isPending && 'text-neutral-500'
+                      )}
                     >
-                      <AlertCircle className="size-16 text-red-500" />
-                    </motion.div>
-                  ) : isComplete ? (
-                    <motion.div
-                      key="complete"
-                      initial={{ scale: 0.5, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      className="size-32 rounded-full bg-green-500/10 flex items-center justify-center border-2 border-green-500/20"
+                      {t(step.title)}
+                    </h3>
+                    <p
+                      className={cn(
+                        'text-xs mt-1 leading-relaxed',
+                        isFailed && 'text-red-400',
+                        isActive && 'text-neutral-400',
+                        isCompleted && 'text-neutral-600',
+                        isPending && 'text-neutral-700'
+                      )}
                     >
-                      <CheckCircle2 className="size-16 text-green-500" />
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key={activeStep.id}
-                      initial={{ scale: 0.8, opacity: 0, filter: 'blur(10px)' }}
-                      animate={{ scale: 1, opacity: 1, filter: 'blur(0px)' }}
-                      exit={{ scale: 1.2, opacity: 0, filter: 'blur(10px)' }}
-                      transition={{ duration: 0.4 }}
-                      className="absolute inset-0 flex items-center justify-center"
-                    >
-                      <StepVisualizer
-                        stepId={activeStep.id}
-                        outlines={streamingOutlines}
-                        webSearchSources={webSearchSources}
-                      />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {/* Text Content */}
-              <div className="space-y-3 max-w-sm mx-auto">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={error ? 'error' : isComplete ? 'done' : activeStep.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="space-y-2"
-                  >
-                    <h2 className="text-2xl font-bold tracking-tight">
-                      {error
-                        ? t('generation.generationFailed')
-                        : isComplete
-                          ? t('generation.generationComplete')
-                          : t(activeStep.title)}
-                    </h2>
-                    <p className="text-muted-foreground text-base">
-                      {error
+                      {isFailed
                         ? error
-                        : isComplete
-                          ? t('generation.classroomReady')
-                          : statusMessage || t(activeStep.description)}
+                        : isActive
+                          ? statusMessage || t(step.description)
+                          : t(step.description)}
                     </p>
-                  </motion.div>
-                </AnimatePresence>
 
-                {/* Truncation warning indicator */}
-                <AnimatePresence>
-                  {truncationWarnings.length > 0 && !error && !isComplete && (
-                    <motion.div
-                      initial={{ opacity: 0, scale: 0 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0 }}
-                      transition={{
-                        type: 'spring',
-                        stiffness: 500,
-                        damping: 30,
-                      }}
-                      className="flex justify-center"
-                    >
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <motion.button
-                            type="button"
-                            animate={{
-                              boxShadow: [
-                                '0 0 0 0 rgba(251, 191, 36, 0), 0 0 0 0 rgba(251, 191, 36, 0)',
-                                '0 0 16px 4px rgba(251, 191, 36, 0.12), 0 0 4px 1px rgba(251, 191, 36, 0.08)',
-                                '0 0 0 0 rgba(251, 191, 36, 0), 0 0 0 0 rgba(251, 191, 36, 0)',
-                              ],
-                            }}
-                            transition={{
-                              duration: 3,
-                              repeat: Infinity,
-                              ease: 'easeInOut',
-                            }}
-                            className="relative size-7 rounded-full flex items-center justify-center cursor-default
-                                       bg-gradient-to-br from-teal-400/15 to-emerald-400/10
-                                       border border-teal-400/25 hover:border-teal-400/40
-                                       hover:from-teal-400/20 hover:to-emerald-400/15
-                                       transition-colors duration-300
-                                       focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/30"
-                          >
-                            <AlertTriangle
-                              className="size-3.5 text-teal-500 dark:text-teal-400"
-                              strokeWidth={2.5}
-                            />
-                          </motion.button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" sideOffset={6}>
-                          <div className="space-y-1 py-0.5">
-                            {truncationWarnings.map((w, i) => (
-                              <p key={i} className="text-xs leading-relaxed">
-                                {w}
-                              </p>
-                            ))}
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                    {/* Dynamic details */}
+                    {step.id === 'outline' && isActive && streamingOutlines && streamingOutlines.length > 0 && (
+                      <p className="text-xs text-blue-400 mt-2 font-mono">
+                        {streamingOutlines.length} outline{streamingOutlines.length > 1 ? 's' : ''} generated
+                      </p>
+                    )}
+                    {step.id === 'web-search' && isCompleted && webSearchSources.length > 0 && (
+                      <p className="text-xs text-emerald-500 mt-2 font-mono">
+                        {webSearchSources.length} source{webSearchSources.length > 1 ? 's' : ''} indexed
+                      </p>
+                    )}
+                    {step.id === 'pdf-analysis' && isCompleted && (
+                      <p className="text-xs text-emerald-500 mt-2 font-mono">
+                        Document parsed successfully
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Truncation warnings */}
+          {truncationWarnings.length > 0 && !error && (
+            <div className="mt-4 p-3 bg-amber-950/20 border border-amber-900/30 rounded-lg flex items-start gap-2">
+              <AlertTriangle className="size-4 text-amber-500 mt-0.5 shrink-0" />
+              <div className="text-xs text-amber-400 space-y-1">
+                {truncationWarnings.map((w, i) => (
+                  <p key={i}>{w}</p>
+                ))}
               </div>
             </div>
-          </Card>
-        </motion.div>
+          )}
 
-        {/* Footer Action */}
-        <div className="h-16 flex items-center justify-center w-full">
-          <AnimatePresence>
-            {error ? (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="w-full max-w-xs"
+          {/* Error actions */}
+          {error && (
+            <div className="mt-6 flex gap-3">
+              <Button
+                onClick={goBackToHome}
+                className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700"
               >
-                <Button size="lg" variant="outline" className="w-full h-12" onClick={goBackToHome}>
-                  {t('generation.goBackAndRetry')}
-                </Button>
-              </motion.div>
-            ) : !isComplete ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex items-center gap-3 text-sm text-muted-foreground/50 font-medium uppercase tracking-widest"
+                <ArrowLeft className="size-4 mr-2" />
+                Go Back & Retry
+              </Button>
+            </div>
+          )}
+
+          {/* View agents button */}
+          {!error && generatedAgents.length > 0 && !showAgentReveal && (
+            <div className="mt-6 flex justify-center">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAgentReveal(true)}
+                className="border-neutral-700 text-neutral-300 hover:bg-neutral-800 hover:text-white"
               >
-                <Sparkles className="size-3 animate-pulse" />
-                {t('generation.aiWorking')}
-                {generatedAgents.length > 0 && !showAgentReveal && (
-                  <button
-                    onClick={() => setShowAgentReveal(true)}
-                    className="ml-2 flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium normal-case tracking-normal text-primary transition-colors hover:bg-primary/20 hover:text-primary"
-                  >
-                    <Bot className="size-3" />
-                    {t('generation.viewAgents')}
-                  </button>
-                )}
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
+                View Generated Agents
+              </Button>
+            </div>
+          )}
         </div>
-      </div>
+      </main>
 
       {/* Agent Reveal Modal */}
       <AgentRevealModal
@@ -1135,11 +1095,8 @@ export default function GenerationPreviewPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-[100dvh] w-full bg-gradient-to-b from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900 flex items-center justify-center">
-          <div className="animate-pulse space-y-4 text-center">
-            <div className="h-8 w-48 bg-muted rounded mx-auto" />
-            <div className="h-4 w-64 bg-muted rounded mx-auto" />
-          </div>
+        <div className="min-h-[100dvh] bg-neutral-950 flex items-center justify-center">
+          <Loader2 className="size-6 text-neutral-500 animate-spin" />
         </div>
       }
     >
