@@ -5,7 +5,7 @@ use reqwest::Url;
 use tracing::{error, info};
 
 use ai_tutor_api::app::{build_router, LessonAppService, LiveLessonAppService};
-use ai_tutor_api::queue::{FileBackedLessonQueue, LessonQueue};
+use ai_tutor_api::queue::LessonQueue;
 use ai_tutor_api::queue_redis::RedisLessonQueue;
 use ai_tutor_api::redis_storage::RedisRuntimeSessionRepository;
 use ai_tutor_api::telemetry::TelemetryService;
