@@ -27,7 +27,6 @@ interface ServerConfig {
   providers: Record<string, ServerProviderEntry>;
   tts: Record<string, ServerProviderEntry>;
   asr: Record<string, ServerProviderEntry>;
-  pdf: Record<string, ServerProviderEntry>;
   image: Record<string, ServerProviderEntry>;
   video: Record<string, ServerProviderEntry>;
   webSearch: Record<string, ServerProviderEntry>;
@@ -65,10 +64,6 @@ const TTS_ENV_MAP: Record<string, string> = {
 const ASR_ENV_MAP: Record<string, string> = {
   ASR_OPENAI: 'openai-whisper',
   ASR_QWEN: 'qwen-asr',
-};
-
-const PDF_ENV_MAP: Record<string, string> = {
-  PDF_OPENROUTER: 'gemini-openrouter',
 };
 
 const IMAGE_ENV_MAP: Record<string, string> = {
@@ -192,7 +187,6 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     providers: loadEnvSection(LLM_ENV_MAP, yamlData.providers),
     tts: loadEnvSection(TTS_ENV_MAP, yamlData.tts),
     asr: loadEnvSection(ASR_ENV_MAP, yamlData.asr),
-    pdf: loadEnvSection(PDF_ENV_MAP, yamlData.pdf),
     image: loadEnvSection(IMAGE_ENV_MAP, yamlData.image),
     video: loadEnvSection(VIDEO_ENV_MAP, yamlData.video),
     webSearch: loadEnvSection(WEB_SEARCH_ENV_MAP, yamlData['web-search']),
@@ -204,14 +198,13 @@ function logConfig(config: ServerConfig, label: string): void {
     Object.keys(config.providers).length,
     Object.keys(config.tts).length,
     Object.keys(config.asr).length,
-    Object.keys(config.pdf).length,
     Object.keys(config.image).length,
     Object.keys(config.video).length,
     Object.keys(config.webSearch).length,
   ];
   if (counts.some((c) => c > 0)) {
     log.info(
-      `[ServerProviderConfig] Loaded (${label}): ${counts[0]} LLM, ${counts[1]} TTS, ${counts[2]} ASR, ${counts[3]} PDF, ${counts[4]} Image, ${counts[5]} Video, ${counts[6]} WebSearch providers`,
+      `[ServerProviderConfig] Loaded (${label}): ${counts[0]} LLM, ${counts[1]} TTS, ${counts[2]} ASR, ${counts[3]} Image, ${counts[4]} Video, ${counts[5]} WebSearch providers`,
     );
   }
 }
@@ -306,30 +299,6 @@ export function resolveASRApiKey(providerId: string, clientKey?: string): string
 export function resolveASRBaseUrl(providerId: string, clientBaseUrl?: string): string | undefined {
   if (clientBaseUrl) return clientBaseUrl;
   return getConfig().asr[providerId]?.baseUrl;
-}
-
-// ---------------------------------------------------------------------------
-// Public API — PDF
-// ---------------------------------------------------------------------------
-
-export function getServerPDFProviders(): Record<string, { baseUrl?: string }> {
-  const cfg = getConfig();
-  const result: Record<string, { baseUrl?: string }> = {};
-  for (const [id, entry] of Object.entries(cfg.pdf)) {
-    result[id] = {};
-    if (entry.baseUrl) result[id].baseUrl = entry.baseUrl;
-  }
-  return result;
-}
-
-export function resolvePDFApiKey(providerId: string, clientKey?: string): string {
-  if (clientKey) return clientKey;
-  return getConfig().pdf[providerId]?.apiKey || '';
-}
-
-export function resolvePDFBaseUrl(providerId: string, clientBaseUrl?: string): string | undefined {
-  if (clientBaseUrl) return clientBaseUrl;
-  return getConfig().pdf[providerId]?.baseUrl;
 }
 
 // ---------------------------------------------------------------------------

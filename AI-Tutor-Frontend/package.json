@@ -8,6 +8,9 @@
     "start": "pnpm --filter ai-tutor-web start",
     "lint": "pnpm --filter ai-tutor-web lint"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["tesseract.js"]
+  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.14",
     "rollup": "^4.60.1",

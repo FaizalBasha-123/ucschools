@@ -6,6 +6,11 @@ import type {
   PdfImage,
   ImageMapping,
 } from '@/lib/types/generation';
+import type {
+  PageMetadata,
+  ImageReference,
+  PageSummary,
+} from '@/lib/pdf/plugin';
 
 // Session state stored in sessionStorage
 export interface GenerationSessionState {
@@ -22,6 +27,11 @@ export interface GenerationSessionState {
   pdfFileName?: string;
   pdfProviderId?: string;
   pdfProviderConfig?: { apiKey?: string; baseUrl?: string };
+  // New pipeline output
+  pageMetadatas?: PageMetadata[];
+  imageReferences?: ImageReference[];
+  pageSummaries?: PageSummary[];
+  scannedPages?: number[];
   // Web search context
   researchContext?: string;
   researchSources?: Array<{ title: string; url: string }>;

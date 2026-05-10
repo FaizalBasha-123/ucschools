@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
       stageInfo,
       stageId,
       agents,
+      pageMetadatas,
+      imageReferences,
     } = body as {
       outline: SceneOutline;
       allOutlines: SceneOutline[];
@@ -49,6 +51,8 @@ export async function POST(req: NextRequest) {
       };
       stageId: string;
       agents?: AgentInfo[];
+      pageMetadatas?: unknown[];
+      imageReferences?: unknown[];
     };
 
     // Validate required fields

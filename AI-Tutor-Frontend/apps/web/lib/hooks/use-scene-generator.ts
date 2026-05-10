@@ -42,7 +42,7 @@ function getApiHeaders(): HeadersInit {
     'x-base-url': config.baseUrl || '',
     'x-provider-type': config.providerType || '',
     'x-requires-api-key': String(config.requiresApiKey ?? false),
-    'x-model': config.modelString,
+    'x-model': config.providerId && config.modelId ? config.modelString : '',
     'x-quality-mode': settings.qualityMode || 'standard',
     'x-learning-mode': settings.learningMode || 'explain',
     // Image generation provider

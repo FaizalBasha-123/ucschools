@@ -1,31 +1,9 @@
-/**
- * PDF Parsing Provider Type Definitions
- */
+export type PDFProviderId = 'pdfjs-local';
 
-/**
- * PDF Provider IDs
- */
-export type PDFProviderId = 'gemini-openrouter';
-
-/**
- * PDF Provider Configuration
- */
 export interface PDFProviderConfig {
   id: PDFProviderId;
   name: string;
-  requiresApiKey: boolean;
-  baseUrl?: string;
-  icon?: string;
-  features: string[]; // ['text', 'images', 'tables', 'formulas', 'layout-analysis', etc.]
+  pluginId: string;
+  isDefault?: boolean;
+  features: string[];
 }
-
-/**
- * PDF Parser Configuration for API calls
- */
-export interface PDFParserConfig {
-  providerId: PDFProviderId;
-  apiKey?: string;
-  baseUrl?: string;
-}
-
-// Note: ParsedPdfContent is imported from @/lib/types/pdf to avoid duplication

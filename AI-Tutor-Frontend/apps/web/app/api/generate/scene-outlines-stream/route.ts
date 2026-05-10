@@ -23,6 +23,8 @@ import {
 } from '@/lib/generation/generation-pipeline';
 import type { AgentInfo } from '@/lib/generation/generation-pipeline';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@/lib/constants/generation';
+import { SemanticRouter } from '@/lib/pdf/semantic-router';
+import type { PageSummary } from '@/lib/pdf/plugin';
 import { nanoid } from 'nanoid';
 import type {
   UserRequirements,
@@ -110,13 +112,14 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Requirements are required');
     }
 
-    const { requirements, pdfText, pdfImages, imageMapping, researchContext, agents } = body as {
+    const { requirements, pdfText, pdfImages, imageMapping, researchContext, agents, pageSummaries } = body as {
       requirements: UserRequirements;
       pdfText?: string;
       pdfImages?: PdfImage[];
       imageMapping?: ImageMapping;
       researchContext?: string;
       agents?: AgentInfo[];
+      pageSummaries?: PageSummary[];
     };
     requirementSnippet = requirements?.requirement?.substring(0, 60);
 
@@ -173,6 +176,17 @@ export async function POST(req: NextRequest) {
         '**IMPORTANT: Do NOT include any video mediaGenerations (type: "video") in the outlines. Video generation is disabled. Image generation is allowed.**';
     }
 
+    // Build semantic context from page summaries
+    let semanticContext = requirements.language === 'zh-CN' ? '无' : 'None';
+    if (pageSummaries && pageSummaries.length > 0) {
+      const router = new SemanticRouter();
+      const relevant = router.findRelevantPages(
+        requirements.requirement,
+        pageSummaries,
+      );
+      semanticContext = router.formatContext(pageSummaries, relevant);
+    }
+
     // Build teacher context from agents (if available)
     const teacherContext = formatTeacherPersonaForPrompt(agents);
 
@@ -188,6 +202,7 @@ export async function POST(req: NextRequest) {
       researchContext: researchContext || (requirements.language === 'zh-CN' ? '无' : 'None'),
       mediaGenerationPolicy,
       teacherContext,
+      semanticContext,
     });
 
     if (!prompts) {

@@ -1,33 +1,31 @@
-/**
- * PDF Provider Constants
- * Separated from pdf-providers.ts to avoid importing sharp in client components
- */
+import type { PDFProviderConfig, PDFProviderId } from './types';
+import { pdfRegistry } from './registry';
+import { PdfjsPlugin } from './plugins/pdfjs-plugin';
 
-import type { PDFProviderId, PDFProviderConfig } from './types';
+function initializePlugins(): void {
+  if (!pdfRegistry.has('pdfjs-local')) {
+    pdfRegistry.register(new PdfjsPlugin());
+  }
+}
 
-/**
- * PDF Provider Registry
- */
+initializePlugins();
+
 export const PDF_PROVIDERS: Record<PDFProviderId, PDFProviderConfig> = {
-  'gemini-openrouter': {
-    id: 'gemini-openrouter',
-    name: 'Gemini 2.0 Flash (OpenRouter)',
-    requiresApiKey: true,
-    icon: '/logos/gemini.svg',
-    features: ['text', 'images', 'metadata', 'multimodal'],
+  'pdfjs-local': {
+    id: 'pdfjs-local',
+    name: 'Local PDF.js Parser',
+    pluginId: 'pdfjs-local',
+    isDefault: true,
+    features: ['text', 'images', 'metadata', 'page-rendering'],
   },
 };
 
-/**
- * Get all available PDF providers
- */
 export function getAllPDFProviders(): PDFProviderConfig[] {
   return Object.values(PDF_PROVIDERS);
 }
 
-/**
- * Get PDF provider by ID
- */
-export function getPDFProvider(providerId: PDFProviderId): PDFProviderConfig | undefined {
-  return PDF_PROVIDERS[providerId];
+export function getPDFProvider(id: string): PDFProviderConfig | undefined {
+  return PDF_PROVIDERS[id as PDFProviderId];
 }
+
+export const DEFAULT_PDF_PROVIDER = 'pdfjs-local';

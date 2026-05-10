@@ -23,7 +23,6 @@ import {
   loadImageMapping,
   loadPdfBlob,
   cleanupOldImages,
-  storeImages,
 } from '@/lib/utils/image-storage';
 import { getCurrentModelConfig } from '@/lib/utils/model-config';
 import { db } from '@/lib/utils/database';
@@ -237,76 +236,34 @@ function GenerationPreviewContent() {
           pdfText = pdfText.substring(0, MAX_PDF_CONTENT_CHARS);
         }
 
-        // Create image metadata and store images
-        // Prefer metadata.pdfImages (both parsers now return this)
-        const rawPdfImages = parseResult.data.metadata?.pdfImages;
-        const images = rawPdfImages
-          ? rawPdfImages.map(
-              (img: {
-                id: string;
-                src?: string;
-                pageNumber?: number;
-                description?: string;
-                width?: number;
-                height?: number;
-              }) => ({
-                id: img.id,
-                src: img.src || '',
-                pageNumber: img.pageNumber || 1,
-                description: img.description,
-                width: img.width,
-                height: img.height,
-              }),
-            )
-          : (parseResult.data.images as string[]).map((src: string, i: number) => ({
-              id: `img_${i + 1}`,
-              src,
-              pageNumber: 1,
-            }));
+        const meta = parseResult.data.metadata;
 
-        const imageStorageIds = await storeImages(images);
-
-        const pdfImages: PdfImage[] = images.map(
-          (
-            img: {
-              id: string;
-              src: string;
-              pageNumber: number;
-              description?: string;
-              width?: number;
-              height?: number;
-            },
-            i: number,
-          ) => ({
-            id: img.id,
-            src: '',
-            pageNumber: img.pageNumber,
-            description: img.description,
-            width: img.width,
-            height: img.height,
-            storageId: imageStorageIds[i],
-          }),
-        );
+        const pageMetadatas = meta?.pages || [];
+        const imageReferences = meta?.imageReferences || [];
+        const pageSummaries = meta?.pageSummaries || [];
+        const scannedPages = meta?.scannedPages || [];
 
         // Update session with parsed PDF data
         const updatedSession = {
           ...currentSession,
           pdfText,
-          pdfImages,
-          imageStorageIds,
-          pdfStorageKey: undefined, // Clear so we don't re-parse
+          pageMetadatas,
+          imageReferences,
+          pageSummaries,
+          scannedPages,
+          pdfStorageKey: undefined,
         };
         setSession(updatedSession);
         sessionStorage.setItem('generationSession', JSON.stringify(updatedSession));
 
-        // Truncation warnings
+        // Truncation warning
         const warnings: string[] = [];
         if ((parseResult.data.text as string).length > MAX_PDF_CONTENT_CHARS) {
           warnings.push(t('generation.textTruncated', { n: MAX_PDF_CONTENT_CHARS }));
         }
-        if (images.length > MAX_VISION_IMAGES) {
+        if (scannedPages.length > 0) {
           warnings.push(
-            t('generation.imageTruncated', { total: images.length, max: MAX_VISION_IMAGES }),
+            t('generation.scannedPagesDetected', { pages: scannedPages.join(', ') }),
           );
         }
         if (warnings.length > 0) {
@@ -575,6 +532,7 @@ function GenerationPreviewContent() {
               imageMapping,
               researchContext: currentSession.researchContext,
               agents,
+              pageSummaries: currentSession.pageSummaries,
             }),
             signal,
           })
@@ -700,6 +658,8 @@ function GenerationPreviewContent() {
           stageInfo,
           stageId: stage.id,
           agents,
+          pageMetadatas: currentSession.pageMetadatas,
+          imageReferences: currentSession.imageReferences,
         }),
         signal,
       });

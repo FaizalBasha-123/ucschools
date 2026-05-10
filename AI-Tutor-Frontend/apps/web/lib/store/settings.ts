@@ -315,9 +315,9 @@ const getDefaultAudioConfig = () => ({
 
 // Initialize default PDF config
 const getDefaultPDFConfig = () => ({
-  pdfProviderId: 'gemini-openrouter' as PDFProviderId,
+  pdfProviderId: 'pdfjs-local' as PDFProviderId,
   pdfProvidersConfig: {
-    'gemini-openrouter': { apiKey: '', baseUrl: '', enabled: true },
+    'pdfjs-local': { apiKey: '', baseUrl: '', enabled: true },
   } as Record<PDFProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
@@ -983,7 +983,7 @@ export const useSettingsStore = create<SettingsState>()(
               const validPDFProvider = validateProvider(
                 state.pdfProviderId,
                 newPDFConfig,
-                'gemini-openrouter' as PDFProviderId,
+                'pdfjs-local' as PDFProviderId,
               );
               const validImageProvider = validateProvider(
                 state.imageProviderId,
@@ -1024,7 +1024,6 @@ export const useSettingsStore = create<SettingsState>()(
               let autoTtsProvider: TTSProviderId | undefined;
               let autoTtsVoice: string | undefined;
               let autoAsrProvider: ASRProviderId | undefined;
-              let autoPdfProvider: PDFProviderId | undefined;
               let autoImageProvider: ImageProviderId | undefined;
               let autoImageModel: string | undefined;
               let autoVideoProvider: VideoProviderId | undefined;
@@ -1142,7 +1141,6 @@ export const useSettingsStore = create<SettingsState>()(
                 // First-run auto-select overrides validation (autoConfigApplied guard).
                 // On first sync, auto-select picks the best provider. On subsequent syncs,
                 // auto* variables stay undefined so only validation spreads take effect.
-                ...(autoPdfProvider && { pdfProviderId: autoPdfProvider }),
                 ...(autoTtsProvider && {
                   ttsProviderId: autoTtsProvider,
                   ttsVoice: autoTtsVoice,

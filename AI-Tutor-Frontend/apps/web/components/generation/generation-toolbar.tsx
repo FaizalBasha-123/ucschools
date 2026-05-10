@@ -125,14 +125,9 @@ export function GenerationToolbar({
               <SelectContent>
                 {Object.values(PDF_PROVIDERS).map((provider) => {
                   const cfg = pdfProvidersConfig[provider.id];
-                  const available =
-                    !provider.requiresApiKey || !!cfg?.apiKey || !!cfg?.isServerConfigured;
                   return (
-                    <SelectItem key={provider.id} value={provider.id} disabled={!available}>
-                      <div className={cn('flex items-center gap-1.5', !available && 'opacity-50')}>
-                        {provider.icon && (
-                          <img src={provider.icon} alt={provider.name} className="w-3.5 h-3.5" />
-                        )}
+                    <SelectItem key={provider.id} value={provider.id}>
+                      <div className="flex items-center gap-1.5">
                         {provider.name}
                         {cfg?.isServerConfigured && (
                           <span className="text-[9px] px-1 py-0 rounded border text-muted-foreground">

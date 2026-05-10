@@ -32,6 +32,10 @@ Please generate scene outlines based on the following course requirements.
 
 {{researchContext}}
 
+### PDF Page Index
+
+{{semanticContext}}
+
 {{teacherContext}}
 
 ---
