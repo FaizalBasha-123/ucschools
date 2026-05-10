@@ -35,7 +35,7 @@ use sha2::Digest;
 use crate::billing_catalog::{billing_catalog, BillingProductDefinition};
 use crate::notifications::{notification_service_from_env, GracePeriodWarningNotification, NotificationService, OperatorOtpNotification, PaymentFailedNotification, PaymentSuccessNotification, ServiceRestrictedNotification};
 use crate::queue::{LessonQueue, QueuedLessonRequest, QueueCancelResult, claim_heartbeat_interval_ms, spawn_one_shot_queue_kick, stale_working_timeout_ms};
-use crate::telemetry::TelemetryService;
+use crate::telemetry::{TelemetryService, UsageEvent};
 use redis::AsyncCommands;
 use crate::telemetry_provider::{
     account_id_from_scoped_session_id, TelemetryImageProvider, TelemetryLlmProvider,
@@ -1120,6 +1120,20 @@ pub struct OperatorApiCostsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiCostQuery {
+    pub days: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InternalUsageReportRequest {
+    pub model: String,
+    pub step: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub quality_mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeActionAckRequest {
     pub session_id: String,
     pub runtime_session_id: Option<String>,
@@ -1268,6 +1282,7 @@ pub struct GenerationModelPolicyResponse {
     pub scene_content_model: String,
     pub scene_actions_model: String,
     pub scene_actions_fallback_model: Option<String>,
+    pub agent_profiles_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1475,6 +1490,7 @@ struct GenerationModelPolicy {
     scene_content_model: String,
     scene_actions_model: String,
     scene_actions_fallback_model: Option<String>,
+    agent_profiles_model: Option<String>,
 }
 
 #[async_trait]
@@ -1558,7 +1574,9 @@ pub trait LessonAppService: Send + Sync {
     async fn list_all_promo_codes(&self, limit: usize) -> Result<OperatorPromoCodeListResponse>;
     /// Returns aggregated API cost data for the operator console.
     /// Returns zeroes gracefully when api_usage_records table is empty.
-    async fn get_api_usage_costs(&self) -> Result<OperatorApiCostsResponse>;
+    async fn get_api_usage_costs(&self, days: Option<i64>) -> Result<OperatorApiCostsResponse>;
+    /// Record an API usage event from frontend generation routes.
+    async fn record_api_usage(&self, event: UsageEvent) -> Result<()>;
     async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse>;
     async fn list_schools(&self) -> Result<SchoolsListResponse>;
     async fn create_school(&self, payload: CreateSchoolRequest) -> Result<SchoolResponse>;
@@ -4009,21 +4027,9 @@ impl LiveLessonAppService {
     pub(crate) async fn build_orchestrator(
         &self,
         request: &LessonGenerationRequest,
-        model_string: Option<&str>,
+        _model_string: Option<&str>,
     ) -> Result<LessonGenerationOrchestrator<LlmGenerationPipeline, FileStorage, FileStorage>> {
-        let generation_policy = resolve_generation_model_policy(
-            None,
-            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")
-                .ok()
-                .as_deref(),
-            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")
-                .ok()
-                .as_deref(),
-            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")
-                .ok()
-                .as_deref(),
-            None,
-        )?;
+        let generation_policy = resolve_generation_model_policy(request)?;
 
         let account_id = request.account_id.as_deref();
 
@@ -4117,10 +4123,9 @@ impl LiveLessonAppService {
         .with_asset_store(self.build_asset_store().await?);
 
         if request.enable_image_generation {
-            let image_model_string = std::env::var("BALANCED_MODE_AI_TUTOR_IMAGE_MODEL")
-                .ok()
-                .or_else(|| model_string.map(|_| "openai:gpt-image-1".to_string()))
-                .unwrap_or_else(|| "openai:gpt-image-1".to_string());
+            let image_prefix = effective_quality_prefix(request);
+            let image_model_string = std::env::var(format!("{}AI_TUTOR_IMAGE_MODEL", image_prefix))
+                .unwrap_or_else(|_| "openai:gpt-image-1".to_string());
             let resolved_image = resolve_model(
                 &self.provider_config,
                 Some(&image_model_string),
@@ -4141,10 +4146,9 @@ impl LiveLessonAppService {
         }
 
         if request.enable_video_generation {
-            let video_model_string = std::env::var("BALANCED_MODE_AI_TUTOR_VIDEO_MODEL")
-                .ok()
-                .or_else(|| model_string.map(|_| "openai:gpt-video-1".to_string()))
-                .unwrap_or_else(|| "openai:gpt-video-1".to_string());
+            let video_prefix = effective_quality_prefix(request);
+            let video_model_string = std::env::var(format!("{}AI_TUTOR_VIDEO_MODEL", video_prefix))
+                .unwrap_or_else(|_| "openai:gpt-video-1".to_string());
             let resolved_video = resolve_model(
                 &self.provider_config,
                 Some(&video_model_string),
@@ -4165,10 +4169,9 @@ impl LiveLessonAppService {
         }
 
         if request.enable_tts {
-            let tts_model_string = std::env::var("BALANCED_MODE_AI_TUTOR_TTS_MODEL")
-                .ok()
-                .or_else(|| model_string.map(|_| "openai:tts-1".to_string()))
-                .unwrap_or_else(|| "openai:tts-1".to_string());
+            let tts_prefix = effective_quality_prefix(request);
+            let tts_model_string = std::env::var(format!("{}AI_TUTOR_TTS_MODEL", tts_prefix))
+                .unwrap_or_else(|_| "openai:tts-1".to_string());
             let resolved_tts = resolve_model(
                 &self.provider_config,
                 Some(&tts_model_string),
@@ -4314,20 +4317,9 @@ impl LiveLessonAppService {
     }
 
     async fn system_status(&self) -> Result<SystemStatusResponse> {
-        let current_model = std::env::var("BALANCED_MODE_AI_TUTOR_MODEL").ok();
-        let generation_model_policy_result = resolve_generation_model_policy(
-            current_model.as_deref(),
-            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL")
-                .ok()
-                .as_deref(),
-            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL")
-                .ok()
-                .as_deref(),
-            std::env::var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL")
-                .ok()
-                .as_deref(),
-            None,
-        );
+        let current_model = std::env::var("STANDARD_MODE_AI_TUTOR_MODEL").ok();
+        let generation_model_policy_result =
+            load_generation_model_policy_from_env("STANDARD_MODE_");
 
         let generation_model_policy = match generation_model_policy_result {
             Ok(policy) => policy,
@@ -4336,6 +4328,7 @@ impl LiveLessonAppService {
                 scene_content_model: "openai:gpt-4o-mini".to_string(),
                 scene_actions_model: "openai:gpt-4o-mini".to_string(),
                 scene_actions_fallback_model: None,
+                agent_profiles_model: None,
             },
         };
 
@@ -4397,6 +4390,7 @@ impl LiveLessonAppService {
                 scene_content_model: generation_model_policy.scene_content_model,
                 scene_actions_model: generation_model_policy.scene_actions_model,
                 scene_actions_fallback_model: generation_model_policy.scene_actions_fallback_model,
+                agent_profiles_model: generation_model_policy.agent_profiles_model,
             },
             selected_model_profile,
             auth_blueprint,
@@ -4450,12 +4444,12 @@ impl LiveLessonAppService {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
             .or_else(|| {
-                std::env::var("BALANCED_MODE_AI_TUTOR_MODEL")
+                std::env::var("STANDARD_MODE_AI_TUTOR_MODEL")
                     .ok()
                     .map(|value| value.trim().to_string())
                     .filter(|value| !value.is_empty())
             })
-            .ok_or_else(|| anyhow!("BALANCED_MODE_AI_TUTOR_MODEL is required"))?;
+            .ok_or_else(|| anyhow!("No model specified and STANDARD_MODE_AI_TUTOR_MODEL is not set"))?;
 
         let resolved = resolve_model(
             &self.provider_config,
@@ -5430,8 +5424,8 @@ impl LessonAppService for LiveLessonAppService {
         Ok(())
     }
 
-    async fn get_api_usage_costs(&self) -> Result<OperatorApiCostsResponse> {
-        let window = chrono::Utc::now() - chrono::Duration::days(30);
+    async fn get_api_usage_costs(&self, days: Option<i64>) -> Result<OperatorApiCostsResponse> {
+        let window = chrono::Utc::now() - chrono::Duration::days(days.unwrap_or(30));
 
         // ── Revenue from payment orders (INR) ──────────────────────────────
         let orders = self.storage
@@ -5540,6 +5534,10 @@ impl LessonAppService for LiveLessonAppService {
             by_component,
             per_user,
         })
+    }
+
+    async fn record_api_usage(&self, event: UsageEvent) -> Result<()> {
+        self.telemetry.record_usage(event).await
     }
 
     async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse> {
@@ -6752,10 +6750,10 @@ impl LessonAppService for LiveLessonAppService {
             payload.workspace.clone()
         };
 
-        let model_string = std::env::var("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL")
+        let model_string = std::env::var("STANDARD_MODE_AI_TUTOR_PBL_RUNTIME_MODEL")
             .ok()
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| anyhow!("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL is required"))?;
+            .ok_or_else(|| anyhow!("STANDARD_MODE_AI_TUTOR_PBL_RUNTIME_MODEL is required"))?;
 
         let resolved = resolve_model(
             &self.provider_config,
@@ -7638,6 +7636,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/operator/jobs", get(get_operator_jobs))
         .route("/api/operator/audit-logs", get(get_operator_audit_logs))
         .route("/api/operator/api-costs", get(get_operator_api_costs))
+        .route("/api/internal/usage", post(post_internal_usage))
         .route("/api/operator/system/toggle-maintenance", post(toggle_maintenance))
         .route("/api/operator/schools", get(list_schools).post(create_school_handler))
         .route("/api/operator/schools/{id}/members", get(get_school_members))
@@ -8375,13 +8374,36 @@ async fn get_operator_promo_code_stats(
 async fn get_operator_api_costs(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
+    Query(query): Query<ApiCostQuery>,
 ) -> Result<Json<OperatorApiCostsResponse>, ApiError> {
     state
         .service
-        .get_api_usage_costs()
+        .get_api_usage_costs(query.days)
         .await
         .map(Json)
         .map_err(ApiError::internal)
+}
+
+async fn post_internal_usage(
+    State(state): State<AppState>,
+    Json(body): Json<InternalUsageReportRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let (provider_id, model_id) = body.model.split_once(':')
+        .map(|(p, m)| (p.to_string(), m.to_string()))
+        .unwrap_or_else(|| ("unknown".into(), body.model.clone()));
+
+    let event = UsageEvent {
+        account_id: "system".into(),
+        request_id: Uuid::new_v4().to_string(),
+        component: body.step,
+        provider_id,
+        model_id,
+        input_tokens: body.input_tokens,
+        output_tokens: body.output_tokens,
+    };
+
+    state.service.record_api_usage(event).await.map_err(ApiError::internal)?;
+    Ok(Json(serde_json::json!({ "success": true })))
 }
 
 async fn get_operator_users(
@@ -9561,61 +9583,68 @@ fn aggregate_provider_runtime_status(
     }
 }
 
-fn resolve_generation_model_policy(
-    request_model_override: Option<&str>,
-    outlines_override: Option<&str>,
-    scene_content_override: Option<&str>,
-    scene_actions_override: Option<&str>,
-    scene_actions_fallback_override: Option<&str>,
-) -> Result<GenerationModelPolicy> {
-    if let Some(request_model) = request_model_override
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        return Ok(GenerationModelPolicy {
-            outlines_model: request_model.to_string(),
-            scene_content_model: request_model.to_string(),
-            scene_actions_model: request_model.to_string(),
-            scene_actions_fallback_model: None,
-        });
+/// Map learning mode + quality mode to an effective quality prefix.
+///   exam/placement_prep → bump up one tier
+///   revision            → bump down one tier
+///   explain             → use quality as-is
+fn effective_quality_prefix(request: &LessonGenerationRequest) -> &'static str {
+    let quality = request.quality_mode.as_deref().unwrap_or("standard");
+    let learning = request.learning_mode.as_deref().unwrap_or("explain");
+    match learning {
+        "exam" | "placement_prep" => match quality {
+            "basic" => "STANDARD_MODE_",
+            _ => "PREMIUM_MODE_",
+        },
+        "revision" => match quality {
+            "premium" => "STANDARD_MODE_",
+            _ => "BASIC_MODE_",
+        },
+        _ => match quality {
+            "premium" => "PREMIUM_MODE_",
+            "basic" => "BASIC_MODE_",
+            _ => "STANDARD_MODE_",
+        },
     }
+}
 
-    let outlines_model = env_model_or_error(
-        outlines_override,
-        "BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL",
-    )?;
-    let scene_content_model = env_model_or_error(
-        scene_content_override,
-        "BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL",
-    )?;
-    let scene_actions_model = env_model_or_error(
-        scene_actions_override,
-        "BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL",
-    )?;
+/// Resolve generation models using the effective quality prefix from env (no request context).
+/// Reads `{QUALITY}MODE_AI_TUTOR_GENERATION_{TASK}_MODEL` — no fallback chain.
+fn load_generation_model_policy_from_env(quality_prefix: &str) -> Result<GenerationModelPolicy> {
+    let read_var = |key: &str| -> Result<String> {
+        std::env::var(key)
+            .map(|v| v.trim().to_string())
+            .map_err(|_| anyhow!("Required env var {key} is not set"))
+    };
 
-    let _ = scene_actions_fallback_override;
+    let outlines_model = read_var(&format!("{}AI_TUTOR_GENERATION_OUTLINES_MODEL", quality_prefix))?;
+    let scene_content_model =
+        read_var(&format!("{}AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", quality_prefix))?;
+    let scene_actions_model =
+        read_var(&format!("{}AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", quality_prefix))?;
+    let scene_actions_fallback_model = read_var(&format!(
+        "{}AI_TUTOR_GENERATION_SCENE_ACTIONS_FALLBACK_MODEL",
+        quality_prefix
+    ))
+    .ok();
+    let agent_profiles_model =
+        read_var(&format!("{}AI_TUTOR_GENERATION_AGENT_PROFILES_MODEL", quality_prefix)).ok();
 
     Ok(GenerationModelPolicy {
         outlines_model,
         scene_content_model,
         scene_actions_model,
-        scene_actions_fallback_model: None,
+        scene_actions_fallback_model,
+        agent_profiles_model,
     })
 }
 
-fn env_model_or_error(override_model: Option<&str>, env_key: &str) -> Result<String> {
-    let candidate = override_model
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            std::env::var(env_key)
-                .ok()
-                .map(|value| value.trim().to_string())
-                .filter(|value| !value.is_empty())
-        });
-
-    candidate.ok_or_else(|| anyhow!("{env_key} is required"))
+/// Resolve per-task generation models using quality mode and learning mode from
+/// the request. Reads `{EFFECTIVE}MODE_AI_TUTOR_GENERATION_{TASK}_MODEL` env vars.
+fn resolve_generation_model_policy(
+    request: &LessonGenerationRequest,
+) -> Result<GenerationModelPolicy> {
+    let prefix = effective_quality_prefix(request);
+    load_generation_model_policy_from_env(prefix)
 }
 
 fn selected_model_profile(
@@ -12134,7 +12163,7 @@ mod tests {
                 Ok(OperatorAuditLogsResponse { logs: vec![] })
             }
 
-            async fn get_api_usage_costs(&self) -> Result<OperatorApiCostsResponse> {
+            async fn get_api_usage_costs(&self, _days: Option<i64>) -> Result<OperatorApiCostsResponse> {
                 Ok(OperatorApiCostsResponse {
                     total_cost_usd_30d: 0.0,
                     openrouter_cost_usd: 0.0,
@@ -12144,6 +12173,10 @@ mod tests {
                     by_component: vec![],
                     per_user: vec![],
                 })
+            }
+
+            async fn record_api_usage(&self, _event: UsageEvent) -> Result<()> {
+                Ok(())
             }
 
             async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse> {
@@ -12447,6 +12480,7 @@ mod tests {
                     scene_content_model: "openrouter:openai/gpt-4o-mini".to_string(),
                     scene_actions_model: "openrouter:openai/gpt-4o-mini".to_string(),
                     scene_actions_fallback_model: None,
+                    agent_profiles_model: Some("openrouter:openai/gpt-4o-mini".to_string()),
                 },
                 selected_model_profile: Some(SelectedModelProfileResponse {
                     provider_id: "openai".to_string(),
