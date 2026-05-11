@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Settings, Shield, Server, Key, Info, Loader2 } from 'lucide-react';
-import { LeftSidebar } from '@/components/layout/left-sidebar';
+import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 
@@ -54,16 +54,16 @@ export default function OperatorSettingsPage() {
   }, [router]);
 
   return (
-    <div className="flex w-full min-h-[100dvh] bg-neutral-50 dark:bg-neutral-900/50">
-      <LeftSidebar
-        variant="operator"
-        onSignOut={async () => {
-          await operatorSignOut();
-          router.push('/operator/login');
-        }}
-      />      
-      <main className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto p-8 pt-12">
+    <DashboardShell
+      variant="operator"
+      onSignOut={async () => {
+        await operatorSignOut();
+        router.push('/operator/login');
+      }}
+      shellClassName="bg-neutral-50 dark:bg-neutral-900/50"
+    >
+      <div className="flex-1 overflow-y-auto p-8 pt-12">
+        <div className="max-w-4xl mx-auto">
           
           <div className="mb-10">
             <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-3">
@@ -140,7 +140,7 @@ export default function OperatorSettingsPage() {
           ) : null}
 
         </div>
-      </main>
-    </div>
+      </div>
+    </DashboardShell>
   );
 }

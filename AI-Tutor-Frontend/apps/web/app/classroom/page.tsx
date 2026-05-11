@@ -30,9 +30,9 @@ import { SpeechButton } from '@/components/audio/speech-button';
 import { cn } from '@/lib/utils';
 import { Header } from '@/components/header';
 import { AuroraEffect } from '@/components/aurora-effect';
-import { LeftSidebar } from '@/components/layout/left-sidebar';
 import { UserMenu } from '@/components/layout/user-menu';
 import { CreditsDisplay } from '@/components/layout/credits-display';
+import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { SettingsDialog } from '@/components/settings';
 
 // ── Pending lesson storage key (written by landing page on unauthenticated submit)
@@ -346,16 +346,16 @@ export default function ClassroomDashboard() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-neutral-50 dark:bg-neutral-950">
-      <LeftSidebar onSignOut={() => {
+    <DashboardShell
+      onSignOut={() => {
         clearAuthSession();
         router.push('/auth?mode=signin');
-      }} />
-
-      <div className="flex-1 flex flex-col min-w-0 relative">
-        <div className="absolute top-0 left-0 w-full h-80 z-0 overflow-hidden pointer-events-none">
-          <AuroraEffect />
-        </div>
+      }}
+      shellClassName="bg-neutral-50 dark:bg-neutral-950"
+    >
+      <div className="absolute top-0 left-0 w-full h-80 z-0 overflow-hidden pointer-events-none">
+        <AuroraEffect />
+      </div>
         <Header
           hideLeft={true}
           rightElement={
@@ -494,9 +494,8 @@ export default function ClassroomDashboard() {
               </TabsContent>
             </Tabs>
           </div>
-        </main>
-      </div>
+      </main>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-    </div>
+    </DashboardShell>
   );
 }

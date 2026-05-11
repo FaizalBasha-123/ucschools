@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ticket, Loader2, Plus, Search, Calendar, Users, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
-import { LeftSidebar } from '@/components/layout/left-sidebar';
+import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
@@ -102,12 +102,14 @@ export default function OperatorPromoPage() {
   const filtered = promoCodes.filter(p => p.code.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="flex w-full min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
-      <LeftSidebar variant="operator" onSignOut={async () => {
+    <DashboardShell
+      variant="operator"
+      onSignOut={async () => {
         await operatorSignOut();
         router.push('/operator/login');
-      }} />
-
+      }}
+      shellClassName="bg-[#F8FAFC] dark:bg-neutral-900/50"
+    >
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-6 pt-10">
           
@@ -334,6 +336,6 @@ export default function OperatorPromoPage() {
 
         </div>
       </main>
-    </div>
+    </DashboardShell>
   );
 }

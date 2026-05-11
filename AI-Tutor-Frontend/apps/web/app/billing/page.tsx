@@ -7,7 +7,7 @@ import { CreditCard, Download, Check, ArrowRight, Zap, Shield, Sparkles, Loader2
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { LeftSidebar } from '@/components/layout/left-sidebar';
+import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { verifyAuthSession, hasAuthSessionHint, clearAuthSession, authHeaders } from '@/lib/auth/session';
 import { Header } from '@/components/header';
 import { UserMenu } from '@/components/layout/user-menu';
@@ -69,152 +69,151 @@ export default function BillingPage() {
   const planStatus = entitlement?.active_subscription?.status || 'Inactive';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-neutral-50 dark:bg-neutral-900/50">
-      <LeftSidebar onSignOut={() => {
+    <DashboardShell
+      onSignOut={() => {
         clearAuthSession();
         router.push('/auth?next=/billing');
-      }} />
-      
-      <div className="flex-1 flex flex-col min-w-0 relative">
-        <Header 
-          currentSceneTitle="Billing: Overview" 
-          rightElement={
-            <div className="flex items-center gap-4">
-              <CreditsDisplay />
-              <div className="w-[1px] h-6 bg-neutral-200 dark:bg-neutral-800" />
-              <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
-            </div>
-          }
-        />
-        
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-hide">
-          <div className="max-w-6xl mx-auto">
-            
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight text-foreground">Usage & Billing</h1>
-                <p className="text-sm text-muted-foreground mt-1">Manage your active plans, usage limits, and invoices.</p>
-              </div>
-              
-              <div className="flex items-center gap-3">
-                <Button variant="outline" className="gap-2" disabled={dataLoading}>
-                  <Download className="size-4" />
-                  Download Invoices
-                </Button>
-              </div>
-            </div>
-
-            {/* Current Usage Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
-              <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3 text-muted-foreground">
-                    <CreditCard className="size-5 text-emerald-500" />
-                    <h3 className="font-medium text-sm text-foreground">Current Plan</h3>
-                  </div>
-                  {planName !== 'None' && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-bold uppercase">{planStatus}</span>}
-                </div>
-                <div className="flex-1 flex flex-col justify-center">
-                  {dataLoading ? (
-                    <Loader2 className="size-5 animate-spin mx-auto text-emerald-500" />
-                  ) : (
-                    <>
-                      <p className="text-3xl font-extrabold capitalize">{planName}</p>
-                      {planName === 'None' && (
-                        <Link href="/pricing" className="text-sm text-emerald-600 font-medium mt-2 hover:underline">
-                          View available plans →
-                        </Link>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3 text-muted-foreground">
-                    <Zap className="size-5 text-teal-500" />
-                    <h3 className="font-medium text-sm text-foreground">Generation Credits</h3>
-                  </div>
-                  <Link href="/pricing" className="text-xs font-bold bg-teal-100 text-teal-700 hover:bg-teal-200 px-2 py-1 rounded transition-colors">
-                    Buy More
-                  </Link>
-                </div>
-                <div className="flex-1 flex flex-col justify-center">
-                  {dataLoading ? (
-                    <Loader2 className="size-5 animate-spin mx-auto text-teal-500" />
-                  ) : (
-                    <p className="text-4xl font-extrabold text-foreground">{entitlement?.credit_balance ?? 0}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3 text-muted-foreground mb-4">
-                    <Sparkles className="size-5 text-primary" />
-                    <h3 className="font-medium text-sm text-foreground">Active Classrooms</h3>
-                  </div>
-                  <div className="flex-1 flex flex-col justify-center">
-                    {dataLoading ? (
-                      <Loader2 className="size-5 animate-spin mx-auto text-primary" />
-                    ) : (
-                      <p className="text-4xl font-extrabold text-foreground">{entitlement?.has_active_subscription ? 'Unlimited' : '0'}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <h2 className="text-xl font-bold mb-6">Invoice History</h2>
-            <div className="rounded-xl border border-border/60 bg-white dark:bg-neutral-950 overflow-hidden shadow-sm">
-              <table className="w-full text-sm">
-                <thead className="bg-neutral-50 dark:bg-neutral-900 border-b border-border/60">
-                  <tr>
-                    <th className="px-6 py-4 text-left font-medium text-muted-foreground">Invoice</th>
-                    <th className="px-6 py-4 text-left font-medium text-muted-foreground">Date</th>
-                    <th className="px-6 py-4 text-left font-medium text-muted-foreground">Amount</th>
-                    <th className="px-6 py-4 text-left font-medium text-muted-foreground">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {dataLoading ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
-                        <Loader2 className="size-5 animate-spin mx-auto mb-3 opacity-50" />
-                      </td>
-                    </tr>
-                  ) : dashboardData?.recent_invoices?.length > 0 ? (
-                    dashboardData.recent_invoices.map((inv: any) => (
-                      <tr key={inv.id}>
-                        <td className="px-6 py-4 font-mono text-xs">{inv.id}</td>
-                        <td className="px-6 py-4">{new Date(inv.created_at).toLocaleDateString()}</td>
-                        <td className="px-6 py-4">{inv.currency} {(inv.amount_minor / 100).toFixed(2)}</td>
-                        <td className="px-6 py-4">
-                          <span className={cn(
-                            "px-2 py-1 text-xs font-bold uppercase rounded",
-                            inv.status === 'paid' ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-600"
-                          )}>
-                            {inv.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
-                        <p>No invoices found.</p>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
+      }}
+      shellClassName="bg-neutral-50 dark:bg-neutral-900/50"
+    >
+      <Header 
+        currentSceneTitle="Billing: Overview" 
+        rightElement={
+          <div className="flex items-center gap-4">
+            <CreditsDisplay />
+            <div className="w-[1px] h-6 bg-neutral-200 dark:bg-neutral-800" />
+            <UserMenu onOpenSettings={() => setSettingsOpen(true)} />
           </div>
-        </main>
-      </div>
+        }
+      />
+      
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-hide">
+        <div className="max-w-6xl mx-auto">
+          
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight text-foreground">Usage & Billing</h1>
+              <p className="text-sm text-muted-foreground mt-1">Manage your active plans, usage limits, and invoices.</p>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              <Button variant="outline" className="gap-2" disabled={dataLoading}>
+                <Download className="size-4" />
+                Download Invoices
+              </Button>
+            </div>
+          </div>
+
+          {/* Current Usage Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <CreditCard className="size-5 text-emerald-500" />
+                  <h3 className="font-medium text-sm text-foreground">Current Plan</h3>
+                </div>
+                {planName !== 'None' && <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full font-bold uppercase">{planStatus}</span>}
+              </div>
+              <div className="flex-1 flex flex-col justify-center">
+                {dataLoading ? (
+                  <Loader2 className="size-5 animate-spin mx-auto text-emerald-500" />
+                ) : (
+                  <>
+                    <p className="text-3xl font-extrabold capitalize">{planName}</p>
+                    {planName === 'None' && (
+                      <Link href="/pricing" className="text-sm text-emerald-600 font-medium mt-2 hover:underline">
+                        View available plans →
+                      </Link>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Zap className="size-5 text-teal-500" />
+                  <h3 className="font-medium text-sm text-foreground">Generation Credits</h3>
+                </div>
+                <Link href="/pricing" className="text-xs font-bold bg-teal-100 text-teal-700 hover:bg-teal-200 px-2 py-1 rounded transition-colors">
+                  Buy More
+                </Link>
+              </div>
+              <div className="flex-1 flex flex-col justify-center">
+                {dataLoading ? (
+                  <Loader2 className="size-5 animate-spin mx-auto text-teal-500" />
+                ) : (
+                  <p className="text-4xl font-extrabold text-foreground">{entitlement?.credit_balance ?? 0}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/60 bg-white dark:bg-neutral-950 p-6 shadow-sm min-h-[160px] flex flex-col relative overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3 text-muted-foreground mb-4">
+                  <Sparkles className="size-5 text-primary" />
+                  <h3 className="font-medium text-sm text-foreground">Active Classrooms</h3>
+                </div>
+                <div className="flex-1 flex flex-col justify-center">
+                  {dataLoading ? (
+                    <Loader2 className="size-5 animate-spin mx-auto text-primary" />
+                  ) : (
+                    <p className="text-4xl font-extrabold text-foreground">{entitlement?.has_active_subscription ? 'Unlimited' : '0'}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h2 className="text-xl font-bold mb-6">Invoice History</h2>
+          <div className="rounded-xl border border-border/60 bg-white dark:bg-neutral-950 overflow-hidden shadow-sm">
+            <table className="w-full text-sm">
+              <thead className="bg-neutral-50 dark:bg-neutral-900 border-b border-border/60">
+                <tr>
+                  <th className="px-6 py-4 text-left font-medium text-muted-foreground">Invoice</th>
+                  <th className="px-6 py-4 text-left font-medium text-muted-foreground">Date</th>
+                  <th className="px-6 py-4 text-left font-medium text-muted-foreground">Amount</th>
+                  <th className="px-6 py-4 text-left font-medium text-muted-foreground">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/60">
+                {dataLoading ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
+                      <Loader2 className="size-5 animate-spin mx-auto mb-3 opacity-50" />
+                    </td>
+                  </tr>
+                ) : dashboardData?.recent_invoices?.length > 0 ? (
+                  dashboardData.recent_invoices.map((inv: any) => (
+                    <tr key={inv.id}>
+                      <td className="px-6 py-4 font-mono text-xs">{inv.id}</td>
+                      <td className="px-6 py-4">{new Date(inv.created_at).toLocaleDateString()}</td>
+                      <td className="px-6 py-4">{inv.currency} {(inv.amount_minor / 100).toFixed(2)}</td>
+                      <td className="px-6 py-4">
+                        <span className={cn(
+                          "px-2 py-1 text-xs font-bold uppercase rounded",
+                          inv.status === 'paid' ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-600"
+                        )}>
+                          {inv.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
+                      <p>No invoices found.</p>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </main>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-    </div>
+    </DashboardShell>
   );
 }

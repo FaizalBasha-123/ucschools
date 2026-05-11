@@ -9,8 +9,8 @@ import {
   School, Receipt, Zap, ChevronRight, RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { LeftSidebar } from '@/components/layout/left-sidebar';
 import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { createLogger } from '@/lib/logger';
 import { cn } from '@/lib/utils';
 
@@ -92,13 +92,15 @@ export default function OperatorPage() {
   ];
 
   return (
-    <div className="flex w-full min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
-      <LeftSidebar variant="operator" onSignOut={async () => {
+    <DashboardShell
+      variant="operator"
+      onSignOut={async () => {
         await operatorSignOut();
         router.push('/operator/login');
-      }} />
-
-      <main className="flex-1 overflow-y-auto">
+      }}
+      shellClassName="bg-[#F8FAFC] dark:bg-neutral-900/50"
+    >
+      <div className="flex-1 overflow-y-auto">
         <div className="max-w-7xl mx-auto p-4 pt-6 md:p-6 md:pt-10">
 
           {/* Header */}
@@ -427,7 +429,7 @@ export default function OperatorPage() {
           )}
 
         </div>
-      </main>
-    </div>
+      </div>
+    </DashboardShell>
   );
 }

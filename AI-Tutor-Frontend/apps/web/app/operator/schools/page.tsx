@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, GraduationCap, Landmark, Briefcase, Loader2, Plus, Users, CreditCard, ChevronRight, X, BookOpen } from 'lucide-react';
-import { LeftSidebar } from '@/components/layout/left-sidebar';
+import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { operatorSignOut, clearOperatorSession } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
@@ -202,9 +202,11 @@ export default function OperatorSchoolsPage() {
   };
 
   return (
-    <div className="flex w-full min-h-[100dvh] bg-neutral-50 dark:bg-neutral-900/50">
-      <LeftSidebar variant="operator" onSignOut={async () => { await operatorSignOut(); router.push('/operator/login'); }} />
-
+    <DashboardShell
+      variant="operator"
+      onSignOut={async () => { await operatorSignOut(); router.push('/operator/login'); }}
+      shellClassName="bg-neutral-50 dark:bg-neutral-900/50"
+    >
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-8 pt-12">
 
@@ -456,6 +458,6 @@ export default function OperatorSchoolsPage() {
           )}
         </div>
       </main>
-    </div>
+    </DashboardShell>
   );
 }
