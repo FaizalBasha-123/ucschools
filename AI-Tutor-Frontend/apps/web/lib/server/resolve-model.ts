@@ -160,6 +160,7 @@ export function resolveModelForTask(
       modelString: explicitModel,
       apiKey: req.headers.get('x-api-key') || undefined,
       baseUrl: req.headers.get('x-base-url') || undefined,
+      providerType: req.headers.get('x-provider-type') || undefined,
       requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
       qualityMode,
     });
@@ -178,6 +179,7 @@ export function resolveModelForTask(
       modelString: taskModel,
       apiKey: req.headers.get('x-api-key') || undefined,
       baseUrl: req.headers.get('x-base-url') || undefined,
+      providerType: req.headers.get('x-provider-type') || undefined,
       requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
       qualityMode: effectiveQuality,
     });
@@ -187,6 +189,7 @@ export function resolveModelForTask(
   return resolveModel({
     apiKey: req.headers.get('x-api-key') || undefined,
     baseUrl: req.headers.get('x-base-url') || undefined,
+    providerType: req.headers.get('x-provider-type') || undefined,
     requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
     qualityMode: effectiveQuality,
   });
@@ -205,6 +208,7 @@ export function resolveModelFromHeaders(req: NextRequest): ResolvedModel {
     modelString: req.headers.get('x-model') || undefined,
     apiKey: req.headers.get('x-api-key') || undefined,
     baseUrl: req.headers.get('x-base-url') || undefined,
+    providerType: req.headers.get('x-provider-type') || undefined,
     requiresApiKey: req.headers.get('x-requires-api-key') === 'true' ? true : undefined,
     qualityMode: req.headers.get('x-quality-mode') || undefined,
   });
