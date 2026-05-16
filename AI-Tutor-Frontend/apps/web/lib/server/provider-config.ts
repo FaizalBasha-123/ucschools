@@ -48,6 +48,24 @@ const LLM_ENV_MAP: Record<string, string> = {
   SILICONFLOW: 'siliconflow',
   DOUBAO: 'doubao',
   GROK: 'grok',
+  GROQ: 'groq',
+};
+
+/** Map provider ID → API protocol type for server-side model resolution. */
+const PROVIDER_TYPE_MAP: Record<string, 'openai' | 'anthropic' | 'google'> = {
+  openai: 'openai',
+  openrouter: 'openai',
+  deepseek: 'openai',
+  qwen: 'openai',
+  kimi: 'openai',
+  minimax: 'anthropic',
+  glm: 'openai',
+  siliconflow: 'openai',
+  doubao: 'openai',
+  grok: 'openai',
+  groq: 'openai',
+  anthropic: 'anthropic',
+  google: 'google',
 };
 
 const TTS_ENV_MAP: Record<string, string> = {
@@ -216,14 +234,25 @@ function getConfig(): ServerConfig {
 // Public API — LLM
 // ---------------------------------------------------------------------------
 
+/** Resolve provider API type from provider ID (server-side) */
+export function getProviderType(
+  providerId: string,
+): 'openai' | 'anthropic' | 'google' | undefined {
+  return PROVIDER_TYPE_MAP[providerId];
+}
+
 /** Returns server-configured LLM providers (no apiKeys) */
-export function getServerProviders(): Record<string, { models?: string[]; baseUrl?: string }> {
+export function getServerProviders(): Record<
+  string,
+  { models?: string[]; baseUrl?: string; type?: string }
+> {
   const cfg = getConfig();
-  const result: Record<string, { models?: string[]; baseUrl?: string }> = {};
+  const result: Record<string, { models?: string[]; baseUrl?: string; type?: string }> = {};
   for (const [id, entry] of Object.entries(cfg.providers)) {
     result[id] = {};
     if (entry.models && entry.models.length > 0) result[id].models = entry.models;
     if (entry.baseUrl) result[id].baseUrl = entry.baseUrl;
+    result[id].type = getProviderType(id);
   }
   return result;
 }

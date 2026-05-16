@@ -22,7 +22,7 @@
 
 import type { NextRequest } from 'next/server';
 import { getModel, parseModelString, type ModelWithInfo } from '@/lib/ai/providers';
-import { resolveApiKey, resolveBaseUrl, resolveProxy } from '@/lib/server/provider-config';
+import { resolveApiKey, resolveBaseUrl, resolveProxy, getProviderType } from '@/lib/server/provider-config';
 import { validateUrlForSSRF } from '@/lib/server/ssrf-guard';
 
 export interface ResolvedModel extends ModelWithInfo {
@@ -119,13 +119,18 @@ export function resolveModel(params: {
     : resolveApiKey(providerId, params.apiKey || '');
   const baseUrl = clientBaseUrl ? clientBaseUrl : resolveBaseUrl(providerId, params.baseUrl);
   const proxy = resolveProxy(providerId);
+  const VALID_PROVIDER_TYPES = new Set(['openai', 'anthropic', 'google']);
+  const clientType = params.providerType as string | undefined;
+  const effectiveProviderType = (
+    clientType && VALID_PROVIDER_TYPES.has(clientType) ? clientType : undefined
+  ) || getProviderType(providerId);
   const { model, modelInfo } = getModel({
     providerId,
     modelId,
     apiKey,
     baseUrl,
     proxy,
-    providerType: params.providerType as 'openai' | 'anthropic' | 'google' | undefined,
+    providerType: effectiveProviderType as 'openai' | 'anthropic' | 'google' | undefined,
     requiresApiKey: params.requiresApiKey,
   });
 

@@ -6,6 +6,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ProviderId } from '@/lib/ai/providers';
+import type { ProviderType } from '@/lib/types/provider';
 import type { ProvidersConfig } from '@/lib/types/settings';
 import { PROVIDERS } from '@/lib/ai/providers';
 import type { TTSProviderId, ASRProviderId } from '@/lib/audio/types';
@@ -720,7 +721,7 @@ export const useSettingsStore = create<SettingsState>()(
             const res = await fetch('/api/server-providers');
             if (!res.ok) return;
             const data = (await res.json()) as {
-              providers: Record<string, { models?: string[]; baseUrl?: string }>;
+              providers: Record<string, { models?: string[]; baseUrl?: string; type?: string }>;
               tts: Record<string, { baseUrl?: string }>;
               asr: Record<string, { baseUrl?: string }>;
               pdf: Record<string, { baseUrl?: string }>;
@@ -758,6 +759,32 @@ export const useSettingsStore = create<SettingsState>()(
                     serverModels: info.models,
                     serverBaseUrl: info.baseUrl,
                     models: filteredModels,
+                  };
+                } else {
+                  // Server-configured provider not in client config — create entry
+                  const providerType = (info as { type?: string }).type || 'openai';
+                  const serverBaseUrl = info.baseUrl;
+                  const builtInProvider = PROVIDERS[key as ProviderId];
+                  newProvidersConfig[key] = {
+                    name: builtInProvider?.name || (key.charAt(0).toUpperCase() + key.slice(1)),
+                    type: providerType as ProviderType,
+                    defaultBaseUrl: serverBaseUrl,
+                    requiresApiKey: true,
+                    apiKey: '',
+                    baseUrl: serverBaseUrl || '',
+                    icon: builtInProvider?.icon,
+                    isBuiltIn: !!builtInProvider,
+                    isServerConfigured: true,
+                    serverModels: info.models,
+                    serverBaseUrl,
+                    models: (info.models || []).map((m) => {
+                      const builtInModel = builtInProvider?.models.find((bm) => bm.id === m);
+                      return builtInModel || {
+                        id: m,
+                        name: m,
+                        capabilities: { streaming: true, tools: true, vision: false },
+                      };
+                    }),
                   };
                 }
               }

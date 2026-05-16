@@ -951,6 +951,105 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
       },
     ],
   },
+
+  openrouter: {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    type: 'openai',
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    requiresApiKey: true,
+    icon: '/logos/openrouter.svg',
+    models: [
+      {
+        id: 'google/gemini-2.5-flash',
+        name: 'Gemini 2.5 Flash',
+        contextWindow: 1048576,
+        outputWindow: 8192,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'google/gemini-2.5-pro',
+        name: 'Gemini 2.5 Pro',
+        contextWindow: 1048576,
+        outputWindow: 8192,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'openai/gpt-4o',
+        name: 'GPT-4o',
+        contextWindow: 128000,
+        outputWindow: 16384,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'openai/gpt-4o-mini',
+        name: 'GPT-4o Mini',
+        contextWindow: 128000,
+        outputWindow: 16384,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'anthropic/claude-sonnet-4',
+        name: 'Claude Sonnet 4',
+        contextWindow: 200000,
+        outputWindow: 8192,
+        capabilities: { streaming: true, tools: true, vision: true },
+      },
+      {
+        id: 'meta-llama/llama-3.3-70b-instruct',
+        name: 'Llama 3.3 70B',
+        contextWindow: 131072,
+        outputWindow: 4096,
+        capabilities: { streaming: true, tools: true, vision: false },
+      },
+      {
+        id: 'mistralai/mistral-large',
+        name: 'Mistral Large',
+        contextWindow: 128000,
+        outputWindow: 4096,
+        capabilities: { streaming: true, tools: true, vision: false },
+      },
+    ],
+  },
+
+  groq: {
+    id: 'groq',
+    name: 'Groq',
+    type: 'openai',
+    defaultBaseUrl: 'https://api.groq.com/openai/v1',
+    requiresApiKey: true,
+    icon: '/logos/groq.svg',
+    models: [
+      {
+        id: 'llama-3.3-70b-versatile',
+        name: 'Llama 3.3 70B Versatile',
+        contextWindow: 131072,
+        outputWindow: 32768,
+        capabilities: { streaming: true, tools: true, vision: false },
+      },
+      {
+        id: 'llama-3.1-8b-instant',
+        name: 'Llama 3.1 8B Instant',
+        contextWindow: 131072,
+        outputWindow: 8192,
+        capabilities: { streaming: true, tools: true, vision: false },
+      },
+      {
+        id: 'mixtral-8x7b-32768',
+        name: 'Mixtral 8x7B',
+        contextWindow: 32768,
+        outputWindow: 4096,
+        capabilities: { streaming: true, tools: true, vision: false },
+      },
+      {
+        id: 'gemma2-9b-it',
+        name: 'Gemma 2 9B',
+        contextWindow: 8192,
+        outputWindow: 4096,
+        capabilities: { streaming: true, tools: true, vision: false },
+      },
+    ],
+  },
 };
 
 /**

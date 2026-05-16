@@ -16,7 +16,9 @@ export type BuiltInProviderId =
   | 'glm'
   | 'siliconflow'
   | 'doubao'
-  | 'grok';
+  | 'grok'
+  | 'openrouter'
+  | 'groq';
 
 /**
  * Provider ID (built-in or custom)
