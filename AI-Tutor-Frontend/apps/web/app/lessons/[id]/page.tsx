@@ -53,7 +53,6 @@ export default function LessonStudioPage() {
   // ── Studio input state ─────────────────────────────────────────────────────
   const [studioInput, setStudioInput] = useState('');
   const [studioLanguage, setStudioLanguage] = useState('en-US');
-  const [studioWebSearch, setStudioWebSearch] = useState(true);
   const [studioPdfFile, setStudioPdfFile] = useState<File | null>(null);
   const [studioGenerating, setStudioGenerating] = useState(false);
   const [studioError, setStudioError] = useState<string | null>(null);
@@ -267,7 +266,6 @@ export default function LessonStudioPage() {
         language: studioLanguage,
         userNickname: userProfile.nickname || undefined,
         userBio: userProfile.bio || undefined,
-        webSearch: studioWebSearch || undefined,
       };
 
       const sessionState = {
@@ -292,7 +290,7 @@ export default function LessonStudioPage() {
     } finally {
       setStudioGenerating(false);
     }
-  }, [studioGenerating, studioInput, studioLanguage, studioWebSearch, router]);
+  }, [studioGenerating, studioInput, studioLanguage, router]);
 
   // ── Learning style intercept ──────────────────────────────────────────────
   const handleLearningModeChangeRequest = useCallback((mode: LearningMode) => {
@@ -320,7 +318,6 @@ export default function LessonStudioPage() {
       language: stage?.language || studioLanguage,
       userNickname: userProfile.nickname || undefined,
       userBio: userProfile.bio || undefined,
-      webSearch: studioWebSearch || undefined,
     };
 
     const sessionState = {
@@ -339,7 +336,7 @@ export default function LessonStudioPage() {
 
     sessionStorage.setItem('generationSession', JSON.stringify(sessionState));
     router.push('/generation-preview');
-  }, [lsDialog.pendingMode, studioLanguage, studioWebSearch, setLearningMode, router]);
+  }, [lsDialog.pendingMode, studioLanguage, setLearningMode, router]);
 
   const handleLearningStyleCancel = useCallback(() => {
     setLsDialog({ open: false, pendingMode: null });
@@ -506,8 +503,6 @@ export default function LessonStudioPage() {
                       stageName={stageName}
                       language={studioLanguage}
                       onLanguageChange={setStudioLanguage}
-                      webSearch={studioWebSearch}
-                      onWebSearchChange={setStudioWebSearch}
                       pdfFile={studioPdfFile}
                       onPdfFileChange={setStudioPdfFile}
                       onLearningModeChange={handleLearningModeChangeRequest}

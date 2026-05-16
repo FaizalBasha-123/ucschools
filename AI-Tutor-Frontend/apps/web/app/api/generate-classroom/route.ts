@@ -24,7 +24,6 @@ export async function POST(req: NextRequest) {
       requirement: rawBody.requirement,
       pdf_text: rawBody.pdfContent,
       language: rawBody.language,
-      enable_web_search: rawBody.enableWebSearch,
       enable_image_generation: rawBody.enableImageGeneration,
       enable_video_generation: rawBody.enableVideoGeneration,
       enable_tts: rawBody.enableTTS,

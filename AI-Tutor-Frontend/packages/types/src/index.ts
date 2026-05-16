@@ -21,7 +21,6 @@ export type GenerateLessonPayload = {
   language?: "en-US" | "zh-CN";
   model?: string;
   pdf_text?: string;
-  enable_web_search?: boolean;
   enable_image_generation?: boolean;
   enable_video_generation?: boolean;
   enable_tts?: boolean;

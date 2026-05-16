@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ScanLine,
-  Search,
   Globe,
   MousePointer2,
   BarChart3,
@@ -21,17 +20,13 @@ import type { SceneOutline } from '@/lib/types/generation';
 export function StepVisualizer({
   stepId,
   outlines,
-  webSearchSources,
 }: {
   stepId: string;
   outlines?: SceneOutline[] | null;
-  webSearchSources?: Array<{ title: string; url: string }>;
 }) {
   switch (stepId) {
     case 'pdf-analysis':
       return <PdfScanVisualizer />;
-    case 'web-search':
-      return <WebSearchVisualizer sources={webSearchSources || []} />;
     case 'outline':
       return <StreamingOutlineVisualizer outlines={outlines || []} />;
     case 'agent-generation':
@@ -85,159 +80,6 @@ function PdfScanVisualizer() {
 }
 
 // Web Search: Miniature search engine results page with animated query + result rows
-function WebSearchVisualizer({ sources }: { sources: Array<{ title: string; url: string }> }) {
-  const [activeResult, setActiveResult] = useState(0);
-
-  // Cycle through result highlight when we have sources
-  useEffect(() => {
-    if (sources.length === 0) return;
-    const timer = setInterval(() => {
-      setActiveResult((prev) => (prev + 1) % Math.min(sources.length, 4));
-    }, 1400);
-    return () => clearInterval(timer);
-  }, [sources.length]);
-
-  // Placeholder results for skeleton state
-  const skeletonResults = [
-    { titleW: 70, urlW: 45, snippetW: [90, 60] },
-    { titleW: 55, urlW: 50, snippetW: [80, 75] },
-    { titleW: 65, urlW: 40, snippetW: [85, 50] },
-    { titleW: 50, urlW: 55, snippetW: [70, 65] },
-  ];
-
-  const ROW_H = 38;
-
-  return (
-    <div className="size-56 relative flex items-center justify-center">
-      {/* Background glow */}
-      <motion.div
-        className="absolute inset-0 blur-3xl rounded-full bg-teal-500/8"
-        animate={{ scale: [1, 1.15, 1], opacity: [0.3, 0.5, 0.3] }}
-        transition={{ duration: 3.5, repeat: Infinity }}
-      />
-
-      {/* Search results card */}
-      <div className="w-44 bg-white dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700 shadow-xl overflow-hidden relative">
-        {/* Search bar header */}
-        <div className="px-3 py-2 border-b border-neutral-100 dark:border-neutral-700 flex items-center gap-2">
-          <Search className="size-3 text-teal-500 shrink-0" />
-          <div className="flex-1 h-4 bg-neutral-50 dark:bg-neutral-700/50 rounded-full overflow-hidden flex items-center px-2">
-            <motion.div
-              className="h-1.5 bg-teal-500/25 rounded-full"
-              initial={{ width: 0 }}
-              animate={{ width: '70%' }}
-              transition={{ duration: 0.8, ease: 'easeOut' }}
-            />
-          </div>
-        </div>
-
-        {/* Results list */}
-        <div className="p-2 space-y-0.5 relative">
-          {/* Sliding highlight */}
-          {sources.length > 0 && (
-            <motion.div
-              className="absolute left-2 right-2 rounded-lg bg-teal-500/[0.06] dark:bg-teal-400/[0.08]"
-              style={{ height: ROW_H - 6 }}
-              animate={{ y: activeResult * ROW_H }}
-              transition={{ type: 'spring', stiffness: 300, damping: 28 }}
-            />
-          )}
-
-          {sources.length === 0
-            ? // Skeleton: pulsing result placeholders
-              skeletonResults.map((item, i) => (
-                <motion.div
-                  key={i}
-                  className="px-2 py-1.5 space-y-1"
-                  animate={{ opacity: [0.3, 0.7, 0.3] }}
-                  transition={{
-                    duration: 1.4,
-                    repeat: Infinity,
-                    delay: i * 0.15,
-                  }}
-                >
-                  <div
-                    className="h-1.5 bg-teal-200/40 dark:bg-teal-800/30 rounded"
-                    style={{ width: `${item.titleW}%` }}
-                  />
-                  <div
-                    className="h-1 bg-neutral-100 dark:bg-neutral-700 rounded"
-                    style={{ width: `${item.urlW}%` }}
-                  />
-                  <div className="flex gap-1">
-                    {item.snippetW.map((w, j) => (
-                      <div
-                        key={j}
-                        className="h-1 bg-neutral-100 dark:bg-neutral-700 rounded"
-                        style={{ width: `${w * 0.5}%` }}
-                      />
-                    ))}
-                  </div>
-                </motion.div>
-              ))
-            : // Live results
-              sources.slice(0, 4).map((source, i) => {
-                const isActive = i === activeResult;
-                return (
-                  <motion.div
-                    key={source.url}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: i * 0.08, duration: 0.25 }}
-                    className="relative px-2 py-1.5 space-y-0.5"
-                  >
-                    <div
-                      className={cn(
-                        'text-[8px] font-semibold truncate transition-colors duration-300 leading-tight',
-                        isActive
-                          ? 'text-teal-600 dark:text-teal-400'
-                          : 'text-neutral-600 dark:text-neutral-400',
-                      )}
-                    >
-                      {source.title}
-                    </div>
-                    <div className="text-[6px] text-teal-500/50 truncate leading-tight">
-                      {source.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 32)}
-                    </div>
-                    <div className="flex gap-1">
-                      <div className="h-0.5 flex-1 bg-neutral-100 dark:bg-neutral-700 rounded-full" />
-                      <div className="h-0.5 w-1/3 bg-neutral-100 dark:bg-neutral-700 rounded-full" />
-                    </div>
-                  </motion.div>
-                );
-              })}
-        </div>
-
-        {/* Scanning beam */}
-        <motion.div
-          className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/20 dark:via-white/5 to-transparent -skew-x-12 pointer-events-none"
-          initial={{ left: '-150%' }}
-          animate={{ left: '200%' }}
-          transition={{
-            duration: 2,
-            repeat: Infinity,
-            repeatDelay: 2,
-            ease: 'linear',
-          }}
-        />
-      </div>
-
-      {/* Source count badge */}
-      {sources.length > 0 && (
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-          className="absolute -top-2 -right-2 h-6 px-2 rounded-full bg-teal-500 text-white text-[10px] font-bold flex items-center justify-center shadow-lg shadow-teal-500/25 z-20 gap-0.5"
-        >
-          <Globe className="size-2.5" />
-          {sources.length}
-        </motion.div>
-      )}
-    </div>
-  );
-}
-
 // Outline: Streams real outline data as it arrives from SSE
 function StreamingOutlineVisualizer({ outlines }: { outlines: SceneOutline[] }) {
   // Build display lines from outlines

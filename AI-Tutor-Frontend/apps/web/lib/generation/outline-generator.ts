@@ -34,7 +34,6 @@ export async function generateSceneOutlinesFromRequirements(
     imageMapping?: ImageMapping;
     imageGenerationEnabled?: boolean;
     videoGenerationEnabled?: boolean;
-    researchContext?: string;
     teacherContext?: string;
   },
 ): Promise<GenerationResult<SceneOutline[]>> {
@@ -106,10 +105,8 @@ export async function generateSceneOutlinesFromRequirements(
         : 'None',
     availableImages: availableImagesText,
     userProfile: userProfileText,
+    researchContext: requirements.language === 'zh-CN' ? '无' : 'None',
     mediaGenerationPolicy,
-    researchContext:
-      options?.researchContext || (requirements.language === 'zh-CN' ? '无' : 'None'),
-    // Server-side generation populates this via options; client-side populates via formatTeacherPersonaForPrompt
     teacherContext: options?.teacherContext || '',
   });
 

@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    hash::{Hash, Hasher},
-    sync::Mutex,
-};
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -24,6 +20,7 @@ use ai_tutor_domain::{
 };
 use ai_tutor_providers::traits::LlmProvider;
 
+use crate::engine;
 use crate::pipeline::LessonGenerationPipeline;
 
 pub struct LlmGenerationPipeline {
@@ -33,7 +30,6 @@ pub struct LlmGenerationPipeline {
     scene_actions_llm: Option<Box<dyn LlmProvider>>,
     scene_actions_fallback_llm: Option<Box<dyn LlmProvider>>,
     web_search: Option<WebSearchConfig>,
-    research_cache: Mutex<HashMap<u64, Option<String>>>,
 }
 
 struct WebSearchConfig {
@@ -61,11 +57,6 @@ struct TavilySource {
     content: String,
 }
 
-#[derive(Deserialize)]
-struct SearchQueryRewriteEnvelope {
-    query: String,
-}
-
 impl LlmGenerationPipeline {
     pub fn new(llm: Box<dyn LlmProvider>) -> Self {
         Self {
@@ -75,7 +66,6 @@ impl LlmGenerationPipeline {
             scene_actions_llm: None,
             scene_actions_fallback_llm: None,
             web_search: None,
-            research_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -112,6 +102,125 @@ impl LlmGenerationPipeline {
             client: reqwest::Client::new(),
         });
         self
+    }
+
+    /// Call the LLM with a web search tool available. The model decides whether to search.
+    /// Appends a tool prompt to the system prompt so the model knows it can request searches.
+    /// If the model requests a search, executes it and re-invokes the LLM with results.
+    /// Prevents infinite loops by limiting to MAX_SEARCH_TOOL_CALLS rounds.
+    async fn generate_with_search_tool_using(
+        &self,
+        llm: &dyn LlmProvider,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<String> {
+        let Some(_web_search) = &self.web_search else {
+            return self.generate_with_retry_using(llm, system_prompt, user_prompt).await;
+        };
+
+        let tool_prompt = format!(
+            r#"
+WEB SEARCH TOOL AVAILABLE:
+You have access to a web search tool for getting current or detailed information.
+Use it when you need up-to-date facts, domain-specific knowledge, or to verify details.
+
+Good times to use the search tool:
+- Topics requiring current information (recent events, latest data, modern practices)
+- Specialized or technical domains where precise details matter
+- Verifying facts, statistics, or specific figures
+- Filling gaps when the provided context (PDF, requirement) is insufficient
+
+To invoke, respond with EXACTLY:
+{marker}
+{query_marker} <specific search query>
+
+Then continue with your response after receiving results.
+If you have sufficient knowledge, respond directly without invoking the tool.
+You may invoke the tool up to {max_calls} times if you need multiple searches.
+"#,
+            marker = WEB_SEARCH_TOOL_CALL_MARKER,
+            query_marker = WEB_SEARCH_QUERY_MARKER,
+            max_calls = MAX_SEARCH_TOOL_CALLS
+        );
+
+        let augmented_system = format!("{system_prompt}\n{tool_prompt}");
+        let mut current_user = user_prompt.to_string();
+
+        for _round in 0..MAX_SEARCH_TOOL_CALLS {
+            let response = self.generate_with_retry_using(llm, &augmented_system, &current_user).await?;
+
+            if let Some(query) = parse_web_search_tool_call(&response) {
+                let results = match self.execute_tavily_search(&query).await {
+                    Some(ctx) => format!("Web search results for \"{query}\":\n{ctx}"),
+                    None => format!("Web search for \"{query}\" returned no results. Continue with your existing knowledge."),
+                };
+                current_user = format!("{user_prompt}\n\n{results}");
+            } else {
+                return Ok(response);
+            }
+        }
+
+        // Final attempt without the web search prompt to force a response
+        self.generate_with_retry_using(llm, system_prompt, &current_user).await
+    }
+
+    /// Convenience wrapper using the default scene content LLM.
+    async fn generate_with_search_tool(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<String> {
+        self.generate_with_search_tool_using(self.scene_content_llm(), system_prompt, user_prompt)
+            .await
+    }
+
+    /// Execute a Tavily web search and return the formatted context string.
+    /// Called when the LLM requests the web_search tool during generation.
+    async fn execute_tavily_search(&self, query: &str) -> Option<String> {
+        let config = self.web_search.as_ref()?;
+        let normalized: String = query.split_whitespace().collect::<Vec<_>>().join(" ");
+        if normalized.is_empty() {
+            return None;
+        }
+        let truncated: String = normalized.chars().take(TAVILY_SOFT_MAX_QUERY_LENGTH).collect();
+
+        let response = config
+            .client
+            .post(&config.base_url)
+            .header("Authorization", format!("Bearer {}", config.api_key))
+            .json(&serde_json::json!({
+                "query": truncated,
+                "search_depth": "basic",
+                "max_results": config.max_results,
+                "include_answer": "basic",
+            }))
+            .send()
+            .await
+            .map_err(|e| {
+                warn!("Tavily search request failed: {}", e);
+                e
+            })
+            .ok()?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            warn!("Tavily search failed: status={} body={}", status, body);
+            return None;
+        }
+
+        let result: TavilySearchResponse = response.json().await
+            .map_err(|e| {
+                warn!("Failed to parse Tavily response: {}", e);
+                e
+            })
+            .ok()?;
+
+        let context = format_search_results_as_context(&result);
+        if context.is_empty() {
+            return None;
+        }
+        Some(context)
     }
 
     async fn generate_with_retry_using(
@@ -165,140 +274,10 @@ impl LlmGenerationPipeline {
             .unwrap_or_else(|| self.scene_content_llm())
     }
 
-    async fn research_context_for_request(
-        &self,
-        request: &LessonGenerationRequest,
-    ) -> Option<String> {
-        if !request.enable_web_search {
-            return None;
-        }
-
-        let cache_key = request_research_cache_key(request);
-        if let Some(cached) = self
-            .research_cache
-            .lock()
-            .ok()
-            .and_then(|cache| cache.get(&cache_key).cloned())
-        {
-            return cached;
-        }
-
-        let Some(web_search) = &self.web_search else {
-            warn!("Web search enabled but Tavily configuration is missing; continuing without research context");
-            if let Ok(mut cache) = self.research_cache.lock() {
-                cache.insert(cache_key, None);
-            }
-            return None;
-        };
-
-        let context = match self.run_web_search_research(request, web_search).await {
-            Ok(value) => value,
-            Err(err) => {
-                warn!(
-                    "Web search research failed; continuing without research context: {}",
-                    err
-                );
-                None
-            }
-        };
-
-        if let Ok(mut cache) = self.research_cache.lock() {
-            cache.insert(cache_key, context.clone());
-        }
-        context
-    }
-
-    async fn run_web_search_research(
-        &self,
-        request: &LessonGenerationRequest,
-        config: &WebSearchConfig,
-    ) -> Result<Option<String>> {
-        let raw_requirement = normalize_search_requirement(&request.requirements.requirement);
-        if raw_requirement.is_empty() {
-            return Ok(None);
-        }
-
-        let pdf_excerpt =
-            normalize_pdf_excerpt(request.pdf_content.as_ref().map(|pdf| pdf.as_str()));
-        let rewrite_attempted = should_rewrite_search_query(&raw_requirement, &pdf_excerpt);
-        let mut query = raw_requirement.clone();
-
-        if rewrite_attempted {
-            let rewrite_system =
-                "Rewrite lesson requirements into a focused web-search query. Return strict JSON only.";
-            let rewrite_user = format!(
-                "Requirement:\n{}\n\nPDF excerpt (optional):\n{}\n\nReturn JSON with shape {{\"query\":\"...\"}} and keep it concise.",
-                raw_requirement,
-                if pdf_excerpt.is_empty() {
-                    "None"
-                } else {
-                    pdf_excerpt.as_str()
-                }
-            );
-            match self
-                .generate_with_retry_using(self.outlines_llm(), rewrite_system, &rewrite_user)
-                .await
-            {
-                Ok(response) => {
-                    if let Ok(parsed) =
-                        parse_json_with_repair::<SearchQueryRewriteEnvelope>(&response)
-                    {
-                        let rewritten = normalize_search_requirement(&parsed.query);
-                        if !rewritten.is_empty() {
-                            query = rewritten;
-                        }
-                    }
-                }
-                Err(err) => {
-                    warn!(
-                        "Search query rewrite failed; falling back to raw requirement: {}",
-                        err
-                    );
-                }
-            }
-        }
-
-        query = query.chars().take(TAVILY_SOFT_MAX_QUERY_LENGTH).collect();
-        let response = config
-            .client
-            .post(&config.base_url)
-            .header("Authorization", format!("Bearer {}", config.api_key))
-            .json(&serde_json::json!({
-                "query": query,
-                "search_depth": "basic",
-                "max_results": config.max_results,
-                "include_answer": "basic",
-            }))
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(anyhow!("tavily search failed: status={} body={}", status, body));
-        }
-
-        let result: TavilySearchResponse = response.json().await?;
-        let context = format_search_results_as_context(&result);
-        if context.is_empty() {
-            return Ok(None);
-        }
-        Ok(Some(context))
-    }
-
-    #[cfg(test)]
-    fn prime_research_cache_for_tests(&self, request: &LessonGenerationRequest, value: &str) {
-        let key = request_research_cache_key(request);
-        if let Ok(mut cache) = self.research_cache.lock() {
-            cache.insert(key, Some(value.to_string()));
-        }
-    }
-
     async fn generate_interactive_scientific_model(
         &self,
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
-        research_context: &Option<String>,
         pdf_context: Option<&str>,
     ) -> Option<ScientificModel> {
         let config = outline.interactive_config.as_ref()?;
@@ -314,7 +293,6 @@ impl LlmGenerationPipeline {
              Concept overview: {}\n\
              Design idea: {}\n\
              Key points: {}\n\
-             {}\n\
              Return JSON object with shape {{\"core_formulas\":[\"...\"],\"mechanism\":[\"...\"],\"constraints\":[\"...\"],\"forbidden_errors\":[\"...\"],\"variables\":[\"...\"],\"interaction_guidance\":[\"...\"],\"experiment_steps\":[\"...\"],\"observation_prompts\":[\"...\"]}}.\n\
              Focus on scientifically valid relationships, important constraints, common misconceptions to avoid, interactive guidance the HTML simulator must obey, a short experiment sequence, and observation prompts students should answer.",
             request.requirements.requirement,
@@ -323,11 +301,10 @@ impl LlmGenerationPipeline {
             config.concept_name,
             config.concept_overview,
             config.design_idea,
-            outline.key_points.join(" | "),
-            research_context_prompt(research_context)
+            outline.key_points.join(" | ")
         );
 
-        let response = self.generate_with_retry(system, &user).await.ok()?;
+        let response = self.generate_with_search_tool(system, &user).await.ok()?;
         let parsed: ScientificModelEnvelope = parse_json_with_repair(&response).ok()?;
         if parsed.core_formulas.is_empty()
             && parsed.mechanism.is_empty()
@@ -353,13 +330,7 @@ impl LlmGenerationPipeline {
 
         if let Some(revision_notes) = scientific_model_revision_notes(&scientific_model) {
             if let Some(revised) = self
-                .revise_interactive_scientific_model(
-                    request,
-                    outline,
-                    &scientific_model,
-                    &revision_notes,
-                    research_context,
-                )
+                .revise_interactive_scientific_model(request, outline, &scientific_model, &revision_notes)
                 .await
             {
                 scientific_model = merge_scientific_models(scientific_model, revised);
@@ -375,7 +346,6 @@ impl LlmGenerationPipeline {
         outline: &SceneOutline,
         current: &ScientificModel,
         revision_notes: &str,
-        research_context: &Option<String>,
     ) -> Option<ScientificModel> {
         let config = outline.interactive_config.as_ref()?;
         let system =
@@ -388,7 +358,6 @@ impl LlmGenerationPipeline {
              Concept overview: {}\n\
              Design idea: {}\n\
              Key points: {}\n\
-             {}\n\
              Current model summary:\n{}\n\
              Revision requirements:\n{}\n\
              Return JSON object with shape {{\"core_formulas\":[\"...\"],\"mechanism\":[\"...\"],\"constraints\":[\"...\"],\"forbidden_errors\":[\"...\"],\"variables\":[\"...\"],\"interaction_guidance\":[\"...\"],\"experiment_steps\":[\"...\"],\"observation_prompts\":[\"...\"]}}.",
@@ -398,7 +367,6 @@ impl LlmGenerationPipeline {
             config.concept_overview,
             config.design_idea,
             outline.key_points.join(" | "),
-            research_context_prompt(research_context),
             interactive_scientific_constraints(&Some(current.clone())),
             revision_notes,
         );
@@ -421,7 +389,13 @@ impl LlmGenerationPipeline {
 const MAX_LLM_ATTEMPTS: usize = 3;
 const RETRY_BACKOFF_MS: u64 = 150;
 const TAVILY_SOFT_MAX_QUERY_LENGTH: usize = 400;
-const SEARCH_QUERY_REWRITE_EXCERPT_LENGTH: usize = 7000;
+/// Maximum web search tool calls per generation to prevent infinite loops.
+const MAX_SEARCH_TOOL_CALLS: usize = 2;
+
+/// Marker the LLM uses to request a web search tool call.
+const WEB_SEARCH_TOOL_CALL_MARKER: &str = "TOOL_CALL: web_search";
+/// Marker preceding the search query in the tool call.
+const WEB_SEARCH_QUERY_MARKER: &str = "QUERY:";
 
 #[derive(Deserialize)]
 struct OutlineEnvelope {
@@ -662,21 +636,31 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         pdf_context: Option<&str>,
     ) -> Result<Vec<SceneOutline>> {
         let language = language_code(&request.requirements.language);
-        let research_context = self.research_context_for_request(request).await;
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
+
         let system = "You are an instructional designer. Return strict JSON only.";
+
+        let learning_profile = engine::compute_learning_profile(request);
+        let persona_profile = engine::compute_persona_profile(request);
+        let layout = engine::compute_layout_constraints(request);
+
         let user = format!(
     "Create a lesson outline for this requirement.
      Requirement: {}
      {}
      Language: {}
+     
      {}
+     
+     {}
+     
+     {}
+     
      Infer a coherent 15-30 minute classroom flow unless the requirement implies otherwise.
      Return JSON object with shape {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"teaching_objective\":\"...\",\"estimated_duration\":120,\"order\":1,\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz|interactive|pbl\",\"suggested_image_ids\":[\"img_1\"],\"quiz_config\":{{\"question_count\":2,\"difficulty\":\"easy|medium|hard\",\"question_types\":[\"single\",\"multiple\"]}},\"interactive_config\":{{\"concept_name\":\"...\",\"concept_overview\":\"...\",\"design_idea\":\"...\",\"subject\":\"...\"}},\"project_config\":{{\"project_topic\":\"...\",\"project_description\":\"...\",\"target_skills\":[\"...\"],\"issue_count\":3,\"language\":\"{}\"}},\"media_generations\":[{{\"element_id\":\"gen_img_1\",\"media_type\":\"image|video\",\"prompt\":\"...\",\"aspect_ratio\":\"16:9\"}}]}}]}}.
-     Use 3 to 6 scenes with a logical flow, include at least one quiz scene, and use interactive or pbl scenes only when the concept truly benefits from them.
+     {}
      Keep key points concrete and scene-specific rather than generic.
-     
-     VISUAL STYLE DIRECTIVE:
+      VISUAL STYLE DIRECTIVE:
      - Emulate a high-density, modern technical explainer aesthetic.
      - Use structured diagrammatic elements: color-coded blocks, flow arrows, and geometric hierarchies.
      - Prioritize layout-driven storytelling (e.g., 'System Maps', 'Logic Gates', 'Data Pipelines') over decorative art.
@@ -689,17 +673,20 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
     request.requirements.requirement,
     pdf_info,
     language,
-    research_context_prompt(&research_context),
+    learning_profile.to_prompt_block(),
+    persona_profile.to_prompt_block(),
+    layout.to_prompt_block(),
     language,
+    layout.to_scene_cap_prompt(6),
     request.enable_image_generation,
     request.enable_video_generation
 );
 
-
-        let response = self
-            .generate_with_retry_using(self.outlines_llm(), system, &user)
+        let final_response = self
+            .generate_with_search_tool_using(self.outlines_llm(), system, &user)
             .await?;
-        let payload: OutlineEnvelope = parse_json_with_repair(&response)
+
+        let payload: OutlineEnvelope = parse_json_with_repair(&final_response)
             .unwrap_or_else(|_| OutlineEnvelope { outlines: vec![] });
 
         let outlines = payload
@@ -790,12 +777,11 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         content: &SceneContent,
         pdf_context: Option<&str>,
     ) -> Result<Vec<LessonAction>> {
-        let research_context = self.research_context_for_request(request).await;
         let (system, user) =
-            build_scene_action_prompt(request, outline, content, &research_context, pdf_context)?;
+            build_scene_action_prompt(request, outline, content, pdf_context)?;
 
         let primary_response = self
-            .generate_with_retry_using(self.scene_actions_llm(), &system, &user)
+            .generate_with_search_tool_using(self.scene_actions_llm(), &system, &user)
             .await?;
         let mut actions =
             parse_actions_from_generation_response(&primary_response, outline, content);
@@ -840,8 +826,9 @@ impl LlmGenerationPipeline {
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let language = language_code(&request.requirements.language);
-        let research_context = self.research_context_for_request(request).await;
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
+        let persona_profile = engine::compute_persona_profile(request);
+        let layout = engine::compute_layout_constraints(request);
         let system = "You are a slide designer. Return strict JSON only. Slides are visual aids, not lecture scripts. Keep on-slide text concise, scannable, and layout-aware.";
         let user = format!(
             "Create slide elements for a teaching slide.\n\
@@ -851,14 +838,17 @@ impl LlmGenerationPipeline {
              Scene description: {}\n\
              Teaching objective: {}\n\
              Key points: {}\n\
-             {}\n\
              Media placeholders available for this slide: {}.\n\
+             \n\
+             {}\n\
+             \n\
+             {}\n\
+             \n\
              Canvas size: 1000x563.\n\
              Return JSON object with shape {{\"elements\":[{{\"id\":\"optional\",\"kind\":\"text|image|video|shape|line|chart|latex|table\",\"content\":\"optional\",\"src\":\"optional\",\"latex\":\"optional\",\"shape_name\":\"optional\",\"chart_type\":\"optional\",\"left\":0,\"top\":0,\"width\":0,\"height\":0}}]}}.\n\
              Use a strong visual hierarchy: title near the top, and 2-5 concise content elements.\n\
              CRITICAL: Emulate a modern visual explainer (like ByteMonk). Use very modern, structured diagrammatical shapes, vibrant colors, and layout components to explain concepts visually.\n\
              Prefer `shape`, `line`, `chart`, and `table` elements to build visual intuition. Use `image` or `video` media placeholders ONLY if they are provided and strictly necessary.\n\
-             Keep every on-slide text element concise. Prefer phrases or bullet-style summaries instead of spoken paragraphs.\n\
              If a media placeholder exists, create an image or video element using its exact `src` placeholder value.\n\
              Text must stay within the canvas margins, and all dimensions must be positive.\n\
              Language: {}",
@@ -871,12 +861,13 @@ impl LlmGenerationPipeline {
                 .as_deref()
                 .unwrap_or("Build understanding of the scene topic"),
             outline.key_points.join(" | "),
-            research_context_prompt(&research_context),
             media_generation_summary(outline),
+            persona_profile.to_prompt_block(),
+            layout.to_prompt_block(),
             language
         );
 
-        let response = self.generate_with_retry(system, &user).await?;
+        let response = self.generate_with_search_tool(system, &user).await?;
         let payload: SlideContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| SlideContentEnvelope { elements: vec![] });
 
@@ -922,8 +913,8 @@ impl LlmGenerationPipeline {
         outline: &SceneOutline,
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
-        let research_context = self.research_context_for_request(request).await;
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
+        let persona_profile = engine::compute_persona_profile(request);
         let system = "You are a quiz generator. Return strict JSON only.";
         let user = format!(
             "Create quiz questions for this lesson scene.\n\
@@ -931,17 +922,21 @@ impl LlmGenerationPipeline {
              {}\n\
              Scene title: {}\n\
              Key points: {}\n\
+             \n\
              {}\n\
+             \n\
              Return JSON object with shape {{\"questions\":[{{\"question\":\"...\",\"options\":[\"...\"],\"answer\":[\"...\"]}}]}}.\n\
-             Use 2 or 3 multiple-choice questions.",
+             Use 2 or 3 questions.\n\
+             Keep questions concise. No paragraphs in questions or options.\n\
+             Each question must have exactly one correct answer.",
             request.requirements.requirement,
             pdf_info,
             outline.title,
             outline.key_points.join(" | "),
-            research_context_prompt(&research_context)
+            persona_profile.to_prompt_block(),
         );
 
-        let response = self.generate_with_retry(system, &user).await?;
+        let response = self.generate_with_search_tool(system, &user).await?;
         let payload: QuizContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| QuizContentEnvelope { questions: vec![] });
         let questions = if payload.questions.is_empty() {
@@ -984,10 +979,10 @@ impl LlmGenerationPipeline {
         outline: &SceneOutline,
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
-        let research_context = self.research_context_for_request(request).await;
         let scientific_model = self
-            .generate_interactive_scientific_model(request, outline, &research_context, pdf_context)
+            .generate_interactive_scientific_model(request, outline, pdf_context)
             .await;
+        let persona_profile = engine::compute_persona_profile(request);
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let system = "You are a professional educational interactive web developer. Return a complete self-contained HTML document.";
         let user = format!(
@@ -997,8 +992,10 @@ impl LlmGenerationPipeline {
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
-             {}\n\
              Scientific constraints:\n{}\n\
+             \n\
+             {}\n\
+             \n\
              Return a complete HTML5 document directly. The page must be self-contained, safe, responsive, and use plain HTML/CSS/JavaScript only.\n\
              The interaction should guide students from simple observation to active exploration. Include concise instructions, visible controls, and immediate feedback.\n\
              Keep the experience classroom-friendly and in {}.",
@@ -1007,12 +1004,12 @@ impl LlmGenerationPipeline {
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
-            research_context_prompt(&research_context),
             interactive_scientific_constraints(&scientific_model),
+            persona_profile.to_prompt_block(),
             language_code(&request.requirements.language)
         );
 
-        let response = self.generate_with_retry(system, &user).await?;
+        let response = self.generate_with_search_tool(system, &user).await?;
         let payload: InteractiveContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(InteractiveContentEnvelope {
                 html: None,
@@ -1033,7 +1030,6 @@ impl LlmGenerationPipeline {
                     scientific_model.as_ref(),
                     &html,
                     &repair_notes,
-                    &research_context,
                 )
                 .await
             {
@@ -1054,7 +1050,7 @@ impl LlmGenerationPipeline {
         outline: &SceneOutline,
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
-        let research_context = self.research_context_for_request(request).await;
+        let persona_profile = engine::compute_persona_profile(request);
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let system = "You design structured project-based learning plans. Return strict JSON only.";
         let user = format!(
@@ -1064,20 +1060,23 @@ impl LlmGenerationPipeline {
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
-             {}\n\
              Project outline config: {}\n\
+             \n\
+             {}\n\
+             \n\
              Return JSON object with shape {{\"summary\":\"...\",\"title\":\"...\",\"driving_question\":\"...\",\"final_deliverable\":\"...\",\"target_skills\":[\"...\"],\"milestones\":[\"...\"],\"team_roles\":[\"...\"],\"assessment_focus\":[\"...\"],\"starter_prompt\":\"...\"}}.\n\
-             Make it classroom-usable: include a clear driving question, a concrete deliverable, 3-5 milestones, useful team roles, and concise assessment criteria.",
+             Make it classroom-usable: include a clear driving question, a concrete deliverable, 3-5 milestones, useful team roles, and concise assessment criteria.\n\
+             Keep all sections concise. No paragraphs in summaries or milestones.",
             request.requirements.requirement,
             pdf_info,
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
-            research_context_prompt(&research_context),
-            project_outline_summary(outline)
+            project_outline_summary(outline),
+            persona_profile.to_prompt_block(),
         );
 
-        let response = self.generate_with_retry(system, &user).await?;
+        let response = self.generate_with_search_tool(system, &user).await?;
         let mut payload: ProjectContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(ProjectContentEnvelope {
                 summary: fallback_project_summary(outline),
@@ -1094,13 +1093,7 @@ impl LlmGenerationPipeline {
             });
         if let Some(revision_notes) = project_content_revision_notes(&payload) {
             if let Ok(revised) = self
-                .revise_project_content(
-                    request,
-                    outline,
-                    &payload,
-                    &revision_notes,
-                    &research_context,
-                )
+                .revise_project_content(request, outline, &payload, &revision_notes)
                 .await
             {
                 payload = merge_project_content(payload, revised);
@@ -1125,7 +1118,6 @@ impl LlmGenerationPipeline {
                 &project_title,
                 &project_summary,
                 &payload,
-                &research_context,
             )
             .await
             .ok();
@@ -1136,7 +1128,6 @@ impl LlmGenerationPipeline {
                 &project_title,
                 &project_summary,
                 role_plan.as_ref(),
-                &research_context,
             )
             .await
             .ok();
@@ -1183,7 +1174,6 @@ impl LlmGenerationPipeline {
         scientific_model: Option<&ScientificModel>,
         html: &str,
         repair_notes: &str,
-        research_context: &Option<String>,
     ) -> Result<String> {
         let system = "You repair educational interactive HTML. Return a complete self-contained HTML document only.";
         let user = format!(
@@ -1192,7 +1182,6 @@ impl LlmGenerationPipeline {
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
-             {}\n\
              Scientific constraints:\n{}\n\
              Repair requirements:\n{}\n\
              Existing HTML:\n{}\n\
@@ -1201,7 +1190,6 @@ impl LlmGenerationPipeline {
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
-            research_context_prompt(research_context),
             interactive_scientific_constraints(&scientific_model.cloned()),
             repair_notes,
             html
@@ -1222,7 +1210,6 @@ impl LlmGenerationPipeline {
         project_title: &str,
         project_summary: &str,
         payload: &ProjectContentEnvelope,
-        research_context: &Option<String>,
     ) -> Result<ProjectRolePlanEnvelope> {
         let system = "You are a PBL facilitation designer. Return strict JSON only.";
         let user = format!(
@@ -1234,7 +1221,6 @@ impl LlmGenerationPipeline {
              Driving question: {}\n\
              Deliverable: {}\n\
              Milestones: {}\n\
-             {}\n\
              Return JSON object with shape {{\"agent_roles\":[{{\"name\":\"...\",\"responsibility\":\"...\",\"deliverable\":\"optional\"}}],\"success_criteria\":[\"...\"],\"facilitator_notes\":[\"...\"]}}.\n\
              Create 2-4 agent roles, 3-5 success criteria, and 2-4 concise facilitator notes. Keep it concrete and classroom-manageable.",
             request.requirements.requirement,
@@ -1248,9 +1234,8 @@ impl LlmGenerationPipeline {
                 .as_ref()
                 .map(|items| items.join(" | "))
                 .unwrap_or_else(|| "Not specified".to_string()),
-            research_context_prompt(research_context),
         );
-        let response = self.generate_with_retry(system, &user).await?;
+        let response = self.generate_with_search_tool(system, &user).await?;
         parse_json_with_repair(&response)
     }
 
@@ -1260,7 +1245,6 @@ impl LlmGenerationPipeline {
         outline: &SceneOutline,
         payload: &ProjectContentEnvelope,
         revision_notes: &str,
-        research_context: &Option<String>,
     ) -> Result<ProjectContentEnvelope> {
         let system = "You revise classroom PBL plans. Return strict JSON only.";
         let user = format!(
@@ -1269,7 +1253,6 @@ impl LlmGenerationPipeline {
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
-             {}\n\
              Current plan JSON: {}\n\
              Revision requirements:\n{}\n\
              Return JSON object with shape {{\"summary\":\"...\",\"title\":\"...\",\"driving_question\":\"...\",\"final_deliverable\":\"...\",\"target_skills\":[\"...\"],\"milestones\":[\"...\"],\"team_roles\":[\"...\"],\"assessment_focus\":[\"...\"],\"starter_prompt\":\"...\",\"success_criteria\":[\"...\"],\"facilitator_notes\":[\"...\"]}}.",
@@ -1277,7 +1260,6 @@ impl LlmGenerationPipeline {
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
-            research_context_prompt(research_context),
             serde_json::to_string(payload).unwrap_or_default(),
             revision_notes,
         );
@@ -1292,7 +1274,6 @@ impl LlmGenerationPipeline {
         project_title: &str,
         project_summary: &str,
         role_plan: Option<&ProjectRolePlanEnvelope>,
-        research_context: &Option<String>,
     ) -> Result<ProjectIssueBoardEnvelope> {
         let roles_summary = role_plan
             .map(|plan| {
@@ -1319,7 +1300,6 @@ impl LlmGenerationPipeline {
              Project summary: {}\n\
              Key points: {}\n\
              Available roles: {}\n\
-             {}\n\
              Return JSON object with shape {{\"issue_board\":[{{\"title\":\"...\",\"description\":\"...\",\"owner_role\":\"optional\",\"checkpoints\":[\"...\"]}}]}}.\n\
              Create exactly {} issues representing the major work packages students must complete. Each issue should include 2-4 checkpoints.",
             request.requirements.requirement,
@@ -1328,10 +1308,9 @@ impl LlmGenerationPipeline {
             project_summary,
             outline.key_points.join(" | "),
             roles_summary,
-            research_context_prompt(research_context),
             issue_count,
         );
-        let response = self.generate_with_retry(system, &user).await?;
+        let response = self.generate_with_search_tool(system, &user).await?;
         parse_json_with_repair(&response)
     }
 }
@@ -1693,12 +1672,13 @@ fn build_scene_action_prompt(
     request: &LessonGenerationRequest,
     outline: &SceneOutline,
     content: &SceneContent,
-    research_context: &Option<String>,
     pdf_context: Option<&str>,
 ) -> Result<(String, String)> {
     let content_summary = scene_content_summary(content)?;
     let language = language_code(&request.requirements.language);
     let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
+    let persona_profile = engine::compute_persona_profile(request);
+    let persona_block = persona_profile.to_prompt_block();
     let prompt = match outline.scene_type {
         SceneType::Slide => format!(
             "Create ordered classroom actions for this slide scene.\n\
@@ -1707,9 +1687,11 @@ fn build_scene_action_prompt(
              Slide title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
-             {}\n\
              Slide elements: {}\n\
              Scene summary JSON: {}\n\
+             \n\
+             {}\n\
+             \n\
              Return a JSON array directly. Interleave objects shaped as {{\"type\":\"action\",\"name\":\"spotlight|laser|play_video|discussion\",\"params\":{{...}}}} and {{\"type\":\"text\",\"content\":\"...\"}}.\n\
              spotlight or laser must reference valid element ids from the provided element list.\n\
              spotlight should usually come before the speech that explains the focused element.\n\
@@ -1721,9 +1703,9 @@ fn build_scene_action_prompt(
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
-            research_context_prompt(research_context),
             slide_focus_targets(content),
             content_summary,
+            persona_block,
             language
         ),
         SceneType::Quiz => format!(
@@ -1733,8 +1715,10 @@ fn build_scene_action_prompt(
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
-             {}\n\
              Quiz summary JSON: {}\n\
+             \n\
+             {}\n\
+             \n\
              Return a JSON array directly using {{\"type\":\"text\",\"content\":\"...\"}} and an optional final discussion action {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\",\"prompt\":\"optional\"}}}}.\n\
              Use 3-6 items, keep all speech in {}, and only use discussion when the quiz genuinely invites reflection.",
             request.requirements.requirement,
@@ -1742,8 +1726,8 @@ fn build_scene_action_prompt(
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
-            research_context_prompt(research_context),
             content_summary,
+            persona_block,
             language
         ),
         SceneType::Interactive => format!(
@@ -1752,9 +1736,11 @@ fn build_scene_action_prompt(
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
-             {}\n\
              Interactive summary JSON: {}\n\
              Scientific model summary: {}\n\
+             \n\
+             {}\n\
+             \n\
              Return a JSON array directly using only {{\"type\":\"text\",\"content\":\"...\"}} items.\n\
              Generate 3-6 speech segments that guide exploration, encourage interaction, and connect observations back to the concept.\n\
              Sequence them like a live facilitator: orient the learner, give one concrete manipulation step, ask what changed, then help interpret the result.\n\
@@ -1763,9 +1749,9 @@ fn build_scene_action_prompt(
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
-            research_context_prompt(research_context),
             content_summary,
             interactive_scene_summary(content),
+            persona_block,
             language
         ),
         SceneType::Pbl => format!(
@@ -1774,9 +1760,11 @@ fn build_scene_action_prompt(
              Scene title: {}\n\
              Scene description: {}\n\
              Key points: {}\n\
-             {}\n\
              Project summary JSON: {}\n\
              Project facilitation summary: {}\n\
+             \n\
+             {}\n\
+             \n\
              Return a JSON array directly using {{\"type\":\"text\",\"content\":\"...\"}} items and an optional final discussion action.\n\
              Generate 2-5 items that introduce the project goal, deliverable, and first student decision.\n\
              Speak like a project facilitator: clarify the challenge, name one role or work package, and end with the most important first choice students must make.\n\
@@ -1785,9 +1773,9 @@ fn build_scene_action_prompt(
             outline.title,
             outline.description,
             outline.key_points.join(" | "),
-            research_context_prompt(research_context),
             content_summary,
             project_scene_summary(content),
+            persona_block,
             language
         ),
     };
@@ -2686,24 +2674,6 @@ fn should_retry_llm_error(error: &anyhow::Error) -> bool {
         || message.contains("network")
 }
 
-fn normalize_search_requirement(requirement: &str) -> String {
-    requirement.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn normalize_pdf_excerpt(pdf_text: Option<&str>) -> String {
-    let Some(text) = pdf_text else {
-        return String::new();
-    };
-    normalize_search_requirement(text)
-        .chars()
-        .take(SEARCH_QUERY_REWRITE_EXCERPT_LENGTH)
-        .collect()
-}
-
-fn should_rewrite_search_query(normalized_requirement: &str, normalized_pdf_excerpt: &str) -> bool {
-    normalized_requirement.len() > 400 || !normalized_pdf_excerpt.is_empty()
-}
-
 fn format_search_results_as_context(result: &TavilySearchResponse) -> String {
     if result.answer.trim().is_empty() && result.results.is_empty() {
         return String::new();
@@ -2733,25 +2703,26 @@ fn format_search_results_as_context(result: &TavilySearchResponse) -> String {
     lines.join("\n").trim().to_string()
 }
 
-fn research_context_prompt(research_context: &Option<String>) -> String {
-    match research_context {
-        Some(value) if !value.trim().is_empty() => {
-            format!("External research context:\n{}", value.trim())
-        }
-        _ => "External research context: none".to_string(),
-    }
-}
+/// Parse the LLM response to check if the model requested a web search tool call.
+/// Returns the search query if a tool call was requested, None otherwise.
+fn parse_web_search_tool_call(response: &str) -> Option<String> {
+    let trimmed = response.trim();
+    // Check for the tool call marker
+    let marker_pos = trimmed.find(WEB_SEARCH_TOOL_CALL_MARKER)?;
+    let after_marker = &trimmed[marker_pos + WEB_SEARCH_TOOL_CALL_MARKER.len()..];
 
-fn request_research_cache_key(request: &LessonGenerationRequest) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    request.requirements.requirement.hash(&mut hasher);
-    request
-        .pdf_content
-        .as_ref()
-        .map(|pdf| pdf.as_str())
-        .unwrap_or_default()
-        .hash(&mut hasher);
-    hasher.finish()
+    // Find the query marker after the tool call marker
+    let query_pos = after_marker.find(WEB_SEARCH_QUERY_MARKER)?;
+    let after_query = &after_marker[query_pos + WEB_SEARCH_QUERY_MARKER.len()..];
+
+    // Extract query - take everything up to a newline or end of string
+    let query = after_query
+        .lines()
+        .next()
+        .map(|line| line.trim().to_string())
+        .filter(|q| !q.is_empty())?;
+
+    Some(query)
 }
 
 fn strip_code_fences(value: &str) -> String {
@@ -3152,11 +3123,6 @@ mod tests {
         inner: Arc<FlakyLlmProvider>,
     }
 
-    struct PromptCaptureLlmProvider {
-        responses: Mutex<Vec<String>>,
-        prompts: Mutex<Vec<(String, String)>>,
-    }
-
     #[async_trait]
     impl LlmProvider for MockLlmProvider {
         async fn generate_text(&self, _system_prompt: &str, _user_prompt: &str) -> Result<String> {
@@ -3188,21 +3154,6 @@ mod tests {
         }
     }
 
-    #[async_trait]
-    impl LlmProvider for PromptCaptureLlmProvider {
-        async fn generate_text(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
-            self.prompts
-                .lock()
-                .unwrap()
-                .push((system_prompt.to_string(), user_prompt.to_string()));
-            let mut responses = self.responses.lock().unwrap();
-            if responses.is_empty() {
-                return Err(anyhow!("no mock response available"));
-            }
-            Ok(responses.remove(0))
-        }
-    }
-
     fn sample_request() -> LessonGenerationRequest {
         LessonGenerationRequest {
             requirements: UserRequirements {
@@ -3210,7 +3161,6 @@ mod tests {
                 language: Language::EnUs,
                 user_nickname: None,
                 user_bio: None,
-                web_search: Some(false),
             },
             pdf_content: None,
             enable_web_search: false,
@@ -3812,61 +3762,10 @@ mod tests {
             ]),
         };
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
-        let mut request = sample_request();
-        request.enable_web_search = true;
+        let request = sample_request();
 
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn injects_cached_research_context_into_generation_prompts() {
-        let llm = Arc::new(PromptCaptureLlmProvider {
-            responses: Mutex::new(vec![
-                r#"{"outlines":[{"title":"Intro to Fractions","description":"Basic idea","key_points":["What a fraction is"],"scene_type":"slide"}]}"#.to_string(),
-                r#"{"elements":[{"kind":"text","content":"Fractions represent parts of a whole.","left":60.0,"top":80.0,"width":800.0,"height":100.0}]}"#.to_string(),
-                r#"{"actions":[{"action_type":"speech","text":"A fraction shows part of a whole."}]}"#.to_string(),
-            ]),
-            prompts: Mutex::new(Vec::new()),
-        });
-        let pipeline = LlmGenerationPipeline::new(Box::new(SharedPromptCaptureLlmProvider {
-            inner: Arc::clone(&llm),
-        }));
-        let mut request = sample_request();
-        request.enable_web_search = true;
-        pipeline.prime_research_cache_for_tests(
-            &request,
-            "Sources:\n- [Fraction basics](https://example.com): Fractions are parts of a whole.",
-        );
-
-        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
-        let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
-            .await
-            .unwrap();
-        let _actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content, None)
-            .await
-            .unwrap();
-
-        let prompts = llm.prompts.lock().unwrap();
-        assert!(prompts
-            .iter()
-            .all(|(_, user)| user.contains("External research context:")));
-        assert!(prompts
-            .iter()
-            .all(|(_, user)| user.contains("Fraction basics")));
-    }
-
-    struct SharedPromptCaptureLlmProvider {
-        inner: Arc<PromptCaptureLlmProvider>,
-    }
-
-    #[async_trait]
-    impl LlmProvider for SharedPromptCaptureLlmProvider {
-        async fn generate_text(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
-            self.inner.generate_text(system_prompt, user_prompt).await
-        }
     }
 }
 

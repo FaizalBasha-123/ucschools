@@ -16,8 +16,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { useStageStore } from '@/lib/store/stage';
 import { useSettingsStore } from '@/lib/store/settings';
-import { useAgentRegistry } from '@/lib/orchestration/registry/store';
-import { getAvailableProvidersWithVoices } from '@/lib/audio/voice-resolver';
+
 import { useI18n } from '@/lib/hooks/use-i18n';
 import {
   loadImageMapping,
@@ -30,7 +29,7 @@ import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@/lib/constants/genera
 import { nanoid } from 'nanoid';
 import type { Stage } from '@/lib/types/stage';
 import type { SceneOutline, PdfImage, ImageMapping } from '@/lib/types/generation';
-import { AgentRevealModal } from '@/components/agent/agent-reveal-modal';
+
 import { createLogger } from '@/lib/logger';
 import { getSessionToken, hasAuthSessionHint } from '@/lib/auth/session';
 import { type GenerationSessionState, ALL_STEPS, getActiveSteps } from './types';
@@ -51,22 +50,7 @@ function GenerationPreviewContent() {
   const [statusMessage, setStatusMessage] = useState('');
   const [streamingOutlines, setStreamingOutlines] = useState<SceneOutline[] | null>(null);
   const [truncationWarnings, setTruncationWarnings] = useState<string[]>([]);
-  const [webSearchSources, setWebSearchSources] = useState<Array<{ title: string; url: string }>>(
-    [],
-  );
-  const [showAgentReveal, setShowAgentReveal] = useState(false);
-  const [generatedAgents, setGeneratedAgents] = useState<
-    Array<{
-      id: string;
-      name: string;
-      role: string;
-      persona: string;
-      avatar: string;
-      color: string;
-      priority: number;
-    }>
-  >([]);
-  const agentRevealResolveRef = useRef<(() => void) | null>(null);
+
 
   // Compute active steps based on session state
   const activeSteps = getActiveSteps(session);
@@ -275,62 +259,6 @@ function GenerationPreviewContent() {
         activeSteps = getActiveSteps(currentSession);
       }
 
-      // Step: Web Search (if enabled) — graceful degradation on failure
-      const webSearchStepIdx = activeSteps.findIndex((s) => s.id === 'web-search');
-      if (currentSession.requirements.webSearch && webSearchStepIdx >= 0) {
-        setCurrentStepIndex(webSearchStepIdx);
-        setWebSearchSources([]);
-
-        try {
-          const wsSettings = useSettingsStore.getState();
-          const wsApiKey =
-            wsSettings.webSearchProvidersConfig?.[wsSettings.webSearchProviderId]?.apiKey;
-          const res = await fetch('/api/web-search', {
-            method: 'POST',
-            headers: getApiHeaders(),
-            body: JSON.stringify({
-              query: currentSession.requirements.requirement,
-              pdfText: currentSession.pdfText || undefined,
-              apiKey: wsApiKey || undefined,
-            }),
-            signal,
-          });
-
-          if (res.ok) {
-            const searchData = await res.json();
-            const sources = (searchData.sources || []).map(
-              (s: { title: string; url: string }) => ({
-                title: s.title,
-                url: s.url,
-              }),
-            );
-            setWebSearchSources(sources);
-
-            const updatedSessionWithSearch = {
-              ...currentSession,
-              researchContext: searchData.context || '',
-              researchSources: sources,
-            };
-            setSession(updatedSessionWithSearch);
-            sessionStorage.setItem('generationSession', JSON.stringify(updatedSessionWithSearch));
-            currentSession = updatedSessionWithSearch;
-            activeSteps = getActiveSteps(currentSession);
-          } else {
-            // Non-fatal: web search failed (e.g. missing API key, upstream error)
-            // Continue generation without search context.
-            const errData = await res.json().catch(() => ({}));
-            log.warn(
-              `[GenerationPreview] Web search skipped (${res.status}): ${errData.error || 'unknown error'}`,
-            );
-          }
-        } catch (webErr) {
-          // Abort signal = user navigated away — propagate that.
-          if (webErr instanceof DOMException && webErr.name === 'AbortError') throw webErr;
-          // Any other error: skip web search, continue generation.
-          log.warn('[GenerationPreview] Web search failed, continuing without search context:', webErr);
-        }
-      }
-
       // Load imageMapping early (needed for both outline and scene generation)
       let imageMapping: ImageMapping = {};
       if (currentSession.imageStorageIds && currentSession.imageStorageIds.length > 0) {
@@ -344,16 +272,7 @@ function GenerationPreviewContent() {
         imageMapping = currentSession.imageMapping;
       }
 
-      // ── Agent generation (before outlines so persona can influence structure) ──
-      const settings = useSettingsStore.getState();
-      let agents: Array<{
-        id: string;
-        name: string;
-        role: string;
-        persona?: string;
-      }> = [];
-
-      // Create stage client-side (needed for agent generation stageId)
+      // ── Create stage (no agent generation — persona is deterministic) ──
       const stageId = nanoid(10);
       const stage: Stage = {
         id: stageId,
@@ -364,153 +283,9 @@ function GenerationPreviewContent() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
+      const agents: Array<{ id: string; name: string; role: string; persona?: string }> = [];
 
-      if (settings.agentMode === 'auto') {
-        const agentStepIdx = activeSteps.findIndex((s) => s.id === 'agent-generation');
-        if (agentStepIdx >= 0) setCurrentStepIndex(agentStepIdx);
-
-        try {
-          const allAvatars = [
-            {
-              path: '/avatars/teacher.png',
-              desc: 'Male teacher with glasses, holding a book, green background',
-            },
-            {
-              path: '/avatars/teacher-2.png',
-              desc: 'Female teacher with long dark hair, blue traditional outfit, gentle expression',
-            },
-            {
-              path: '/avatars/assist.png',
-              desc: 'Young female assistant with glasses, pink background, friendly smile',
-            },
-            {
-              path: '/avatars/assist-2.png',
-              desc: 'Young female in orange top and purple overalls, cheerful and approachable',
-            },
-            {
-              path: '/avatars/clown.png',
-              desc: 'Energetic girl with glasses pointing up, green shirt, lively and fun',
-            },
-            {
-              path: '/avatars/clown-2.png',
-              desc: 'Playful girl with curly hair doing rock gesture, blue shirt, humorous vibe',
-            },
-            {
-              path: '/avatars/curious.png',
-              desc: 'Surprised boy with glasses, hand on cheek, curious expression',
-            },
-            {
-              path: '/avatars/curious-2.png',
-              desc: 'Boy with backpack holding a book and question mark bubble, inquisitive',
-            },
-            {
-              path: '/avatars/note-taker.png',
-              desc: 'Studious boy with glasses, blue shirt, calm and organized',
-            },
-            {
-              path: '/avatars/note-taker-2.png',
-              desc: 'Active boy with yellow backpack waving, blue outfit, enthusiastic learner',
-            },
-            {
-              path: '/avatars/thinker.png',
-              desc: 'Thoughtful girl with hand on chin, purple background, contemplative',
-            },
-            {
-              path: '/avatars/thinker-2.png',
-              desc: 'Girl reading a book intently, long dark hair, intellectual and focused',
-            },
-          ];
-
-          const getAvailableVoicesForGeneration = () => {
-            const providers = getAvailableProvidersWithVoices(settings.ttsProvidersConfig);
-            return providers.flatMap((p) =>
-              p.voices.map((v) => ({
-                providerId: p.providerId,
-                voiceId: v.id,
-                voiceName: v.name,
-              })),
-            );
-          };
-
-          // No outlines yet — agent generation uses only stage name + description
-          const agentResp = await fetch('/api/generate/agent-profiles', {
-            method: 'POST',
-            headers: getApiHeaders(),
-            body: JSON.stringify({
-              stageInfo: { name: stage.name, description: stage.description },
-              language: currentSession.requirements.language || 'zh-CN',
-              availableAvatars: allAvatars.map((a) => a.path),
-              avatarDescriptions: allAvatars.map((a) => ({ path: a.path, desc: a.desc })),
-              availableVoices: getAvailableVoicesForGeneration(),
-            }),
-            signal,
-          });
-
-          if (!agentResp.ok) throw new Error('Agent generation failed');
-          const agentData = await agentResp.json();
-          if (!agentData.success) throw new Error(agentData.error || 'Agent generation failed');
-
-          // Save to IndexedDB and registry
-          const { saveGeneratedAgents } = await import('@/lib/orchestration/registry/store');
-          const savedIds = await saveGeneratedAgents(stage.id, agentData.agents);
-          settings.setSelectedAgentIds(savedIds);
-          stage.agentIds = savedIds;
-
-          // Show card-reveal modal, continue generation once all cards are revealed
-          setGeneratedAgents(agentData.agents);
-          setShowAgentReveal(true);
-          await new Promise<void>((resolve) => {
-            agentRevealResolveRef.current = resolve;
-          });
-
-          agents = savedIds
-            .map((id) => useAgentRegistry.getState().getAgent(id))
-            .filter(Boolean)
-            .map((a) => ({
-              id: a!.id,
-              name: a!.name,
-              role: a!.role,
-              persona: a!.persona,
-            }));
-        } catch (err: unknown) {
-          log.warn('[Generation] Agent generation failed, falling back to presets:', err);
-          const registry = useAgentRegistry.getState();
-          const fallbackIds = settings.selectedAgentIds.filter((id) => {
-            const a = registry.getAgent(id);
-            return a && !a.isGenerated;
-          });
-          agents = fallbackIds
-            .map((id) => registry.getAgent(id))
-            .filter(Boolean)
-            .map((a) => ({
-              id: a!.id,
-              name: a!.name,
-              role: a!.role,
-              persona: a!.persona,
-            }));
-          stage.agentIds = fallbackIds;
-        }
-      } else {
-        // Preset mode — use selected agents (include persona)
-        // Filter out stale generated agent IDs that may linger in settings
-        const registry = useAgentRegistry.getState();
-        const presetAgentIds = settings.selectedAgentIds.filter((id) => {
-          const a = registry.getAgent(id);
-          return a && !a.isGenerated;
-        });
-        agents = presetAgentIds
-          .map((id) => registry.getAgent(id))
-          .filter(Boolean)
-          .map((a) => ({
-            id: a!.id,
-            name: a!.name,
-            role: a!.role,
-            persona: a!.persona,
-          }));
-        stage.agentIds = presetAgentIds;
-      }
-
-      // ── Generate outlines (with agent personas for teacher context) ──
+      // ── Generate outlines ──
       let outlines = currentSession.sceneOutlines;
 
       const outlineStepIdx = activeSteps.findIndex((s) => s.id === 'outline');
@@ -530,7 +305,6 @@ function GenerationPreviewContent() {
               pdfText: currentSession.pdfText,
               pdfImages: currentSession.pdfImages,
               imageMapping,
-              researchContext: currentSession.researchContext,
               agents,
               pageSummaries: currentSession.pageSummaries,
             }),
@@ -704,8 +478,9 @@ function GenerationPreviewContent() {
       }
 
       // Generate TTS for first scene (part of actions step — blocking)
-      if (settings.ttsEnabled && settings.ttsProviderId !== 'browser-native-tts') {
-        const ttsProviderConfig = settings.ttsProvidersConfig?.[settings.ttsProviderId];
+      const ttsSettings = useSettingsStore.getState();
+      if (ttsSettings.ttsEnabled && ttsSettings.ttsProviderId !== 'browser-native-tts') {
+        const ttsProviderConfig = ttsSettings.ttsProvidersConfig?.[ttsSettings.ttsProviderId];
         const speechActions = (data.scene.actions || []).filter(
           (a: { type: string; text?: string }) => a.type === 'speech' && a.text,
         );
@@ -721,10 +496,10 @@ function GenerationPreviewContent() {
               body: JSON.stringify({
                 text: action.text,
                 audioId,
-                ttsProviderId: settings.ttsProviderId,
+                ttsProviderId: ttsSettings.ttsProviderId,
                 ttsModelId: ttsProviderConfig?.modelId,
-                ttsVoice: settings.ttsVoice,
-                ttsSpeed: settings.ttsSpeed,
+                ttsVoice: ttsSettings.ttsVoice,
+                ttsSpeed: ttsSettings.ttsSpeed,
                 ttsApiKey: ttsProviderConfig?.apiKey || undefined,
                 ttsBaseUrl: ttsProviderConfig?.baseUrl || undefined,
               }),
@@ -980,11 +755,6 @@ function GenerationPreviewContent() {
                         {streamingOutlines.length} outline{streamingOutlines.length > 1 ? 's' : ''} generated
                       </p>
                     )}
-                    {step.id === 'web-search' && isCompleted && webSearchSources.length > 0 && (
-                      <p className="text-xs text-emerald-500 mt-2 font-mono">
-                        {webSearchSources.length} source{webSearchSources.length > 1 ? 's' : ''} indexed
-                      </p>
-                    )}
                     {step.id === 'pdf-analysis' && isCompleted && (
                       <p className="text-xs text-emerald-500 mt-2 font-mono">
                         Document parsed successfully
@@ -1021,32 +791,9 @@ function GenerationPreviewContent() {
             </div>
           )}
 
-          {/* View agents button */}
-          {!error && generatedAgents.length > 0 && !showAgentReveal && (
-            <div className="mt-6 flex justify-center">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAgentReveal(true)}
-                className="border-neutral-700 text-neutral-300 hover:bg-neutral-800 hover:text-white"
-              >
-                View Generated Agents
-              </Button>
-            </div>
-          )}
         </div>
       </main>
 
-      {/* Agent Reveal Modal */}
-      <AgentRevealModal
-        agents={generatedAgents}
-        open={showAgentReveal}
-        onClose={() => setShowAgentReveal(false)}
-        onAllRevealed={() => {
-          agentRevealResolveRef.current?.();
-          agentRevealResolveRef.current = null;
-        }}
-      />
     </div>
   );
 }

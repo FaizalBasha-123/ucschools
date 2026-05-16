@@ -262,18 +262,6 @@ where
             }
         }
 
-        if state.request.enable_web_search {
-            update_job(
-                &self.jobs,
-                &mut state.job,
-                LessonGenerationJobStatus::Running,
-                LessonGenerationStep::Researching,
-                10,
-                "Researching topic context",
-            )
-            .await?;
-        }
-
         update_job(
             &self.jobs,
             &mut state.job,
@@ -1331,7 +1319,6 @@ mod tests {
                 language: Language::EnUs,
                 user_nickname: None,
                 user_bio: None,
-                web_search: Some(false),
             },
             pdf_content: None,
             enable_web_search: false,

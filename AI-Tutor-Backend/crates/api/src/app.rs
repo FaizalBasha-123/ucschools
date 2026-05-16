@@ -4092,7 +4092,7 @@ impl LiveLessonAppService {
             None,
         )?;
         let pipeline_config = resolved_pipeline.model_config.clone();
-        let mut pipeline = LlmGenerationPipeline::new(
+        let pipeline = LlmGenerationPipeline::new(
             self.wrap_llm_provider(
                 self.provider_factory.build(resolved_pipeline.model_config)?,
                 &pipeline_config,
@@ -4101,19 +4101,6 @@ impl LiveLessonAppService {
             ),
         )
         .with_phase_llms(outlines_llm, scene_content_llm, scene_actions_llm);
-        if request.enable_web_search {
-            if let Ok(api_key) = std::env::var("AI_TUTOR_TAVILY_API_KEY") {
-                let base_url = std::env::var("AI_TUTOR_TAVILY_BASE_URL")
-                    .ok()
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| "https://api.tavily.com/search".to_string());
-                let max_results = std::env::var("AI_TUTOR_WEB_SEARCH_MAX_RESULTS")
-                    .ok()
-                    .and_then(|value| value.parse::<usize>().ok())
-                    .unwrap_or(5);
-                pipeline = pipeline.with_tavily_web_search(api_key, base_url, max_results);
-            }
-        }
         let pipeline = Arc::new(pipeline);
         let mut orchestrator = LessonGenerationOrchestrator::new(
             pipeline,
@@ -9063,7 +9050,6 @@ fn build_generation_request(payload: GenerateLessonPayload) -> Result<LessonGene
             },
             user_nickname: payload.user_nickname,
             user_bio: payload.user_bio,
-            web_search: payload.enable_web_search,
         },
         pdf_content: payload.pdf_text,
         enable_web_search: payload.enable_web_search.unwrap_or(false),
@@ -12852,7 +12838,6 @@ mod tests {
                 language: Language::EnUs,
                 user_nickname: None,
                 user_bio: None,
-                web_search: Some(false),
             },
             pdf_content: None,
             enable_web_search: false,
@@ -14659,7 +14644,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -14743,7 +14727,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -14931,7 +14914,6 @@ mod tests {
             language: Some("english".to_string()),
             model: Some("openai:gpt-4o-mini".to_string()),
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -15775,7 +15757,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -15832,7 +15813,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -17269,7 +17249,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: Some("openai:gpt-4o-mini".to_string()),
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(true),
             enable_video_generation: Some(false),
             enable_tts: Some(true),
@@ -17379,7 +17358,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: Some("openai:gpt-4o-mini".to_string()),
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(true),
             enable_video_generation: Some(false),
             enable_tts: Some(true),
@@ -17475,7 +17453,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -17557,7 +17534,6 @@ mod tests {
                 language: Language::EnUs,
                 user_nickname: None,
                 user_bio: None,
-                web_search: Some(false),
             },
             pdf_content: None,
             enable_web_search: false,
@@ -17629,7 +17605,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -17693,7 +17668,6 @@ mod tests {
             language: Some("en-US".to_string()),
             model: Some("openai:gpt-4o-mini".to_string()),
             pdf_text: None,
-            enable_web_search: Some(false),
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),

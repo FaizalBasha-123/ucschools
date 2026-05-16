@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { Globe, Paperclip, FileText, X, Globe2 } from 'lucide-react';
+import { Paperclip, FileText, X } from 'lucide-react';
 import { supportedLocales } from '@/lib/i18n';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -17,8 +17,6 @@ import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
 import { PDF_PROVIDERS } from '@/lib/pdf/constants';
 import type { PDFProviderId } from '@/lib/pdf/types';
-import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search/constants';
-import type { WebSearchProviderId } from '@/lib/web-search/types';
 import type { SettingsSection } from '@/lib/types/settings';
 import { MediaPopover } from '@/components/generation/media-popover';
 import { ModeSelector } from '@/components/generation/mode-selector';
@@ -32,8 +30,6 @@ const MAX_PDF_SIZE_BYTES = MAX_PDF_SIZE_MB * 1024 * 1024;
 export interface GenerationToolbarProps {
   language: string;
   onLanguageChange: (lang: string) => void;
-  webSearch: boolean;
-  onWebSearchChange: (v: boolean) => void;
   onSettingsOpen: (section?: SettingsSection) => void;
   // PDF
   pdfFile: File | null;
@@ -45,8 +41,6 @@ export interface GenerationToolbarProps {
 export function GenerationToolbar({
   language,
   onLanguageChange,
-  webSearch,
-  onWebSearchChange,
   onSettingsOpen,
   pdfFile,
   onPdfFileChange,
@@ -58,16 +52,8 @@ export function GenerationToolbar({
   const pdfProviderId = useSettingsStore((s) => s.pdfProviderId);
   const pdfProvidersConfig = useSettingsStore((s) => s.pdfProvidersConfig);
   const setPDFProvider = useSettingsStore((s) => s.setPDFProvider);
-  const webSearchProviderId = useSettingsStore((s) => s.webSearchProviderId);
-  const webSearchProvidersConfig = useSettingsStore((s) => s.webSearchProvidersConfig);
-  const setWebSearchProvider = useSettingsStore((s) => s.setWebSearchProvider);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
-
-  // Check if the selected web search provider has a valid config (API key or server-configured)
-  const webSearchProvider = WEB_SEARCH_PROVIDERS[webSearchProviderId];
-  const webSearchConfig = webSearchProvidersConfig[webSearchProviderId];
-  const webSearchAvailable = true; // Always available, backend handles API keys now
 
   // PDF handler
   const handleFileSelect = (file: File) => {

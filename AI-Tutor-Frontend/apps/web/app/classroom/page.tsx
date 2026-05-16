@@ -41,7 +41,6 @@ const PENDING_LESSON_KEY = 'pendingLesson';
 interface PendingLesson {
   requirement: string;
   language: string;
-  webSearch: boolean;
 }
 
 function readAndClearPendingLesson(): PendingLesson | null {
@@ -72,7 +71,6 @@ export default function ClassroomDashboard() {
   // ── Generator state ──
   const [requirement, setRequirement] = useState('');
   const [language, setLanguage] = useState<string>(locale);
-  const [webSearch, setWebSearch] = useState(true);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -90,7 +88,6 @@ export default function ClassroomDashboard() {
     if (pending) {
       if (pending.requirement) setRequirement(pending.requirement);
       if (pending.language) setLanguage(pending.language);
-      setWebSearch(pending.webSearch ?? true);
       // Auto-focus so user sees the pre-filled text immediately
       setTimeout(() => textareaRef.current?.focus(), 150);
     }
@@ -171,7 +168,6 @@ export default function ClassroomDashboard() {
         language,
         userNickname: userProfile.nickname || undefined,
         userBio: userProfile.bio || undefined,
-        webSearch: webSearch || undefined,
       };
 
       let pdfStorageKey: string | undefined;
@@ -220,7 +216,7 @@ export default function ClassroomDashboard() {
     } finally {
       setIsGenerating(false);
     }
-  }, [isGenerating, requirement, language, webSearch, pdfFile, router]);
+  }, [isGenerating, requirement, language, pdfFile, router]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -405,8 +401,6 @@ export default function ClassroomDashboard() {
                     <GenerationToolbar
                       language={language}
                       onLanguageChange={(lang) => setLanguage(lang)}
-                      webSearch={webSearch}
-                      onWebSearchChange={setWebSearch}
                       onSettingsOpen={() => {}}
                       pdfFile={pdfFile}
                       onPdfFileChange={setPdfFile}
