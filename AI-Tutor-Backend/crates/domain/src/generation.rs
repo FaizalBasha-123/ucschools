@@ -8,7 +8,6 @@ pub struct UserRequirements {
     pub language: Language,
     pub user_nickname: Option<String>,
     pub user_bio: Option<String>,
-    pub web_search: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

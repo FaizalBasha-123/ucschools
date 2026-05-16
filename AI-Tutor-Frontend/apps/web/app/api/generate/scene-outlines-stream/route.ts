@@ -19,9 +19,7 @@ import {
   formatImagePlaceholder,
   buildVisionUserContent,
   uniquifyMediaElementIds,
-  formatTeacherPersonaForPrompt,
 } from '@/lib/generation/generation-pipeline';
-import type { AgentInfo } from '@/lib/generation/generation-pipeline';
 import { MAX_PDF_CONTENT_CHARS, MAX_VISION_IMAGES } from '@/lib/constants/generation';
 import { SemanticRouter } from '@/lib/pdf/semantic-router';
 import type { PageSummary } from '@/lib/pdf/plugin';
@@ -112,13 +110,11 @@ export async function POST(req: NextRequest) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Requirements are required');
     }
 
-    const { requirements, pdfText, pdfImages, imageMapping, researchContext, agents, pageSummaries } = body as {
+    const { requirements, pdfText, pdfImages, imageMapping, pageSummaries } = body as {
       requirements: UserRequirements;
       pdfText?: string;
       pdfImages?: PdfImage[];
       imageMapping?: ImageMapping;
-      researchContext?: string;
-      agents?: AgentInfo[];
       pageSummaries?: PageSummary[];
     };
     requirementSnippet = requirements?.requirement?.substring(0, 60);
@@ -187,8 +183,24 @@ export async function POST(req: NextRequest) {
       semanticContext = router.formatContext(pageSummaries, relevant);
     }
 
-    // Build teacher context from agents (if available)
-    const teacherContext = formatTeacherPersonaForPrompt(agents);
+    // Build deterministic instructional persona from learning/quality mode headers
+    const qualityMode = req.headers.get('x-quality-mode') || 'standard';
+    const learningMode = req.headers.get('x-learning-mode') || 'explain';
+    const personaMap: Record<string, { tone: string; verbosity: string; style: string }> = {
+      explain: { tone: 'friendly_stepwise', verbosity: 'detailed', style: 'step_by_step_with_real_world_examples' },
+      revision: { tone: 'supportive_summarizer', verbosity: 'minimal', style: 'compressed_key_points_connections' },
+      exam: { tone: 'formal_precise', verbosity: 'concise', style: 'precise_definitions_common_mistakes' },
+      placement_prep: { tone: 'interviewer_coach', verbosity: 'concise', style: 'socratic_questioning_diagnostic' },
+    };
+    const persona = personaMap[learningMode] || personaMap.explain;
+    const sceneCap = qualityMode === 'basic' ? 5 : qualityMode === 'premium' ? 15 : 10;
+    const teacherContext = `
+INSTRUCTIONAL CONFIGURATION:
+- Tone: ${persona.tone}
+- Verbosity: ${persona.verbosity}
+- Explanation style: ${persona.style}
+- Max scenes: ${sceneCap}
+- No teacher name or identity on slides. Scene titles and keyPoints must be neutral and topic-focused.`;
 
     const prompts = buildPrompt(PROMPT_IDS.REQUIREMENTS_TO_OUTLINES, {
       requirement: requirements.requirement,
@@ -199,7 +211,7 @@ export async function POST(req: NextRequest) {
           ? '无'
           : 'None',
       availableImages: availableImagesText,
-      researchContext: researchContext || (requirements.language === 'zh-CN' ? '无' : 'None'),
+      researchContext: requirements.language === 'zh-CN' ? '无' : 'None',
       mediaGenerationPolicy,
       teacherContext,
       semanticContext,

@@ -17,10 +17,8 @@ import { formatTeacherPersonaForPrompt } from '@/lib/generation/prompt-formatter
 import { getDefaultAgents } from '@/lib/orchestration/registry/store';
 import { createLogger } from '@/lib/logger';
 import { parseModelString } from '@/lib/ai/providers';
-import { resolveApiKey, resolveWebSearchApiKey } from '@/lib/server/provider-config';
+import { resolveApiKey } from '@/lib/server/provider-config';
 import { resolveModel } from '@/lib/server/resolve-model';
-import { buildSearchQuery } from '@/lib/server/search-query-builder';
-import { searchWithTavily, formatSearchResultsAsContext } from '@/lib/web-search/tavily';
 import { persistClassroom } from '@/lib/server/classroom-storage';
 import {
   generateMediaForClassroom,
@@ -37,7 +35,6 @@ export interface GenerateClassroomInput {
   requirement: string;
   pdfContent?: { text: string; images: string[] };
   language?: string;
-  enableWebSearch?: boolean;
   enableImageGeneration?: boolean;
   enableVideoGeneration?: boolean;
   enableTTS?: boolean;
@@ -206,21 +203,6 @@ export async function generateClassroom(
     return result.text;
   };
 
-  const searchQueryAiCall: AICallFn = async (systemPrompt, userPrompt, _images) => {
-    const result = await callLLM(
-      {
-        model: languageModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        maxOutputTokens: 256,
-      },
-      'web-search-query-rewrite',
-    );
-    return result.text;
-  };
-
   const lang = normalizeLanguage(input.language);
   const requirements: UserRequirements = {
     requirement,
@@ -246,39 +228,6 @@ export async function generateClassroom(
   const teacherContext = formatTeacherPersonaForPrompt(agents);
 
   await options.onProgress?.({
-    step: 'researching',
-    progress: 10,
-    message: 'Researching topic',
-    scenesGenerated: 0,
-  });
-
-  // Web search (optional, graceful degradation)
-  let researchContext: string | undefined;
-  if (input.enableWebSearch) {
-    try {
-      const searchQuery = await buildSearchQuery(requirement, pdfText, searchQueryAiCall);
-
-      log.info('Running web search for classroom generation', {
-        hasPdfContext: searchQuery.hasPdfContext,
-        rawRequirementLength: searchQuery.rawRequirementLength,
-        rewriteAttempted: searchQuery.rewriteAttempted,
-        finalQueryLength: searchQuery.finalQueryLength,
-      });
-
-      const searchResult = await searchWithTavily({
-        query: searchQuery.query,
-        pdfText: pdfText,
-      });
-      researchContext = formatSearchResultsAsContext(searchResult);
-      if (researchContext) {
-        log.info(`Web search returned ${searchResult.sources.length} sources`);
-      }
-    } catch (e) {
-      log.warn('Web search failed, continuing without search context:', e);
-    }
-  }
-
-  await options.onProgress?.({
     step: 'generating_outlines',
     progress: 15,
     message: 'Generating scene outlines',
@@ -294,7 +243,6 @@ export async function generateClassroom(
     {
       imageGenerationEnabled: input.enableImageGeneration,
       videoGenerationEnabled: input.enableVideoGeneration,
-      researchContext,
       teacherContext,
     },
   );

@@ -15,8 +15,7 @@ import type { PDFProviderId } from '@/lib/pdf/types';
 import type { ImageProviderId, VideoProviderId } from '@/lib/media/types';
 import { IMAGE_PROVIDERS } from '@/lib/media/image-providers';
 import { VIDEO_PROVIDERS } from '@/lib/media/video-providers';
-import { WEB_SEARCH_PROVIDERS } from '@/lib/web-search/constants';
-import type { WebSearchProviderId } from '@/lib/web-search/types';
+
 import { createLogger } from '@/lib/logger';
 import { validateProvider, validateModel } from '@/lib/store/settings-validation';
 
@@ -130,17 +129,7 @@ export interface SettingsState {
   videoGenerationEnabled: boolean;
 
   // Web Search settings
-  webSearchProviderId: WebSearchProviderId;
-  webSearchProvidersConfig: Record<
-    WebSearchProviderId,
-    {
-      apiKey: string;
-      baseUrl: string;
-      enabled: boolean;
-      isServerConfigured?: boolean;
-      serverBaseUrl?: string;
-    }
-  >;
+
 
   // Global TTS/ASR toggles
   ttsEnabled: boolean;
@@ -256,12 +245,6 @@ export interface SettingsState {
   setVideoGenerationEnabled: (enabled: boolean) => void;
 
   // Web Search actions
-  setWebSearchProvider: (providerId: WebSearchProviderId) => void;
-  setWebSearchProviderConfig: (
-    providerId: WebSearchProviderId,
-    config: Partial<{ apiKey: string; baseUrl: string; enabled: boolean }>,
-  ) => void;
-
   // Server provider actions
   fetchServerProviders: () => Promise<void>;
 }
@@ -348,13 +331,7 @@ const getDefaultVideoConfig = () => ({
   } as Record<VideoProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
-// Initialize default Web Search config
-const getDefaultWebSearchConfig = () => ({
-  webSearchProviderId: 'tavily' as WebSearchProviderId,
-  webSearchProvidersConfig: {
-    tavily: { apiKey: '', baseUrl: '', enabled: true },
-  } as Record<WebSearchProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
-});
+
 
 /**
  * Check whether a provider ID exists in the given provider registry.
@@ -373,14 +350,8 @@ function ensureValidProviderSelections(state: Partial<SettingsState>): void {
   const defaultPdfConfig = getDefaultPDFConfig();
   const defaultImageConfig = getDefaultImageConfig();
   const defaultVideoConfig = getDefaultVideoConfig();
-  const defaultWebSearchConfig = getDefaultWebSearchConfig();
-
   if (!hasProviderId(PDF_PROVIDERS, state.pdfProviderId)) {
     state.pdfProviderId = defaultPdfConfig.pdfProviderId;
-  }
-
-  if (!hasProviderId(WEB_SEARCH_PROVIDERS, state.webSearchProviderId)) {
-    state.webSearchProviderId = defaultWebSearchConfig.webSearchProviderId;
   }
 
   if (!hasProviderId(IMAGE_PROVIDERS, state.imageProviderId)) {
@@ -406,42 +377,6 @@ function ensureValidProviderSelections(state: Partial<SettingsState>): void {
   state.asrEnabled = true;
 }
 
-/**
- * Ensure providersConfig includes all built-in providers and their latest models.
- * Called on every rehydrate (not just version migrations) so new providers
- * added in code are always picked up without clearing cache.
- */
-function ensureBuiltInProviders(state: Partial<SettingsState>): void {
-  if (!state.providersConfig) return;
-  const defaultConfig = getDefaultProvidersConfig();
-  Object.keys(PROVIDERS).forEach((pid) => {
-    const providerId = pid as ProviderId;
-    if (!state.providersConfig![providerId]) {
-      // New provider: add with defaults
-      state.providersConfig![providerId] = defaultConfig[providerId];
-    } else {
-      // Existing provider: merge new models & metadata
-      const provider = PROVIDERS[providerId];
-      const existing = state.providersConfig![providerId];
-
-      const existingModelIds = new Set(existing.models?.map((m) => m.id) || []);
-      const newModels = provider.models.filter((m) => !existingModelIds.has(m.id));
-      const mergedModels =
-        newModels.length > 0 ? [...newModels, ...(existing.models || [])] : existing.models;
-
-      state.providersConfig![providerId] = {
-        ...existing,
-        models: mergedModels,
-        name: existing.name || provider.name,
-        type: existing.type || provider.type,
-        defaultBaseUrl: existing.defaultBaseUrl || provider.defaultBaseUrl,
-        icon: provider.icon || existing.icon,
-        requiresApiKey: existing.requiresApiKey ?? provider.requiresApiKey,
-        isBuiltIn: existing.isBuiltIn ?? true,
-      };
-    }
-  });
-}
 
 /**
  * Ensure imageProvidersConfig includes all built-in image providers.
@@ -474,20 +409,36 @@ function ensureBuiltInVideoProviders(state: Partial<SettingsState>): void {
 }
 
 /**
- * Ensure webSearchProvidersConfig includes all built-in web search providers.
- * Called on every rehydrate so provider migrations do not leave missing config entries behind.
+ * Ensure providersConfig includes all built-in providers and their latest models.
+ * Called on every rehydrate so newly added providers appear automatically.
  */
-function ensureBuiltInWebSearchProviders(state: Partial<SettingsState>): void {
-  if (!state.webSearchProvidersConfig) return;
-  const defaultConfig = getDefaultWebSearchConfig().webSearchProvidersConfig;
-  Object.keys(WEB_SEARCH_PROVIDERS).forEach((pid) => {
-    const providerId = pid as WebSearchProviderId;
-    if (!state.webSearchProvidersConfig![providerId]) {
-      state.webSearchProvidersConfig![providerId] = defaultConfig[providerId];
+function ensureBuiltInProviders(state: Partial<SettingsState>): void {
+  if (!state.providersConfig) return;
+  const defaultConfig = getDefaultProvidersConfig();
+  Object.keys(PROVIDERS).forEach((pid) => {
+    const providerId = pid as ProviderId;
+    if (!state.providersConfig![providerId]) {
+      state.providersConfig![providerId] = defaultConfig[providerId];
+    } else {
+      const provider = PROVIDERS[providerId];
+      const existing = state.providersConfig![providerId];
+      const existingModelIds = new Set(existing.models?.map((m) => m.id) || []);
+      const newModels = provider.models.filter((m) => !existingModelIds.has(m.id));
+      const mergedModels =
+        newModels.length > 0 ? [...newModels, ...(existing.models || [])] : existing.models;
+      state.providersConfig![providerId] = {
+        ...existing,
+        models: mergedModels,
+        name: existing.name || provider.name,
+        type: existing.type || provider.type,
+        defaultBaseUrl: existing.defaultBaseUrl || provider.defaultBaseUrl,
+        icon: provider.icon || existing.icon,
+        requiresApiKey: existing.requiresApiKey ?? provider.requiresApiKey,
+        isBuiltIn: existing.isBuiltIn ?? true,
+      };
     }
   });
 }
-
 
 function sanitizeSelectedAgentIds(ids: string[] | undefined): string[] {
   if (!ids || ids.length === 0) return ['default-1'];
@@ -573,7 +524,6 @@ export const useSettingsStore = create<SettingsState>()(
       const defaultPDFConfig = getDefaultPDFConfig();
       const defaultImageConfig = getDefaultImageConfig();
       const defaultVideoConfig = getDefaultVideoConfig();
-      const defaultWebSearchConfig = getDefaultWebSearchConfig();
 
       return {
         // Initial state (use migrated data if available)
@@ -621,8 +571,7 @@ export const useSettingsStore = create<SettingsState>()(
 
         autoConfigApplied: false,
 
-        // Web Search settings (use defaults)
-        ...defaultWebSearchConfig,
+
 
         // Actions
         setQualityMode: (mode) => set({ qualityMode: mode }),
@@ -765,19 +714,6 @@ export const useSettingsStore = create<SettingsState>()(
         setTTSEnabled: (enabled) => set({ ttsEnabled: enabled }),
         setASREnabled: (enabled) => set({ asrEnabled: enabled }),
 
-        // Web Search actions
-        setWebSearchProvider: (providerId) => set({ webSearchProviderId: providerId }),
-        setWebSearchProviderConfig: (providerId, config) =>
-          set((state) => ({
-            webSearchProvidersConfig: {
-              ...state.webSearchProvidersConfig,
-              [providerId]: {
-                ...state.webSearchProvidersConfig[providerId],
-                ...config,
-              },
-            },
-          })),
-
         // Fetch server-configured providers and merge into local state
         fetchServerProviders: async () => {
           try {
@@ -790,7 +726,6 @@ export const useSettingsStore = create<SettingsState>()(
               pdf: Record<string, { baseUrl?: string }>;
               image: Record<string, { baseUrl?: string }>;
               video: Record<string, { baseUrl?: string }>;
-              webSearch: Record<string, { baseUrl?: string }>;
             };
 
             set((state) => {
@@ -946,28 +881,6 @@ export const useSettingsStore = create<SettingsState>()(
                 }
               }
 
-              // Merge Web Search config — reset all first, then mark server-configured
-              const newWebSearchConfig = { ...state.webSearchProvidersConfig };
-              for (const key of Object.keys(newWebSearchConfig) as WebSearchProviderId[]) {
-                newWebSearchConfig[key] = {
-                  ...newWebSearchConfig[key],
-                  isServerConfigured: false,
-                  serverBaseUrl: undefined,
-                };
-              }
-              if (data.webSearch) {
-                for (const [pid, info] of Object.entries(data.webSearch)) {
-                  const key = pid as WebSearchProviderId;
-                  if (newWebSearchConfig[key]) {
-                    newWebSearchConfig[key] = {
-                      ...newWebSearchConfig[key],
-                      isServerConfigured: true,
-                      serverBaseUrl: info.baseUrl,
-                    };
-                  }
-                }
-              }
-
               const validLLMProvider = validateProvider(
                 state.providerId,
                 newProvidersConfig,
@@ -1109,7 +1022,6 @@ export const useSettingsStore = create<SettingsState>()(
                 pdfProvidersConfig: newPDFConfig,
                 imageProvidersConfig: newImageConfig,
                 videoProvidersConfig: newVideoConfig,
-                webSearchProvidersConfig: newWebSearchConfig,
                 autoConfigApplied: true,
                 // Validated selections
                 ...(validLLMProvider !== state.providerId && {
@@ -1193,8 +1105,6 @@ export const useSettingsStore = create<SettingsState>()(
         // Ensure image/video configs have all built-in providers
         ensureBuiltInImageProviders(state);
         ensureBuiltInVideoProviders(state);
-        ensureBuiltInWebSearchProviders(state);
-
         // Migrate from old ttsModel to new ttsProviderId
         if (state.ttsModel && !state.ttsProviderId) {
           // Map old ttsModel values to new ttsProviderId
@@ -1294,25 +1204,6 @@ export const useSettingsStore = create<SettingsState>()(
           (state as Record<string, unknown>).autoAgentCount = 3;
         }
 
-        // Migrate Web Search: old flat fields → new provider-based config
-        if (!state.webSearchProvidersConfig) {
-          const stateRecord = state as Record<string, unknown>;
-          const oldApiKey = (stateRecord.webSearchApiKey as string) || '';
-          const oldIsServerConfigured =
-            (stateRecord.webSearchIsServerConfigured as boolean) || false;
-          state.webSearchProviderId = 'tavily' as WebSearchProviderId;
-          state.webSearchProvidersConfig = {
-            tavily: {
-              apiKey: oldApiKey,
-              baseUrl: '',
-              enabled: true,
-              isServerConfigured: oldIsServerConfigured,
-            },
-          } as SettingsState['webSearchProvidersConfig'];
-          delete stateRecord.webSearchApiKey;
-          delete stateRecord.webSearchIsServerConfigured;
-        }
-
         ensureValidProviderSelections(state);
 
         return state;
@@ -1324,7 +1215,6 @@ export const useSettingsStore = create<SettingsState>()(
         ensureBuiltInProviders(merged as Partial<SettingsState>);
         ensureBuiltInImageProviders(merged as Partial<SettingsState>);
         ensureBuiltInVideoProviders(merged as Partial<SettingsState>);
-        ensureBuiltInWebSearchProviders(merged as Partial<SettingsState>);
         ensureValidProviderSelections(merged as Partial<SettingsState>);
         return merged as SettingsState;
       },

@@ -29,7 +29,6 @@ interface ServerConfig {
   asr: Record<string, ServerProviderEntry>;
   image: Record<string, ServerProviderEntry>;
   video: Record<string, ServerProviderEntry>;
-  webSearch: Record<string, ServerProviderEntry>;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,10 +82,6 @@ const VIDEO_ENV_MAP: Record<string, string> = {
   VIDEO_GROK: 'grok-video',
 };
 
-const WEB_SEARCH_ENV_MAP: Record<string, string> = {
-  TAVILY: 'tavily',
-};
-
 // ---------------------------------------------------------------------------
 // YAML loading
 // ---------------------------------------------------------------------------
@@ -98,7 +93,6 @@ type YamlData = Partial<{
   pdf: Record<string, Partial<ServerProviderEntry>>;
   image: Record<string, Partial<ServerProviderEntry>>;
   video: Record<string, Partial<ServerProviderEntry>>;
-  'web-search': Record<string, Partial<ServerProviderEntry>>;
 }>;
 
 function loadYamlFile(filename: string): YamlData {
@@ -189,7 +183,6 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     asr: loadEnvSection(ASR_ENV_MAP, yamlData.asr),
     image: loadEnvSection(IMAGE_ENV_MAP, yamlData.image),
     video: loadEnvSection(VIDEO_ENV_MAP, yamlData.video),
-    webSearch: loadEnvSection(WEB_SEARCH_ENV_MAP, yamlData['web-search']),
   };
 }
 
@@ -200,7 +193,6 @@ function logConfig(config: ServerConfig, label: string): void {
     Object.keys(config.asr).length,
     Object.keys(config.image).length,
     Object.keys(config.video).length,
-    Object.keys(config.webSearch).length,
   ];
   if (counts.some((c) => c > 0)) {
     log.info(
@@ -353,25 +345,4 @@ export function resolveVideoBaseUrl(
   return getConfig().video[providerId]?.baseUrl;
 }
 
-// ---------------------------------------------------------------------------
-// Public API — Web Search (Tavily)
-// ---------------------------------------------------------------------------
 
-/** Returns server-configured web search providers (no apiKeys exposed) */
-export function getServerWebSearchProviders(): Record<string, { baseUrl?: string }> {
-  const cfg = getConfig();
-  const result: Record<string, { baseUrl?: string }> = {};
-  for (const [id, entry] of Object.entries(cfg.webSearch)) {
-    result[id] = {};
-    if (entry.baseUrl) result[id].baseUrl = entry.baseUrl;
-  }
-  return result;
-}
-
-/** Resolve Tavily API key: client key > server key > AI_TUTOR_TAVILY_API_KEY env > empty */
-export function resolveWebSearchApiKey(clientKey?: string): string {
-  if (clientKey) return clientKey;
-  const serverKey = getConfig().webSearch.tavily?.apiKey;
-  if (serverKey) return serverKey;
-  return process.env.AI_TUTOR_TAVILY_API_KEY || '';
-}

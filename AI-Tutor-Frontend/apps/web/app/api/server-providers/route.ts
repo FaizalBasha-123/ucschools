@@ -4,7 +4,6 @@ import {
   getServerASRProviders,
   getServerImageProviders,
   getServerVideoProviders,
-  getServerWebSearchProviders,
 } from '@/lib/server/provider-config';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
@@ -19,7 +18,6 @@ export async function GET() {
       asr: getServerASRProviders(),
       image: getServerImageProviders(),
       video: getServerVideoProviders(),
-      webSearch: getServerWebSearchProviders(),
     });
   } catch (error) {
     log.error('Error fetching server providers:', error);

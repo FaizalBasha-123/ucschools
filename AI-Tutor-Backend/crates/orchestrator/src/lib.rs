@@ -1,4 +1,5 @@
 pub mod agent_prompt;
+pub mod engine;
 pub mod chat_graph;
 pub mod context;
 pub mod cost_guard;

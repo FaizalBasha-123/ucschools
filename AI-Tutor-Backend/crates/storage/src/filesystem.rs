@@ -4245,10 +4245,10 @@ mod tests {
                     language: Language::EnUs,
                     user_nickname: None,
                     user_bio: None,
-                    web_search: None,
+
                 },
                 pdf_content: None,
-                enable_web_search: false,
+
                 enable_image_generation: false,
                 enable_video_generation: false,
                 enable_tts: false,
@@ -4427,10 +4427,10 @@ mod tests {
                     language: Language::EnUs,
                     user_nickname: None,
                     user_bio: None,
-                    web_search: None,
+
                 },
                 pdf_content: None,
-                enable_web_search: false,
+
                 enable_image_generation: false,
                 enable_video_generation: false,
                 enable_tts: false,
@@ -4596,10 +4596,10 @@ mod tests {
                         language: Language::EnUs,
                         user_nickname: None,
                         user_bio: None,
-                        web_search: None,
+    
                     },
                     pdf_content: None,
-                    enable_web_search: false,
+    
                     enable_image_generation: false,
                     enable_video_generation: false,
                     enable_tts: false,

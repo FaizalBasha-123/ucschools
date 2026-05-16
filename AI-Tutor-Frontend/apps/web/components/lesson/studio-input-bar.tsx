@@ -17,8 +17,6 @@ interface StudioInputBarProps {
   stageName?: string;
   language: string;
   onLanguageChange: (lang: string) => void;
-  webSearch: boolean;
-  onWebSearchChange: (v: boolean) => void;
   pdfFile: File | null;
   onPdfFileChange: (f: File | null) => void;
   onLearningModeChange?: (mode: LearningMode) => void;
@@ -40,8 +38,6 @@ export function StudioInputBar({
   stageName,
   language,
   onLanguageChange,
-  webSearch,
-  onWebSearchChange,
   pdfFile,
   onPdfFileChange,
   onLearningModeChange,
@@ -180,8 +176,6 @@ export function StudioInputBar({
                 <GenerationToolbar
                   language={language}
                   onLanguageChange={onLanguageChange}
-                  webSearch={webSearch}
-                  onWebSearchChange={onWebSearchChange}
                   onSettingsOpen={() => {}}
                   pdfFile={pdfFile}
                   onPdfFileChange={onPdfFileChange}

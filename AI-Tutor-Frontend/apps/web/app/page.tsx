@@ -69,7 +69,6 @@ import { GoogleOneTap } from '@/components/auth/google-one-tap';
 
 const log = createLogger('Home');
 
-const WEB_SEARCH_STORAGE_KEY = 'webSearchEnabled';
 const LANGUAGE_STORAGE_KEY = 'generationLanguage';
 const RECENT_OPEN_STORAGE_KEY = 'recentClassroomsOpen';
 const LESSON_SHELF_OPEN_STORAGE_KEY = 'lessonShelfOpen';
@@ -80,14 +79,12 @@ interface FormState {
   pdfFile: File | null;
   requirement: string;
   language: string;
-  webSearch: boolean;
 }
 
 const initialFormState: FormState = {
   pdfFile: null,
   requirement: '',
   language: 'en-US',
-  webSearch: true,
 };
 
 function HomePage() {
@@ -132,17 +129,6 @@ function HomePage() {
       localStorage.setItem(LANGUAGE_STORAGE_KEY, locale);
     } catch { /* ignore */ }
   }, [locale]);
-
-  useEffect(() => {
-    try {
-      const savedWebSearch = localStorage.getItem(WEB_SEARCH_STORAGE_KEY);
-      if (savedWebSearch === 'false') {
-        setForm((prev) => ({ ...prev, webSearch: false }));
-      }
-    } catch {
-      /* localStorage unavailable */
-    }
-  }, []);
 
   // Restore requirement draft from cache (derived state pattern — no effect needed)
   const [prevCachedRequirement, setPrevCachedRequirement] = useState(cachedRequirement);
@@ -384,7 +370,6 @@ function HomePage() {
   const updateForm = <K extends keyof FormState>(field: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     try {
-      if (field === 'webSearch') localStorage.setItem(WEB_SEARCH_STORAGE_KEY, String(value));
       if (field === 'language') localStorage.setItem(LANGUAGE_STORAGE_KEY, String(value));
       if (field === 'requirement') updateRequirementCache(value as string);
     } catch {
@@ -437,7 +422,6 @@ function HomePage() {
             JSON.stringify({
               requirement: form.requirement.trim(),
               language: form.language,
-              webSearch: form.webSearch,
             }),
           );
         } catch {
@@ -463,7 +447,6 @@ function HomePage() {
             JSON.stringify({
               requirement: form.requirement.trim(),
               language: form.language,
-              webSearch: form.webSearch,
             }),
           );
         } catch { /* ignore */ }
@@ -518,7 +501,6 @@ function HomePage() {
         language: form.language,
         userNickname: userProfile.nickname || undefined,
         userBio: userProfile.bio || undefined,
-        webSearch: form.webSearch || undefined,
       };
 
       const settings = useSettingsStore.getState();
@@ -760,8 +742,6 @@ function HomePage() {
                   <GenerationToolbar
                     language={form.language}
                     onLanguageChange={(lang) => updateForm('language', lang)}
-                    webSearch={form.webSearch}
-                    onWebSearchChange={(v) => updateForm('webSearch', v)}
                     onSettingsOpen={(section) => {
                       setSettingsSection(section);
                       setSettingsOpen(true);

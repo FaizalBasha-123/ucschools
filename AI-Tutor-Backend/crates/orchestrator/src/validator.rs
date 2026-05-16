@@ -21,12 +21,39 @@ pub enum ValidationIssue {
         got: usize,
         max: usize,
     },
+    TooManyBullets {
+        count: usize,
+        max: usize,
+    },
+    BulletTooLong {
+        element_id: String,
+        got: usize,
+        max: usize,
+    },
     MalformedJson {
         error: String,
     },
     MissingRequiredField {
         field: String,
     },
+}
+
+/// Max bullets per slide by tier.
+fn max_bullets_for_tier(tier: &QualityTier) -> usize {
+    match tier {
+        QualityTier::Basic => 3,
+        QualityTier::Standard => 4,
+        QualityTier::Premium => 5,
+    }
+}
+
+/// Max characters per bullet by tier.
+fn max_chars_per_bullet_for_tier(tier: &QualityTier) -> usize {
+    match tier {
+        QualityTier::Basic => 60,
+        QualityTier::Standard => 70,
+        QualityTier::Premium => 80,
+    }
 }
 
 /// Known AI fluff phrases that hurt educational content quality.
@@ -47,13 +74,16 @@ const MAX_TEXT_ELEMENT_CHARS: usize = 1000;
 ///
 /// Performs **fix-in-place** operations (e.g. trimming fluff phrases) to save
 /// tokens instead of triggering a full regeneration.
-pub fn validate_content(content: &mut SceneContent, _tier: &QualityTier) -> ValidationResult {
+pub fn validate_content(content: &mut SceneContent, tier: &QualityTier) -> ValidationResult {
     let mut score: f32 = 1.0;
     let mut issues = Vec::new();
 
     match content {
         SceneContent::Slide { canvas } => {
             let mut has_example = false;
+            let mut bullet_count: usize = 0;
+            let max_bullets = max_bullets_for_tier(tier);
+            let max_chars = max_chars_per_bullet_for_tier(tier);
 
             for element in &mut canvas.elements {
                 // We only validate text elements for fluff / length.
@@ -93,7 +123,40 @@ pub fn validate_content(content: &mut SceneContent, _tier: &QualityTier) -> Vali
                         });
                         score -= 0.2;
                     }
+
+                    // ── Density: count content text elements as bullets ──
+                    // Skip title elements (at the top, usually short)
+                    let is_title = text.len() < 60 && !text.contains('\n');
+                    if !is_title {
+                        // Count lines within this text element as individual bullets
+                        let lines: Vec<&str> = text.lines().collect();
+                        for line in &lines {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                bullet_count += 1;
+                                // ── Bullet length check ──────────────────
+                                if trimmed.len() > max_chars {
+                                    let bullet_id = format!("{}-bullet-{}", id, bullet_count);
+                                    issues.push(ValidationIssue::BulletTooLong {
+                                        element_id: bullet_id,
+                                        got: trimmed.len(),
+                                        max: max_chars,
+                                    });
+                                    score -= 0.1;
+                                }
+                            }
+                        }
+                    }
                 }
+            }
+
+            // ── Density: enforce max bullet count ──────────────────────
+            if bullet_count > max_bullets {
+                issues.push(ValidationIssue::TooManyBullets {
+                    count: bullet_count,
+                    max: max_bullets,
+                });
+                score -= 0.2;
             }
 
             if !has_example {
