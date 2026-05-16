@@ -600,10 +600,12 @@ function GenerationPreviewContent() {
     return trimmed.substring(0, 500).trim() + '...';
   };
 
-  const goBackToHome = () => {
+  const goBackToClassroom = () => {
     abortControllerRef.current?.abort();
     sessionStorage.removeItem('generationSession');
-    router.push('/');
+    sessionStorage.removeItem('generationParams');
+    useStageStore.getState().clearStore();
+    router.replace('/classroom');
   };
 
   // Still loading session from sessionStorage
@@ -626,7 +628,7 @@ function GenerationPreviewContent() {
               {t('generation.sessionNotFound')}
             </h2>
             <p className="text-sm text-neutral-500">{t('generation.sessionNotFoundDesc')}</p>
-            <Button onClick={() => router.push('/')} className="w-full">
+            <Button onClick={goBackToClassroom} className="w-full">
               <ArrowLeft className="size-4 mr-2" />
               {t('generation.backToHome')}
             </Button>
@@ -648,7 +650,7 @@ function GenerationPreviewContent() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={goBackToHome}
+          onClick={goBackToClassroom}
           className="text-neutral-400 hover:text-white"
         >
           <ArrowLeft className="size-4 mr-2" />
@@ -782,7 +784,7 @@ function GenerationPreviewContent() {
           {error && (
             <div className="mt-6 flex gap-3">
               <Button
-                onClick={goBackToHome}
+                onClick={goBackToClassroom}
                 className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700"
               >
                 <ArrowLeft className="size-4 mr-2" />
