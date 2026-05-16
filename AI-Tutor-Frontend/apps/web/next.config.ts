@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: '200mb'
   },
+  outputFileTracingIncludes: {
+    '/api/generate/*': ['./lib/generation/prompts/**/*.md'],
+  },
   webpack: (config, { isServer, webpack }) => {
     if (!isServer) {
       config.plugins.push(
