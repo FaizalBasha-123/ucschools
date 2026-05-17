@@ -27,6 +27,7 @@ import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { resolveModelForTask } from '@/lib/server/resolve-model';
 import { reportTokenUsage, extractTokenCounts } from '@/lib/server/token-usage';
+import { isProxyEnabled, createProxyAwareAiCall } from '@/lib/server/llm-proxy-client';
 
 const log = createLogger('Scene Actions API');
 
@@ -85,15 +86,18 @@ export async function POST(req: NextRequest) {
     // Detect vision capability
     const hasVision = !!modelInfo?.capabilities?.vision;
 
-    // ── AI call function with token accumulation ──
+    // ── AI call function with token accumulation (proxy-aware) ──
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    const usingProxy = isProxyEnabled();
 
-    const aiCall = async (
-      systemPrompt: string,
-      userPrompt: string,
-      images?: Array<{ id: string; src: string }>,
-    ): Promise<string> => {
+    const aiCall = createProxyAwareAiCall(
+      modelString,
+      async (
+        systemPrompt: string,
+        userPrompt: string,
+        images?: Array<{ id: string; src: string }>,
+      ): Promise<string> => {
       if (images?.length && hasVision) {
         const result = await callLLM(
           {
@@ -127,8 +131,8 @@ export async function POST(req: NextRequest) {
       totalInputTokens += counts.inputTokens;
       totalOutputTokens += counts.outputTokens;
       return result.text;
-    };
-
+    });
+    
     // ── Build cross-scene context ──
     const allTitles = allOutlines.map((o) => o.title);
     const pageIndex = allOutlines.findIndex((o) => o.id === outline.id);
@@ -164,14 +168,16 @@ export async function POST(req: NextRequest) {
       `Scene assembled successfully: "${outline.title}" — ${scene.actions?.length ?? 0} actions`,
     );
 
-    // ── Report token usage (fire-and-forget) ──
-    reportTokenUsage(req, {
-      model: modelString,
-      step: 'scene-actions',
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
-      qualityMode: req.headers.get('x-quality-mode') || 'standard',
-    });
+    // ── Report token usage (fire-and-forget, skipped in proxy mode) ──
+    if (!usingProxy) {
+      reportTokenUsage(req, {
+        model: modelString,
+        step: 'scene-actions',
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        qualityMode: req.headers.get('x-quality-mode') || 'standard',
+      });
+    }
 
     return apiSuccess({ scene, previousSpeeches: outputPreviousSpeeches });
   } catch (error) {

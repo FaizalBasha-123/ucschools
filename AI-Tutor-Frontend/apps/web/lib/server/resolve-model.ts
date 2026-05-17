@@ -10,7 +10,7 @@
  *   premium  → PREMIUM_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL
  *
  * Per-task model selection:
- *   Each generation phase (outlines, scene-content, scene-actions, agent-profiles)
+ *   Each generation phase (outlines, scene-content, scene-actions, quiz-grade)
  *   can use a different model via task-specific env vars:
  *   {QUALITY}MODE_AI_TUTOR_GENERATION_{TASK}_MODEL
  *
@@ -33,10 +33,10 @@ export interface ResolvedModel extends ModelWithInfo {
 }
 
 /** Generation task identifiers for per-task model selection */
-export type GenerationTask = 'outlines' | 'scene-content' | 'scene-actions' | 'agent-profiles';
+export type GenerationTask = 'outlines' | 'scene-content' | 'scene-actions' | 'quiz-grade';
 
 /** Map a quality tier to the correct env-var prefix. */
-function qualityPrefix(qualityMode?: string): string {
+export function qualityPrefix(qualityMode?: string): string {
   switch (qualityMode) {
     case 'premium':  return 'PREMIUM_MODE_';
     case 'basic':    return 'BASIC_MODE_';
@@ -45,12 +45,12 @@ function qualityPrefix(qualityMode?: string): string {
 }
 
 /** Map a generation task to its env-var suffix. */
-function taskEnvSuffix(task: GenerationTask): string {
+export function taskEnvSuffix(task: GenerationTask): string {
   switch (task) {
     case 'outlines':       return 'GENERATION_OUTLINES';
     case 'scene-content':  return 'GENERATION_SCENE_CONTENT';
     case 'scene-actions':  return 'GENERATION_SCENE_ACTIONS';
-    case 'agent-profiles': return 'GENERATION_AGENT_PROFILES';
+    case 'quiz-grade':     return 'GENERATION_QUIZ_GRADE';
   }
 }
 

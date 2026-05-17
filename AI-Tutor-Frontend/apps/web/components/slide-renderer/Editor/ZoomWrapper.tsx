@@ -11,12 +11,12 @@ interface ZoomWrapperProps {
 }
 
 /**
- * 缩放包装器组件
+ * Zoom wrapper component
  *
- * 功能：
- * - 包裹整个画布，根据 zoomTarget 进行缩放
- * - 以元素中心为缩放原点
- * - 使用百分比坐标系统
+ * Features:
+ * - Wraps the entire canvas and applies zoom based on zoomTarget
+ * - Uses element center as zoom origin
+ * - Uses percentage coordinate system
  */
 export function ZoomWrapper({ children, zoomTarget, geometry }: ZoomWrapperProps) {
   if (!zoomTarget || !geometry) {

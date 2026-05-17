@@ -1,7 +1,7 @@
 /**
  * Shared constants for agent profile generation.
  *
- * Used by both the client-side agent-profiles API route and the
+ * Used by both the client-side agent configuration UI and the
  * server-side classroom-generation pipeline to keep colors / avatars in sync.
  */
 

@@ -5,6 +5,7 @@ use reqwest::Url;
 use tracing::{error, info};
 
 use ai_tutor_api::app::{build_router, LessonAppService, LiveLessonAppService};
+use ai_tutor_api::llm_proxy::{llm_proxy_router, LlmProxyState};
 use ai_tutor_api::queue::LessonQueue;
 use ai_tutor_api::queue_redis::RedisLessonQueue;
 use ai_tutor_api::redis_storage::RedisRuntimeSessionRepository;
@@ -350,6 +351,12 @@ async fn main() -> Result<()> {
     });
 
     let app = build_router(service.clone());
+
+    let proxy_state = LlmProxyState {
+        provider_factory: Arc::new(DefaultLlmProviderFactory::new((*provider_config).clone())),
+        provider_config: Arc::clone(&provider_config),
+    };
+    let app = app.merge(llm_proxy_router(proxy_state));
 
     let worker_service = Arc::clone(&service);
     tokio::spawn(async move {
