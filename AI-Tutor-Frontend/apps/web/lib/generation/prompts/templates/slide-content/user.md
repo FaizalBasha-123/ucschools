@@ -9,6 +9,8 @@
 
 {{teacherContext}}
 
+{{sceneGenerationProfile}}
+
 ## Available Resources
 
 - **Available Images**: {{assignedImages}}

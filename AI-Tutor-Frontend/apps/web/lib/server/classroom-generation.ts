@@ -19,6 +19,7 @@ import { createLogger } from '@/lib/logger';
 import { parseModelString } from '@/lib/ai/providers';
 import { resolveApiKey } from '@/lib/server/provider-config';
 import { resolveModel } from '@/lib/server/resolve-model';
+import { buildAndFormatProfile } from '@/lib/server/deterministic-profiles';
 import { persistClassroom } from '@/lib/server/classroom-storage';
 import {
   generateMediaForClassroom,
@@ -175,8 +176,10 @@ export async function generateClassroom(
     scenesGenerated: 0,
   });
 
-  const { model: languageModel, modelInfo, modelString } = resolveModel({});
-  log.info(`Using server-configured model: ${modelString}`);
+  const { model: languageModel, modelInfo, modelString } = resolveModel({
+    qualityMode: input.qualityMode,
+  });
+  log.info(`Using server-configured model: ${modelString} [quality=${input.qualityMode || 'standard'}]`);
 
   // Fail fast if the resolved provider has no API key configured
   const { providerId } = parseModelString(modelString);
@@ -226,6 +229,10 @@ export async function generateClassroom(
     agents = getDefaultAgents();
   }
   const teacherContext = formatTeacherPersonaForPrompt(agents);
+  const sceneGenerationProfile = buildAndFormatProfile({
+    qualityMode: input.qualityMode || 'standard',
+    learningMode: input.learningMode || 'explain',
+  });
 
   await options.onProgress?.({
     step: 'generating_outlines',
@@ -244,6 +251,7 @@ export async function generateClassroom(
       imageGenerationEnabled: input.enableImageGeneration,
       videoGenerationEnabled: input.enableVideoGeneration,
       teacherContext,
+      sceneGenerationProfile,
     },
   );
 
@@ -312,6 +320,7 @@ export async function generateClassroom(
       undefined,
       undefined,
       agents,
+      sceneGenerationProfile,
     );
     if (!content) {
       log.warn(`Skipping scene "${safeOutline.title}" — content generation failed`);

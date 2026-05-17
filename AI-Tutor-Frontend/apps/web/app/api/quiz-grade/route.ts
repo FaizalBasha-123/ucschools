@@ -9,7 +9,8 @@ import { NextRequest } from 'next/server';
 import { callLLM } from '@/lib/ai/llm';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
-import { resolveModelFromHeaders } from '@/lib/server/resolve-model';
+import { resolveModelForTask } from '@/lib/server/resolve-model';
+import { isProxyEnabled, proxyGenerateText, buildProxyParams } from '@/lib/server/llm-proxy-client';
 const log = createLogger('Quiz Grade');
 
 interface GradeRequest {
@@ -30,7 +31,7 @@ export async function POST(req: NextRequest) {
   let resolvedPoints: number | undefined;
   try {
     const body = (await req.json()) as GradeRequest;
-    const { question, userAnswer, points, commentPrompt, language } = body;
+    const { question, userAnswer, points, commentPrompt } = body;
     questionSnippet = question?.substring(0, 60);
     resolvedPoints = points;
 
@@ -43,38 +44,42 @@ export async function POST(req: NextRequest) {
       return apiError('INVALID_REQUEST', 400, 'points must be a positive number');
     }
 
-    // Resolve model from request headers
-    const { model: languageModel } = resolveModelFromHeaders(req);
+    // Resolve model from request headers with task-aware routing
+    const { model: languageModel, modelString } = resolveModelForTask(req, 'quiz-grade');
 
-    const isZh = language === 'zh-CN';
-
-    const systemPrompt = isZh
-      ? `你是一位专业的教育评估专家。请根据题目和学生答案进行评分并给出简短评语。
-必须以如下 JSON 格式回复（不要包含其他内容）：
-{"score": <0到${points}的整数>, "comment": "<一两句评语>"}`
-      : `You are a professional educational assessor. Grade the student's answer and provide brief feedback.
+    const systemPrompt = `You are a professional educational assessor. Grade the student's answer and provide brief feedback.
 You must reply in the following JSON format only (no other content):
 {"score": <integer from 0 to ${points}>, "comment": "<one or two sentences of feedback>"}`;
 
-    const userPrompt = isZh
-      ? `题目：${question}
-满分：${points}分
-${commentPrompt ? `评分要点：${commentPrompt}\n` : ''}学生答案：${userAnswer}`
-      : `Question: ${question}
+    const userPrompt = `Question: ${question}
 Full marks: ${points} points
 ${commentPrompt ? `Grading guidance: ${commentPrompt}\n` : ''}Student answer: ${userAnswer}`;
 
-    const result = await callLLM(
-      {
-        model: languageModel,
-        system: systemPrompt,
-        prompt: userPrompt,
-      },
-      'quiz-grade',
-    );
+    let resultText: string;
+
+    if (isProxyEnabled()) {
+      const proxyResult = await proxyGenerateText(
+        buildProxyParams(
+          modelString,
+          systemPrompt,
+          userPrompt,
+        ),
+      );
+      resultText = proxyResult.text;
+    } else {
+      const result = await callLLM(
+        {
+          model: languageModel,
+          system: systemPrompt,
+          prompt: userPrompt,
+        },
+        'quiz-grade',
+      );
+      resultText = result.text.trim();
+    }
 
     // Parse the LLM response as JSON
-    const text = result.text.trim();
+    const text = resultText.trim();
     let gradeResult: GradeResponse;
 
     try {
@@ -90,9 +95,7 @@ ${commentPrompt ? `Grading guidance: ${commentPrompt}\n` : ''}Student answer: ${
       // Fallback: give partial credit with a generic comment
       gradeResult = {
         score: Math.round(points * 0.5),
-        comment: isZh
-          ? '已作答，请参考标准答案。'
-          : 'Answer received. Please refer to the standard answer.',
+        comment: 'Answer received. Please refer to the standard answer.',
       };
     }
 

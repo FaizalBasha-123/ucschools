@@ -18,6 +18,8 @@ import type { SceneOutline, PdfImage, ImageMapping } from '@/lib/types/generatio
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { resolveModelForTask } from '@/lib/server/resolve-model';
+import { buildAndFormatProfile } from '@/lib/server/deterministic-profiles';
+import { createProxyAwareAiCall } from '@/lib/server/llm-proxy-client';
 
 const log = createLogger('Scene Content API');
 
@@ -84,12 +86,10 @@ export async function POST(req: NextRequest) {
     // Detect vision capability
     const hasVision = !!modelInfo?.capabilities?.vision;
 
-    // Vision-aware AI call function
-    const aiCall = async (
-      systemPrompt: string,
-      userPrompt: string,
-      images?: Array<{ id: string; src: string }>,
-    ): Promise<string> => {
+    // Vision-aware AI call function (proxy-aware)
+    const aiCall = createProxyAwareAiCall(
+      modelString,
+      async (systemPrompt: string, userPrompt: string, images?: Array<{ id: string; src: string }>) => {
       if (images?.length && hasVision) {
         const result = await callLLM(
           {
@@ -117,8 +117,8 @@ export async function POST(req: NextRequest) {
         'scene-content',
       );
       return result.text;
-    };
-
+    });
+  
     // ── Apply fallbacks ──
     const effectiveOutline = applyOutlineFallbacks(outline, !!languageModel);
 
@@ -139,6 +139,11 @@ export async function POST(req: NextRequest) {
     // resolveImageIds() in generation-pipeline.ts will keep these placeholders in elements.
     const generatedMediaMapping: ImageMapping = {};
 
+    // ── Build deterministic scene generation profile ──
+    const qualityMode = req.headers.get('x-quality-mode') || 'standard';
+    const learningMode = req.headers.get('x-learning-mode') || 'explain';
+    const sceneGenerationProfile = buildAndFormatProfile({ qualityMode, learningMode });
+
     // ── Generate content ──
     log.info(
       `Generating content: "${effectiveOutline.title}" (${effectiveOutline.type}) [model=${modelString}]`,
@@ -153,6 +158,7 @@ export async function POST(req: NextRequest) {
       hasVision,
       generatedMediaMapping,
       agents,
+      sceneGenerationProfile,
     );
 
     if (!content) {

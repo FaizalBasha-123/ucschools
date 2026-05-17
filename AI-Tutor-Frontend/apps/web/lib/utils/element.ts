@@ -15,8 +15,8 @@ interface IdMap {
 }
 
 /**
- * 计算元素在画布中的矩形范围旋转后的新位置范围
- * @param element 元素的位置大小和旋转角度信息
+ * Calculate the new position range of an element's bounding rectangle after rotation
+ * @param element Element position, size, and rotation angle
  */
 export const getRectRotatedRange = (element: RotatedElementData) => {
   const { left, top, width, height, rotate = 0 } = element;
@@ -50,8 +50,8 @@ export const getRectRotatedRange = (element: RotatedElementData) => {
 };
 
 /**
- * 计算元素在画布中的矩形范围旋转后的新位置与旋转之前位置的偏离距离
- * @param element 元素的位置大小和旋转角度信息
+ * Calculate the deviation distance between the rotated and original positions of an element
+ * @param element Element position, size, and rotation angle
  */
 export const getRectRotatedOffset = (element: RotatedElementData) => {
   const { xRange: originXRange, yRange: originYRange } = getRectRotatedRange({
@@ -75,8 +75,8 @@ export const getRectRotatedOffset = (element: RotatedElementData) => {
 };
 
 /**
- * 计算元素在画布中的位置范围
- * @param element 元素信息
+ * Calculate the position range of an element on the canvas
+ * @param element Element information
  */
 export const getElementRange = (element: PPTElement) => {
   let minX, maxX, minY, maxY;
@@ -109,8 +109,8 @@ export const getElementRange = (element: PPTElement) => {
 };
 
 /**
- * 计算一组元素在画布中的位置范围
- * @param elementList 一组元素信息
+ * Calculate the position range of a group of elements on the canvas
+ * @param elementList List of element information
  */
 export const getElementListRange = (elementList: PPTElement[]) => {
   const leftValues: number[] = [];
@@ -135,8 +135,8 @@ export const getElementListRange = (elementList: PPTElement[]) => {
 };
 
 /**
- * 计算线条元素的长度
- * @param element 线条元素
+ * Calculate the length of a line element
+ * @param element Line element
  */
 export const getLineElementLength = (element: PPTLineElement) => {
   const deltaX = element.end[0] - element.start[0];
@@ -151,8 +151,8 @@ export interface AlignLine {
 }
 
 /**
- * 将一组对齐吸附线进行去重：同位置的的多条对齐吸附线仅留下一条，取该位置所有对齐吸附线的最大值和最小值为新的范围
- * @param lines 一组对齐吸附线信息
+ * Deduplicate alignment lines: keep only one line at each position, merge min/max ranges
+ * @param lines Alignment line information
  */
 export const uniqAlignLines = (lines: AlignLine[]) => {
   const uniqLines: AlignLine[] = [];
@@ -172,9 +172,9 @@ export const uniqAlignLines = (lines: AlignLine[]) => {
 };
 
 /**
- * 以页面列表为基础，为每一个页面生成新的ID，并关联到旧ID形成一个字典
- * 主要用于页面元素时，维持数据中各处页面ID原有的关系
- * @param slides 页面列表
+ * Create a map of old-to-new IDs for all slides
+ * Used when duplicating slides to preserve cross-references
+ * @param slides Slide list
  */
 export const createSlideIdMap = (slides: Slide[]) => {
   const slideIdMap: IdMap = {};
@@ -185,10 +185,10 @@ export const createSlideIdMap = (slides: Slide[]) => {
 };
 
 /**
- * 以元素列表为基础，为每一个元素生成新的ID，并关联到旧ID形成一个字典
- * 主要用于复制元素时，维持数据中各处元素ID原有的关系
- * 例如：原本两个组合的元素拥有相同的groupId，复制后依然会拥有另一个相同的groupId
- * @param elements 元素列表数据
+ * Create a map of old-to-new IDs for all elements
+ * Used when duplicating elements to preserve cross-references
+ * e.g. two grouped elements share a groupId — after duplication they share a new groupId
+ * @param elements Element list
  */
 export const createElementIdMap = (elements: PPTElement[]) => {
   const groupIdMap: IdMap = {};
@@ -207,8 +207,8 @@ export const createElementIdMap = (elements: PPTElement[]) => {
 };
 
 /**
- * 根据表格的主题色，获取对应用于配色的子颜色
- * @param themeColor 主题色
+ * Get the child color for a table based on its theme color
+ * @param themeColor Theme color
  */
 export const getTableSubThemeColor = (themeColor: string) => {
   const rgba = tinycolor(themeColor);
@@ -216,8 +216,8 @@ export const getTableSubThemeColor = (themeColor: string) => {
 };
 
 /**
- * 获取线条元素路径字符串
- * @param element 线条元素
+ * Get the SVG path string for a line element
+ * @param element Line element
  */
 export const getLineElementPath = (element: PPTLineElement) => {
   // Defensive: ensure start and end are arrays
@@ -246,9 +246,9 @@ export const getLineElementPath = (element: PPTLineElement) => {
 };
 
 /**
- * 判断一个元素是否在可视范围内
- * @param element 元素
- * @param parent 父元素
+ * Check whether an element is within the visible viewport
+ * @param element Element
+ * @param parent Parent element
  */
 export const isElementInViewport = (element: HTMLElement, parent: HTMLElement): boolean => {
   const elementRect = element.getBoundingClientRect();

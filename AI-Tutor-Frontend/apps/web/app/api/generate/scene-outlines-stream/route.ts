@@ -33,6 +33,13 @@ import type {
 import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
 import { resolveModelForTask } from '@/lib/server/resolve-model';
+import { buildAndFormatProfile } from '@/lib/server/deterministic-profiles';
+import {
+  isProxyEnabled,
+  proxyStreamText,
+  buildProxyParams,
+  type ProxyStreamEvent,
+} from '@/lib/server/llm-proxy-client';
 const log = createLogger('Outlines Stream');
 
 export const maxDuration = 300;
@@ -123,8 +130,7 @@ export async function POST(req: NextRequest) {
     const hasVision = !!modelInfo?.capabilities?.vision;
 
     // Build prompt (same logic as generateSceneOutlinesFromRequirements)
-    let availableImagesText =
-      requirements.language === 'zh-CN' ? '无可用图片' : 'No images available';
+    let availableImagesText = 'No images available';
     let visionImages: Array<{ id: string; src: string }> | undefined;
 
     if (pdfImages && pdfImages.length > 0) {
@@ -183,24 +189,11 @@ export async function POST(req: NextRequest) {
       semanticContext = router.formatContext(pageSummaries, relevant);
     }
 
-    // Build deterministic instructional persona from learning/quality mode headers
+    // Build deterministic scene generation profile from learning/quality mode headers
     const qualityMode = req.headers.get('x-quality-mode') || 'standard';
     const learningMode = req.headers.get('x-learning-mode') || 'explain';
-    const personaMap: Record<string, { tone: string; verbosity: string; style: string }> = {
-      explain: { tone: 'friendly_stepwise', verbosity: 'detailed', style: 'step_by_step_with_real_world_examples' },
-      revision: { tone: 'supportive_summarizer', verbosity: 'minimal', style: 'compressed_key_points_connections' },
-      exam: { tone: 'formal_precise', verbosity: 'concise', style: 'precise_definitions_common_mistakes' },
-      placement_prep: { tone: 'interviewer_coach', verbosity: 'concise', style: 'socratic_questioning_diagnostic' },
-    };
-    const persona = personaMap[learningMode] || personaMap.explain;
     const sceneCap = qualityMode === 'basic' ? 5 : qualityMode === 'premium' ? 15 : 10;
-    const teacherContext = `
-INSTRUCTIONAL CONFIGURATION:
-- Tone: ${persona.tone}
-- Verbosity: ${persona.verbosity}
-- Explanation style: ${persona.style}
-- Max scenes: ${sceneCap}
-- No teacher name or identity on slides. Scene titles and keyPoints must be neutral and topic-focused.`;
+    const sceneGenerationProfile = buildAndFormatProfile({ qualityMode, learningMode });
 
     const prompts = buildPrompt(PROMPT_IDS.REQUIREMENTS_TO_OUTLINES, {
       requirement: requirements.requirement,
@@ -213,7 +206,8 @@ INSTRUCTIONAL CONFIGURATION:
       availableImages: availableImagesText,
       researchContext: requirements.language === 'zh-CN' ? '无' : 'None',
       mediaGenerationPolicy,
-      teacherContext,
+      teacherContext: sceneGenerationProfile,
+      sceneGenerationProfile,
       semanticContext,
     });
 
@@ -275,42 +269,102 @@ INSTRUCTIONAL CONFIGURATION:
 
           let parsedOutlines: SceneOutline[] = [];
           let lastError: string | undefined;
+          let lastFullText = '';
+
+          const proxyUrl = process.env.AI_TUTOR_PROXY_URL;
 
           for (let attempt = 1; attempt <= MAX_STREAM_RETRIES + 1; attempt++) {
             try {
-              const result = streamLLM(streamParams, 'scene-outlines-stream');
-
               let fullText = '';
               parsedOutlines = [];
 
-              for await (const chunk of result.textStream) {
-                fullText += chunk;
+              if (proxyUrl) {
+                // ── Proxy mode: send pre-built prompts to Rust backend ──
+                const proxyParams = buildProxyParams(
+                  modelString,
+                  prompts.system,
+                  prompts.user,
+                  { maxTokens: modelInfo?.outputWindow },
+                );
 
-                // Try to extract new outlines from the accumulated text
-                const newOutlines = extractNewOutlines(fullText, parsedOutlines.length);
-                for (const outline of newOutlines) {
-                  // Ensure ID and order
-                  const enriched = {
-                    ...outline,
-                    id: outline.id || nanoid(),
-                    order: parsedOutlines.length + 1,
-                  };
-                  parsedOutlines.push(enriched);
+                for await (const event of proxyStreamText(proxyParams)) {
+                  if (event.type === 'delta' && event.text) {
+                    fullText += event.text;
 
-                  const event = JSON.stringify({
-                    type: 'outline',
-                    data: enriched,
-                    index: parsedOutlines.length - 1,
-                  });
-                  controller.enqueue(encoder.encode(`data: ${event}\n\n`));
+                    const newOutlines = extractNewOutlines(fullText, parsedOutlines.length);
+                    for (const outline of newOutlines) {
+                      const enriched = {
+                        ...outline,
+                        id: outline.id || nanoid(),
+                        order: parsedOutlines.length + 1,
+                      };
+                      parsedOutlines.push(enriched);
+
+                      const eventData = JSON.stringify({
+                        type: 'outline',
+                        data: enriched,
+                        index: parsedOutlines.length - 1,
+                      });
+                      controller.enqueue(encoder.encode(`data: ${eventData}\n\n`));
+                    }
+                  } else if (event.type === 'done' && event.full_text) {
+                    fullText = event.full_text;
+                  } else if (event.type === 'error' && event.error) {
+                    throw new Error(event.error);
+                  }
+                }
+              } else {
+                // ── Direct mode: use AI SDK directly ──
+                const streamParams = visionImages?.length
+                  ? {
+                      model: languageModel,
+                      system: prompts.system,
+                      messages: [
+                        {
+                          role: 'user' as const,
+                          content: buildVisionUserContent(prompts.user, visionImages),
+                        },
+                      ],
+                      maxOutputTokens: modelInfo?.outputWindow,
+                    }
+                  : {
+                      model: languageModel,
+                      system: prompts.system,
+                      prompt: prompts.user,
+                      maxOutputTokens: modelInfo?.outputWindow,
+                    };
+
+                const result = streamLLM(streamParams, 'scene-outlines-stream');
+
+                for await (const chunk of result.textStream) {
+                  fullText += chunk;
+
+                  const newOutlines = extractNewOutlines(fullText, parsedOutlines.length);
+                  for (const outline of newOutlines) {
+                    const enriched = {
+                      ...outline,
+                      id: outline.id || nanoid(),
+                      order: parsedOutlines.length + 1,
+                    };
+                    parsedOutlines.push(enriched);
+
+                    const eventData = JSON.stringify({
+                      type: 'outline',
+                      data: enriched,
+                      index: parsedOutlines.length - 1,
+                    });
+                    controller.enqueue(encoder.encode(`data: ${eventData}\n\n`));
+                  }
                 }
               }
+
+              lastFullText = fullText;
 
               // Validate: got outlines?
               if (parsedOutlines.length > 0) break;
 
               // Empty result — retry if we have attempts left
-              lastError = fullText.trim()
+              lastError = lastFullText.trim()
                 ? 'LLM response could not be parsed into outlines'
                 : 'LLM returned empty response';
 
@@ -318,7 +372,6 @@ INSTRUCTIONAL CONFIGURATION:
                 log.warn(
                   `Empty outlines (attempt ${attempt}/${MAX_STREAM_RETRIES + 1}), retrying...`,
                 );
-                // Notify client a retry is happening
                 const retryEvent = JSON.stringify({
                   type: 'retry',
                   attempt,

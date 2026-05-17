@@ -1,4 +1,5 @@
 pub mod app;
+pub mod llm_proxy;
 pub mod tools;
 pub mod notifications;
 pub mod queue;

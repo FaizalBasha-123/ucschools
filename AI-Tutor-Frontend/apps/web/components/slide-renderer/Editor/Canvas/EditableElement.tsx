@@ -86,7 +86,7 @@ export function EditableElement({
     if (elementInfo.lock) {
       return [
         {
-          text: '解锁',
+          text: 'Unlock',
           handler: () => unlockElement(elementInfo),
         },
       ];
@@ -94,120 +94,120 @@ export function EditableElement({
 
     return [
       {
-        text: '剪切',
+        text: 'Cut',
         subText: 'Ctrl + X',
         handler: cutElement,
       },
       {
-        text: '复制',
+        text: 'Copy',
         subText: 'Ctrl + C',
         handler: copyElement,
       },
       {
-        text: '粘贴',
+        text: 'Paste',
         subText: 'Ctrl + V',
         handler: pasteElement,
       },
       { divider: true },
       {
-        text: '水平居中',
+        text: 'Horizontal Center',
         handler: () => alignElementToCanvas(ElementAlignCommands.HORIZONTAL),
         children: [
           {
-            text: '水平垂直居中',
+            text: 'Center',
             handler: () => alignElementToCanvas(ElementAlignCommands.CENTER),
           },
           {
-            text: '水平居中',
+            text: 'Horizontal Center',
             handler: () => alignElementToCanvas(ElementAlignCommands.HORIZONTAL),
           },
           {
-            text: '左对齐',
+            text: 'Align Left',
             handler: () => alignElementToCanvas(ElementAlignCommands.LEFT),
           },
           {
-            text: '右对齐',
+            text: 'Align Right',
             handler: () => alignElementToCanvas(ElementAlignCommands.RIGHT),
           },
         ],
       },
       {
-        text: '垂直居中',
+        text: 'Vertical Center',
         handler: () => alignElementToCanvas(ElementAlignCommands.VERTICAL),
         children: [
           {
-            text: '水平垂直居中',
+            text: 'Center',
             handler: () => alignElementToCanvas(ElementAlignCommands.CENTER),
           },
           {
-            text: '垂直居中',
+            text: 'Vertical Center',
             handler: () => alignElementToCanvas(ElementAlignCommands.VERTICAL),
           },
           {
-            text: '顶部对齐',
+            text: 'Align Top',
             handler: () => alignElementToCanvas(ElementAlignCommands.TOP),
           },
           {
-            text: '底部对齐',
+            text: 'Align Bottom',
             handler: () => alignElementToCanvas(ElementAlignCommands.BOTTOM),
           },
         ],
       },
       { divider: true },
       {
-        text: '置于顶层',
+        text: 'Bring to Front',
         disable: isMultiSelect && !elementInfo.groupId,
         handler: () => orderElement(elementInfo, ElementOrderCommands.TOP),
         children: [
           {
-            text: '置于顶层',
+            text: 'Bring to Front',
             handler: () => orderElement(elementInfo, ElementOrderCommands.TOP),
           },
           {
-            text: '上移一层',
+            text: 'Bring Forward',
             handler: () => orderElement(elementInfo, ElementOrderCommands.UP),
           },
         ],
       },
       {
-        text: '置于底层',
+        text: 'Send to Back',
         disable: isMultiSelect && !elementInfo.groupId,
         handler: () => orderElement(elementInfo, ElementOrderCommands.BOTTOM),
         children: [
           {
-            text: '置于底层',
+            text: 'Send to Back',
             handler: () => orderElement(elementInfo, ElementOrderCommands.BOTTOM),
           },
           {
-            text: '下移一层',
+            text: 'Send Backward',
             handler: () => orderElement(elementInfo, ElementOrderCommands.DOWN),
           },
         ],
       },
       { divider: true },
       {
-        text: '设置链接',
+        text: 'Set Link',
         handler: openLinkDialog,
         disable: true,
       },
       {
-        text: elementInfo.groupId ? '取消组合' : '组合',
+        text: elementInfo.groupId ? 'Ungroup' : 'Group',
         subText: 'Ctrl + G',
         handler: elementInfo.groupId ? uncombineElements : combineElements,
         hide: !isMultiSelect,
       },
       {
-        text: '全选',
+        text: 'Select All',
         subText: 'Ctrl + A',
         handler: selectAllElements,
       },
       {
-        text: '锁定',
+        text: 'Lock',
         subText: 'Ctrl + L',
         handler: lockElement,
       },
       {
-        text: '删除',
+        text: 'Delete',
         subText: 'Delete',
         handler: deleteElement,
       },
