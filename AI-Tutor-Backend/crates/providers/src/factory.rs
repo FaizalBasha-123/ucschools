@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use tokio::time::{sleep, Duration};
 use tracing::warn;
 
-use ai_tutor_domain::provider::ModelConfig;
+use ai_tutor_domain::provider::{ModelConfig, ProviderStrategy};
 
 use crate::{
     anthropic::AnthropicProvider,
@@ -23,14 +23,23 @@ use crate::{
 };
 use tokio_util::sync::CancellationToken;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct DefaultLlmProviderFactory {
     server_config: ServerProviderConfig,
+    provider_strategy: ProviderStrategy,
 }
 
 impl DefaultLlmProviderFactory {
     pub fn new(server_config: ServerProviderConfig) -> Self {
-        Self { server_config }
+        Self {
+            server_config,
+            provider_strategy: ProviderStrategy::default(),
+        }
+    }
+
+    pub fn with_strategy(mut self, strategy: ProviderStrategy) -> Self {
+        self.provider_strategy = strategy;
+        self
     }
 }
 
@@ -101,7 +110,7 @@ impl LlmProviderFactory for DefaultLlmProviderFactory {
                 self.server_config.llm_circuit_breaker_threshold,
                 self.server_config.llm_circuit_breaker_cooldown_ms,
             );
-        Ok(Box::new(resilient))
+        Ok(crate::openrouter::wrap_with_strategy(Box::new(resilient), &self.provider_strategy))
     }
 }
 

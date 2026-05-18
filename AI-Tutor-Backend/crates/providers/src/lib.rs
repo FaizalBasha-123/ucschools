@@ -4,6 +4,7 @@ pub mod elevenlabs;
 pub mod factory;
 pub mod google;
 pub mod openai;
+pub mod openrouter;
 pub mod registry;
 pub mod resilient;
 pub mod resolve;

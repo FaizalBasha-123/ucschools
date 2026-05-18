@@ -1,4 +1,5 @@
 use ai_tutor_domain::generation::LessonGenerationRequest;
+use ai_tutor_domain::routing::{GenerationBudget, QualityTier};
 use std::fmt;
 
 pub struct LearningProfile {
@@ -6,12 +7,6 @@ pub struct LearningProfile {
     pub target_level: String,
     pub pacing: String,
     pub interaction_frequency: String,
-}
-
-pub struct PersonaProfile {
-    pub tone: String,
-    pub verbosity: String,
-    pub explanation_style: String,
 }
 
 pub struct LayoutConstraints {
@@ -50,31 +45,6 @@ pub fn compute_learning_profile(request: &LessonGenerationRequest) -> LearningPr
     }
 }
 
-pub fn compute_persona_profile(request: &LessonGenerationRequest) -> PersonaProfile {
-    match request.learning_mode.as_deref() {
-        Some("exam") => PersonaProfile {
-            tone: "formal_precise".to_string(),
-            verbosity: "concise".to_string(),
-            explanation_style: "precise_definitions_common_mistakes".to_string(),
-        },
-        Some("revision") => PersonaProfile {
-            tone: "supportive_summarizer".to_string(),
-            verbosity: "minimal".to_string(),
-            explanation_style: "compressed_key_points_connections".to_string(),
-        },
-        Some("placement_prep") => PersonaProfile {
-            tone: "interviewer_coach".to_string(),
-            verbosity: "concise".to_string(),
-            explanation_style: "socratic_questioning_diagnostic".to_string(),
-        },
-        _ => PersonaProfile {
-            tone: "friendly_stepwise".to_string(),
-            verbosity: "detailed".to_string(),
-            explanation_style: "step_by_step_real_world_examples".to_string(),
-        },
-    }
-}
-
 pub fn compute_layout_constraints(request: &LessonGenerationRequest) -> LayoutConstraints {
     match request.quality_mode.as_deref() {
         Some("basic") => LayoutConstraints {
@@ -98,29 +68,25 @@ pub fn compute_layout_constraints(request: &LessonGenerationRequest) -> LayoutCo
     }
 }
 
+pub fn compute_generation_budget(request: &LessonGenerationRequest) -> GenerationBudget {
+    let tier = match request.quality_mode.as_deref() {
+        Some("basic") => QualityTier::Basic,
+        Some("premium") => QualityTier::Premium,
+        _ => QualityTier::Standard,
+    };
+    let complexity = ai_tutor_domain::routing::TopicComplexity::Normal;
+    ai_tutor_domain::routing::compute_generation_budget(tier, complexity)
+}
+
 impl fmt::Display for LearningProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Learning Profile:
-- Depth: {}
-- Target level: {}
-- Pacing: {}
-- Interaction frequency: {}",
+            "Depth: {}
+Target: {}
+Pacing: {}
+Interaction: {}",
             self.depth, self.target_level, self.pacing, self.interaction_frequency
-        )
-    }
-}
-
-impl fmt::Display for PersonaProfile {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Instructional Persona:
-- Tone: {}
-- Verbosity: {}
-- Explanation style: {}",
-            self.tone, self.verbosity, self.explanation_style
         )
     }
 }
@@ -129,12 +95,9 @@ impl fmt::Display for LayoutConstraints {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Layout Constraints:
-- Max {} bullets per slide
-- Max {} characters per bullet
-- Max {} explanation lines
-- No paragraphs
-- Concise educational wording",
+            "Bullets: {} max ({} chars each)
+Lines: {} max
+No paragraphs. Concise only.",
             self.max_bullets, self.max_chars_per_bullet, self.max_lines
         )
     }
@@ -143,13 +106,10 @@ impl fmt::Display for LayoutConstraints {
 impl LearningProfile {
     pub fn to_prompt_block(&self) -> String {
         format!(
-            "INSTRUCTIONAL CONFIGURATION:
-- Mode: {mode}
-- Depth: {depth}
-- Target level: {target_level}
-- Pacing: {pacing}
-- Interaction frequency: {interaction_frequency}",
-            mode = "learning", // placeholder
+            "Depth: {depth}
+Target: {target_level}
+Pacing: {pacing}
+Interaction: {interaction_frequency}",
             depth = self.depth,
             target_level = self.target_level,
             pacing = self.pacing,
@@ -158,38 +118,23 @@ impl LearningProfile {
     }
 }
 
-impl PersonaProfile {
-    pub fn to_prompt_block(&self) -> String {
-        format!(
-            "INSTRUCTIONAL PERSONA:
-- Tone: {tone}
-- Verbosity: {verbosity}
-- Explanation style: {explanation_style}",
-            tone = self.tone,
-            verbosity = self.verbosity,
-            explanation_style = self.explanation_style,
-        )
-    }
-}
-
 impl LayoutConstraints {
     pub fn to_prompt_block(&self) -> String {
         format!(
-            "DENSITY CONSTRAINTS:
-- Max {max_bullets} bullets per slide
-- Max {max_chars_per_bullet} characters per bullet
-- Max {max_lines} explanation lines
-- No paragraphs
-- No fluff phrases
-- Concise educational wording",
+            "Max {max_bullets} bullets/slide
+Max {max_chars_per_bullet} chars/bullet
+Max {max_lines} lines
+No paragraphs. No fluff. Concise only.",
             max_bullets = self.max_bullets,
             max_chars_per_bullet = self.max_chars_per_bullet,
             max_lines = self.max_lines,
         )
     }
 
-    pub fn to_scene_cap_prompt(&self, base_count: u8) -> String {
-        let count = self.max_scenes.min(base_count);
-        format!("Use up to {count} scenes with a logical flow. Include at least one quiz scene. Use interactive or pbl scenes only when the concept truly benefits from them.")
+    pub fn to_scene_cap_prompt(&self) -> String {
+        format!(
+            "Max {max_scenes} scenes. Include 1 quiz. No interactive/PBL unless concept requires.",
+            max_scenes = self.max_scenes,
+        )
     }
 }

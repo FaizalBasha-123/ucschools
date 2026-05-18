@@ -8,8 +8,7 @@
  * for multi-model compatibility.
  */
 
-import { tool, stepCountIs } from 'ai';
-import { callLLM } from '@/lib/ai/llm';
+import { generateText, tool, stepCountIs } from 'ai';
 import { z } from 'zod';
 import type { LanguageModel } from 'ai';
 import type { PBLProjectConfig } from './types';
@@ -283,29 +282,26 @@ export async function generatePBLContent(
   // Run the agentic loop
   const systemPrompt = buildPBLSystemPrompt(config);
 
-  const _result = await callLLM(
-    {
-      model,
-      system: systemPrompt,
-      prompt:
-        language === 'zh-CN'
-          ? `请设计一个PBL项目。现在从 project_info 模式开始，先设置项目标题和描述。`
-          : `Design a PBL project. Start in project_info mode by setting the project title and description.`,
-      tools: pblTools,
-      stopWhen: stepCountIs(30),
-      onStepFinish: ({ toolCalls, text }) => {
-        if (text) {
-          callbacks?.onProgress?.(`Thinking: ${text.slice(0, 100)}...`);
+  const _result = await generateText({
+    model,
+    system: systemPrompt,
+    prompt:
+      language === 'zh-CN'
+        ? `请设计一个PBL项目。现在从 project_info 模式开始，先设置项目标题和描述。`
+        : `Design a PBL project. Start in project_info mode by setting the project title and description.`,
+    tools: pblTools,
+    stopWhen: stepCountIs(30),
+    onStepFinish: ({ toolCalls, text }) => {
+      if (text) {
+        callbacks?.onProgress?.(`Thinking: ${text.slice(0, 100)}...`);
+      }
+      if (toolCalls) {
+        for (const tc of toolCalls) {
+          callbacks?.onProgress?.(`Tool: ${tc.toolName}`);
         }
-        if (toolCalls) {
-          for (const tc of toolCalls) {
-            callbacks?.onProgress?.(`Tool: ${tc.toolName}`);
-          }
-        }
-      },
+      }
     },
-    'pbl-generate',
-  );
+  });
 
   // Check if mode reached idle; if not, the LLM may have stopped early
   if (modeMCP.getCurrentMode() !== 'idle') {
@@ -397,14 +393,11 @@ Based on the issue information above, generate 1-3 specific, actionable question
 
 Format your response as a numbered list.`;
 
-    const questionResult = await callLLM(
-      {
-        model,
-        system: questionAgent.system_prompt,
-        prompt: context,
-      },
-      'pbl-post-process',
-    );
+    const questionResult = await generateText({
+      model,
+      system: questionAgent.system_prompt,
+      prompt: context,
+    });
 
     const generatedQuestions = questionResult.text;
     firstIssue.generated_questions = generatedQuestions;

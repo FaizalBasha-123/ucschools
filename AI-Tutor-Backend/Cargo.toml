@@ -5,6 +5,7 @@ members = [
   "crates/domain",
   "crates/orchestrator",
   "crates/providers",
+  "crates/routing",
   "crates/runtime",
   "crates/storage",
   "crates/media",
