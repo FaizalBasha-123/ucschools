@@ -45,6 +45,9 @@ pub struct LessonGenerationRequest {
     pub agent_mode: AgentMode,
     pub account_id: Option<String>,
     pub school_id: Option<String>,
+    /// Base64-encoded PDF images extracted by the frontend for vision models.
+    #[serde(default)]
+    pub pdf_images: Vec<String>,
     /// Which AI model stack to use: "basic" | "standard" | "premium".
     pub quality_mode: Option<String>,
     /// Pedagogy style: "explain" | "revision" | "exam" | "placement_prep".

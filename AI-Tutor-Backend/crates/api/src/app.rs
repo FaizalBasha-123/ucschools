@@ -24,7 +24,6 @@ use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tokio_util::sync::CancellationToken;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -60,17 +59,15 @@ use ai_tutor_domain::{
     lesson::Lesson,
     provider::ModelConfig,
     runtime::{
-        DirectorState, RuntimeActionExecutionRecord, RuntimeActionExecutionStatus,
-        RuntimeSessionMode, StatelessChatRequest,
+        RuntimeActionExecutionRecord, RuntimeActionExecutionStatus,
+        StatelessChatRequest,
     },
     scene::{ProjectAgentRole, ProjectConfig},
 };
 use ai_tutor_media::storage::{DynAssetStore, LocalFileAssetStore, R2AssetStore};
 use ai_tutor_storage::repositories::ApiUsageRepository;
 use ai_tutor_orchestrator::{
-    chat_graph::{self, ChatGraphEventKind},
     generation::LlmGenerationPipeline,
-    pedagogy_router::resolve_chat_pedagogy_route,
     pipeline::{build_queued_job, LessonGenerationOrchestrator},
 };
 use ai_tutor_providers::{
@@ -84,8 +81,8 @@ use ai_tutor_providers::{
     },
 };
 use ai_tutor_runtime::session::{
-    action_execution_metadata_for_name, canonical_runtime_action_params, lesson_playback_events,
-    ActionAckPolicy, PlaybackEvent, TutorEventKind, TutorStreamEvent, TutorTurnStatus,
+    lesson_playback_events,
+    ActionAckPolicy, PlaybackEvent, TutorStreamEvent,
 };
 use ai_tutor_storage::{
     filesystem::FileStorage,
@@ -324,6 +321,7 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
             || path == "/api/runtime/actions/ack"
             || path == "/api/runtime/pbl/chat"
             || path == "/api/runtime/chat/stream"
+            || (path.starts_with("/api/lessons/") && path.ends_with("/quiz/grade"))
         {
             return Some(ApiRole::Writer);
         }
@@ -540,6 +538,7 @@ pub struct GenerateLessonPayload {
     pub language: Option<String>,
     pub model: Option<String>,
     pub pdf_text: Option<String>,
+    pub pdf_images: Option<Vec<String>>,
     pub enable_web_search: Option<bool>,
     pub enable_image_generation: Option<bool>,
     pub enable_video_generation: Option<bool>,
@@ -598,6 +597,37 @@ pub struct LessonShelfPatchRequest {
 pub struct LessonShelfMarkOpenedRequest {
     pub lesson_id: String,
     pub item_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GradeQuizRequest {
+    pub lesson_id: String,
+    pub scene_id: String,
+    pub answers: Vec<GradeQuizAnswer>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GradeQuizAnswer {
+    pub question_id: String,
+    pub answer: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GradeQuizResponse {
+    pub total_questions: usize,
+    pub correct_count: usize,
+    pub score_pct: f32,
+    pub question_results: Vec<QuestionResult>,
+    pub feedback: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct QuestionResult {
+    pub question_id: String,
+    pub is_correct: bool,
+    pub correct_answer: Vec<String>,
+    pub user_answer: Vec<String>,
+    pub explanation: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1626,14 +1656,9 @@ pub trait LessonAppService: Send + Sync {
     ) -> Result<LessonShelfItemResponse>;
     async fn cancel_job(&self, id: &str) -> Result<CancelLessonJobOutcome>;
     async fn resume_job(&self, id: &str) -> Result<ResumeLessonJobOutcome>;
-    async fn stateless_chat(&self, payload: StatelessChatRequest) -> Result<Vec<TutorStreamEvent>>;
-    async fn stateless_chat_stream(
-        &self,
-        payload: StatelessChatRequest,
-        sender: mpsc::Sender<TutorStreamEvent>,
-    ) -> Result<()>;
     async fn get_job(&self, id: &str) -> Result<Option<LessonGenerationJob>>;
     async fn get_lesson(&self, id: &str) -> Result<Option<Lesson>>;
+    async fn grade_quiz(&self, payload: GradeQuizRequest) -> Result<GradeQuizResponse>;
     async fn get_audio_asset(&self, lesson_id: &str, file_name: &str) -> Result<Option<Vec<u8>>>;
     async fn get_media_asset(&self, lesson_id: &str, file_name: &str) -> Result<Option<Vec<u8>>>;
     async fn acknowledge_runtime_action(
@@ -6389,210 +6414,6 @@ impl LessonAppService for LiveLessonAppService {
         Ok(ResumeLessonJobOutcome::Resumed(job))
     }
 
-    async fn stateless_chat(&self, payload: StatelessChatRequest) -> Result<Vec<TutorStreamEvent>> {
-        let adaptive_signal = adaptive_signal_from_stateless_payload(&payload);
-        let runtime_session_mode =
-            validate_runtime_session_mode(&payload).map_err(|err| anyhow!(err))?;
-        let runtime_session_mode_label = runtime_session_mode_label(&runtime_session_mode);
-        let session_id = payload
-            .session_id
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let runtime_session_id = coordination_session_id(&runtime_session_mode, &session_id);
-        info!(
-            transport_session_id = %session_id,
-            runtime_session_id = %runtime_session_id,
-            runtime_session_mode = runtime_session_mode_label,
-            "Starting stateless tutor request"
-        );
-        self.expire_runtime_action_timeouts(&runtime_session_id)
-            .await?;
-        let graph_events = self
-            .run_stateless_chat_graph(payload, &session_id, None, None)
-            .await?;
-        let mut events = vec![build_session_started_event(
-            &session_id,
-            &runtime_session_id,
-            runtime_session_mode_label,
-        )];
-        for event in graph_events {
-            let tutor_event = map_graph_event_to_tutor_event(
-                event,
-                &session_id,
-                &runtime_session_id,
-                runtime_session_mode_label,
-            );
-            self.record_runtime_action_expectation(&tutor_event).await?;
-            events.push(tutor_event);
-        }
-
-        if let Some(adaptive_signal) = adaptive_signal {
-            self.update_lesson_adaptive_progress(
-                &adaptive_signal.lesson_id,
-                adaptive_signal.topic,
-                adaptive_signal.should_record_diagnostic,
-            )
-            .await?;
-        }
-
-        Ok(events)
-    }
-
-    async fn stateless_chat_stream(
-        &self,
-        payload: StatelessChatRequest,
-        sender: mpsc::Sender<TutorStreamEvent>,
-    ) -> Result<()> {
-        let adaptive_signal = adaptive_signal_from_stateless_payload(&payload);
-        let runtime_session_mode =
-            validate_runtime_session_mode(&payload).map_err(|err| anyhow!(err))?;
-        let runtime_session_mode_label = runtime_session_mode_label(&runtime_session_mode);
-        let session_id = payload
-            .session_id
-            .clone()
-            .unwrap_or_else(|| Uuid::new_v4().to_string());
-        let runtime_session_id = coordination_session_id(&runtime_session_mode, &session_id);
-        info!(
-            transport_session_id = %session_id,
-            runtime_session_id = %runtime_session_id,
-            runtime_session_mode = runtime_session_mode_label,
-            "Starting stateless tutor stream"
-        );
-        self.expire_runtime_action_timeouts(&runtime_session_id)
-            .await?;
-        sender
-            .send(build_session_started_event(
-                &session_id,
-                &runtime_session_id,
-                runtime_session_mode_label,
-            ))
-            .await
-            .map_err(|_| anyhow!("failed to send session_started tutor event"))?;
-
-        let (graph_sender, mut graph_receiver) = mpsc::unbounded_channel();
-        let cancellation = CancellationToken::new();
-        let graph_service = self.clone();
-        let graph_session_id = session_id.clone();
-        let graph_cancellation = cancellation.clone();
-        let mut graph_handle = tokio::spawn(async move {
-            let res = graph_service
-                .run_stateless_chat_graph(
-                    payload,
-                    &graph_session_id,
-                    Some(graph_sender),
-                    Some(graph_cancellation),
-                )
-                .await;
-            if let Err(ref e) = res {
-                println!("run_stateless_chat_graph failed: {:?}", e);
-            }
-            res
-        });
-
-        // OpenMAIC equivalent:
-        // - adapter.streamGenerate(...) receives an AbortSignal
-        // - when stream consumer closes, upstream generation is aborted
-        //
-        // Rust equivalent here:
-        // - SSE forward path watches downstream channel liveness
-        // - on disconnect, abort the running graph task immediately
-        let mut graph_result = None;
-        println!("Entering stateless_chat_stream select loop");
-        loop {
-            tokio::select! {
-                _ = sender.closed() => {
-                    println!("select! resolved sender.closed()");
-                    warn!(
-                        transport_session_id = %session_id,
-                        runtime_session_mode = runtime_session_mode_label,
-                        "Downstream tutor stream closed; propagating cancellation"
-                    );
-                    cancellation.cancel();
-                    break;
-                }
-                maybe_event = graph_receiver.recv() => {
-                    println!("select! resolved graph_receiver.recv()");
-                    match maybe_event {
-                        Some(graph_event) => {
-                            let tutor_event = map_graph_event_to_tutor_event(
-                                graph_event,
-                                &session_id,
-                                &runtime_session_id,
-                                runtime_session_mode_label,
-                            );
-                            println!("stateless_chat_stream: sending tutor event {:?}", tutor_event.kind);
-                            if let Err(e) = self.record_runtime_action_expectation(&tutor_event).await {
-                                println!("record_runtime_action_expectation failed: {}", e);
-                            }
-                            if sender.send(tutor_event).await.is_err() {
-                                println!("sender.send failed");
-                                warn!(
-                                    transport_session_id = %session_id,
-                                    runtime_session_mode = runtime_session_mode_label,
-                                    "Downstream tutor stream disconnected; propagating cancellation"
-                                );
-                                cancellation.cancel();
-                                break;
-                            }
-                            println!("sender.send succeeded");
-                        }
-                        None => {
-                            println!("graph_receiver returned None");
-                            break;
-                        }
-                    }
-                }
-                result = &mut graph_handle => {
-                    println!("select! resolved graph_handle: {:?}", result);
-                    graph_result = Some(result);
-                    break;
-                }
-            }
-        }
-        println!("Exited stateless_chat_stream select loop");
-
-        if graph_result.is_none() {
-            match tokio::time::timeout(Duration::from_millis(250), &mut graph_handle).await {
-                Ok(result) => graph_result = Some(result),
-                Err(_) => {
-                    warn!(
-                        transport_session_id = %session_id,
-                        runtime_session_mode = runtime_session_mode_label,
-                        "Graph task did not stop promptly after cancellation; aborting task"
-                    );
-                    cancellation.cancel();
-                    graph_handle.abort();
-                    graph_result = Some(graph_handle.await);
-                }
-            }
-        }
-
-        match graph_result.expect("graph result should be captured") {
-            Ok(result) => match result {
-                Ok(_) => {
-                    if let Some(adaptive_signal) = adaptive_signal {
-                        self.update_lesson_adaptive_progress(
-                            &adaptive_signal.lesson_id,
-                            adaptive_signal.topic,
-                            adaptive_signal.should_record_diagnostic,
-                        )
-                        .await?;
-                    }
-                    Ok(())
-                }
-                Err(err)
-                    if cancellation.is_cancelled()
-                        && err.to_string().contains("stream cancelled") =>
-                {
-                    Ok(())
-                }
-                Err(err) => Err(err),
-            },
-            Err(join_err) if join_err.is_cancelled() => Ok(()),
-            Err(join_err) => Err(anyhow!("stateless chat graph task failed: {}", join_err)),
-        }
-    }
-
     async fn get_job(&self, id: &str) -> Result<Option<LessonGenerationJob>> {
         self.storage.get_job(id).await.map_err(|err| anyhow!(err))
     }
@@ -6625,6 +6446,95 @@ impl LessonAppService for LiveLessonAppService {
                 .await
                 .map_err(|err| anyhow!(err))
         }
+    }
+
+    async fn grade_quiz(&self, payload: GradeQuizRequest) -> Result<GradeQuizResponse> {
+        let lesson = self.storage
+            .get_lesson(&payload.lesson_id)
+            .await
+            .map_err(|err| anyhow!(err))?
+            .ok_or_else(|| anyhow!("lesson not found"))?;
+
+        let scene = lesson.scenes
+            .iter()
+            .find(|s| s.id == payload.scene_id)
+            .ok_or_else(|| anyhow!("scene not found"))?;
+
+        let questions = match &scene.content {
+            ai_tutor_domain::scene::SceneContent::Quiz { questions } => questions.clone(),
+            _ => return Err(anyhow!("scene is not a quiz")),
+        };
+
+        let answer_map: std::collections::HashMap<String, Vec<String>> = payload.answers
+            .into_iter()
+            .map(|a| (a.question_id, a.answer))
+            .collect();
+
+        let mut results = Vec::new();
+        let mut correct_count = 0usize;
+
+        for q in &questions {
+            let user_answer = answer_map.get(&q.id).cloned().unwrap_or_default();
+            let correct_answer = q.answer.clone().unwrap_or_default();
+            let is_correct = match q.question_type {
+                ai_tutor_domain::scene::QuizQuestionType::Single => {
+                    user_answer.len() == 1 && correct_answer.len() == 1
+                        && user_answer[0].trim().eq_ignore_ascii_case(correct_answer[0].trim())
+                }
+                ai_tutor_domain::scene::QuizQuestionType::Multiple => {
+                    let user_set: std::collections::HashSet<String> = user_answer
+                        .iter()
+                        .map(|s| s.trim().to_lowercase())
+                        .collect();
+                    let correct_set: std::collections::HashSet<String> = correct_answer
+                        .iter()
+                        .map(|s| s.trim().to_lowercase())
+                        .collect();
+                    user_set == correct_set
+                }
+                ai_tutor_domain::scene::QuizQuestionType::ShortAnswer => {
+                    // For short answer, accept if any user answer roughly matches any correct answer
+                    user_answer.iter().any(|ua| {
+                        correct_answer.iter().any(|ca| {
+                            ua.trim().eq_ignore_ascii_case(ca.trim())
+                        })
+                    })
+                }
+            };
+
+            if is_correct {
+                correct_count += 1;
+            }
+
+            results.push(QuestionResult {
+                question_id: q.id.clone(),
+                is_correct,
+                correct_answer: correct_answer.clone(),
+                user_answer: user_answer.clone(),
+                explanation: q.analysis.clone().unwrap_or_default(),
+            });
+        }
+
+        let total = questions.len().max(1);
+        let score_pct = (correct_count as f32 / total as f32) * 100.0;
+
+        let feedback = if score_pct >= 90.0 {
+            "Excellent work! You have a strong grasp of this material."
+        } else if score_pct >= 70.0 {
+            "Good job! Review the questions you missed to strengthen your understanding."
+        } else if score_pct >= 50.0 {
+            "You're making progress. Consider revisiting the lesson content for the topics you missed."
+        } else {
+            "Keep practicing! Review the lesson material and try again to improve your score."
+        };
+
+        Ok(GradeQuizResponse {
+            total_questions: questions.len(),
+            correct_count,
+            score_pct,
+            question_results: results,
+            feedback: feedback.to_string(),
+        })
     }
 
     async fn get_audio_asset(&self, lesson_id: &str, file_name: &str) -> Result<Option<Vec<u8>>> {
@@ -7101,189 +7011,6 @@ impl LiveLessonAppService {
 
         Ok(())
     }
-
-    async fn run_stateless_chat_graph(
-        &self,
-        mut payload: StatelessChatRequest,
-        session_id: &str,
-        event_sender: Option<tokio::sync::mpsc::UnboundedSender<chat_graph::ChatGraphEvent>>,
-        cancellation_token: Option<CancellationToken>,
-    ) -> Result<Vec<chat_graph::ChatGraphEvent>> {
-        let runtime_session_mode =
-            validate_runtime_session_mode(&payload).map_err(|err| anyhow!(err))?;
-        let runtime_session_mode_label = runtime_session_mode_label(&runtime_session_mode);
-        let runtime_session_id = coordination_session_id(&runtime_session_mode, session_id);
-
-        match &runtime_session_mode {
-            ResolvedRuntimeSessionMode::StatelessClientState => {
-                if payload.director_state.is_none() {
-                    payload.director_state = Some(empty_director_state());
-                }
-            }
-            ResolvedRuntimeSessionMode::ManagedRuntimeSession {
-                persistence_session_id,
-                create_if_missing,
-            } => {
-                let loaded = self.runtime_sessions
-                    .get_runtime_session(persistence_session_id)
-                    .await
-                    .map_err(|err| anyhow!(err))?;
-                payload.director_state = Some(match loaded {
-                    Some(state) => state,
-                    None if *create_if_missing => empty_director_state(),
-                    None => {
-                        anyhow::bail!(
-                            "managed runtime session not found: {}",
-                            persistence_session_id
-                        )
-                    }
-                });
-                self.expire_runtime_action_timeouts(&runtime_session_id)
-                    .await?;
-                self.ensure_runtime_action_resume_ready(&runtime_session_id)
-                    .await?;
-            }
-        }
-        payload.session_id = Some(session_id.to_string());
-
-        let chat_route = resolve_chat_pedagogy_route(&payload, None)?;
-        let model_string = chat_route.model.clone();
-
-        info!(
-            transport_session_id = %session_id,
-            runtime_session_id = %runtime_session_id,
-            runtime_session_mode = runtime_session_mode_label,
-            pedagogy_tier = chat_route.tier.as_str(),
-            pedagogy_confidence = chat_route.confidence,
-            pedagogy_reason = %chat_route.reason,
-            "Starting stateless tutor graph"
-        );
-
-        let resolved = resolve_model(
-            &self.provider_config,
-            Some(&model_string),
-            Some(payload.api_key.as_str()),
-            payload.base_url.as_deref(),
-            payload
-                .provider_type
-                .as_deref()
-                .and_then(parse_provider_type),
-            payload.requires_api_key,
-        )?;
-        let llm: Arc<dyn ai_tutor_providers::traits::LlmProvider> =
-            Arc::from(self.provider_factory.build(resolved.model_config)?);
-
-        let events = match event_sender {
-            Some(sender) => {
-                chat_graph::run_chat_graph_stream(
-                    payload,
-                    llm,
-                    session_id.to_string(),
-                    sender,
-                    cancellation_token,
-                )
-                .await
-            }
-            None => chat_graph::run_chat_graph(payload, llm, session_id.to_string()).await,
-        }?;
-
-        if let ResolvedRuntimeSessionMode::ManagedRuntimeSession {
-            persistence_session_id,
-            ..
-        } = &runtime_session_mode
-        {
-            if let Some(final_state) = events
-                .iter()
-                .rev()
-                .find_map(|event| event.director_state.clone())
-            {
-                self.runtime_sessions
-                    .save_runtime_session(persistence_session_id, &final_state)
-                    .await
-                    .map_err(|err| anyhow!(err))?;
-            }
-        }
-
-        info!(
-            transport_session_id = %session_id,
-            runtime_session_id = %runtime_session_id,
-            runtime_session_mode = runtime_session_mode_label,
-            event_count = events.len(),
-            "Completed stateless tutor graph"
-        );
-
-        Ok(events)
-    }
-}
-
-fn empty_director_state() -> DirectorState {
-    DirectorState {
-        turn_count: 0,
-        agent_responses: vec![],
-        whiteboard_ledger: vec![],
-        whiteboard_state: None,
-    }
-}
-
-fn coordination_session_id(
-    mode: &ResolvedRuntimeSessionMode,
-    transport_session_id: &str,
-) -> String {
-    match mode {
-        ResolvedRuntimeSessionMode::StatelessClientState => transport_session_id.to_string(),
-        ResolvedRuntimeSessionMode::ManagedRuntimeSession {
-            persistence_session_id,
-            ..
-        } => persistence_session_id.clone(),
-    }
-}
-
-fn runtime_session_mode_label(mode: &ResolvedRuntimeSessionMode) -> &'static str {
-    match mode {
-        ResolvedRuntimeSessionMode::StatelessClientState => "stateless_client_state",
-        ResolvedRuntimeSessionMode::ManagedRuntimeSession { .. } => "managed_runtime_session",
-    }
-}
-
-fn validate_runtime_session_mode(
-    payload: &StatelessChatRequest,
-) -> std::result::Result<ResolvedRuntimeSessionMode, String> {
-    let selector = payload.runtime_session.as_ref().ok_or_else(|| {
-        "missing required runtime_session contract; choose stateless_client_state or managed_runtime_session".to_string()
-    })?;
-
-    match selector.mode {
-        RuntimeSessionMode::StatelessClientState => {
-            if selector.session_id.is_some() || selector.create_if_missing.is_some() {
-                return Err(
-                    "stateless_client_state does not accept runtime_session.session_id or create_if_missing"
-                        .to_string(),
-                );
-            }
-            Ok(ResolvedRuntimeSessionMode::StatelessClientState)
-        }
-        RuntimeSessionMode::ManagedRuntimeSession => {
-            if payload.director_state.is_some() {
-                return Err(
-                    "managed_runtime_session cannot be combined with client-supplied director_state"
-                        .to_string(),
-                );
-            }
-            let persistence_session_id = selector
-                .session_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| {
-                    "managed_runtime_session requires runtime_session.session_id".to_string()
-                })?
-                .to_string();
-            Ok(ResolvedRuntimeSessionMode::ManagedRuntimeSession {
-                persistence_session_id,
-                create_if_missing: selector.create_if_missing.unwrap_or(false),
-            })
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -7649,11 +7376,11 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/runtime/actions/ack", post(acknowledge_runtime_action))
         .route("/api/runtime/pbl/chat", post(runtime_pbl_chat))
         .route("/api/runtime/transcribe", post(transcribe))
-        .route("/api/runtime/chat/stream", post(stream_stateless_chat))
         .route("/api/lessons/jobs/{id}", get(get_job))
         .route("/api/lessons/{id}", get(get_lesson))
         .route("/api/lessons/{id}/export/html", get(export_lesson_html))
         .route("/api/lessons/{id}/export/video", get(export_lesson_video))
+        .route("/api/lessons/{id}/quiz/grade", post(grade_quiz))
         .route("/api/lessons/{id}/events", get(stream_lesson_events))
         .route(
             "/api/assets/media/{lesson_id}/{file_name}",
@@ -8747,39 +8474,6 @@ async fn resume_job(
     }
 }
 
-async fn stream_stateless_chat(
-    State(state): State<AppState>,
-    Json(payload): Json<StatelessChatRequest>,
-) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>>, ApiError> {
-    validate_runtime_session_mode(&payload).map_err(ApiError::bad_request)?;
-    let (sender, receiver) = mpsc::channel::<TutorStreamEvent>(32);
-    let service = Arc::clone(&state.service);
-    let service_task = tokio::spawn(async move {
-        if let Err(err) = service.stateless_chat_stream(payload, sender).await {
-            error!("stateless tutor stream error: {}", err);
-        }
-    });
-
-    let (event_sender, event_receiver) = mpsc::channel::<Result<Event, Infallible>>(32);
-    tokio::spawn(async move {
-        let mut receiver = receiver;
-        let service_task = service_task;
-        while let Some(tutor_event) = receiver.recv().await {
-            if event_sender
-                .send(Ok(build_tutor_sse_event(&tutor_event)))
-                .await
-                .is_err()
-            {
-                // Client stream is closed; abort backend generation immediately.
-                // This mirrors OpenMAIC's abort-signal intention at the HTTP edge.
-                service_task.abort();
-                break;
-            }
-        }
-    });
-
-    Ok(Sse::new(ReceiverStream::new(event_receiver)).keep_alive(KeepAlive::default()))
-}
 
 async fn acknowledge_runtime_action(
     State(state): State<AppState>,
@@ -8878,6 +8572,19 @@ async fn get_lesson(
         .map_err(ApiError::internal)?
         .map(Json)
         .ok_or_else(|| ApiError::not_found(format!("lesson not found: {}", id)))
+}
+
+async fn grade_quiz(
+    State(state): State<AppState>,
+    Path(_id): Path<String>,
+    Json(payload): Json<GradeQuizRequest>,
+) -> Result<Json<GradeQuizResponse>, ApiError> {
+    state
+        .service
+        .grade_quiz(payload)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
 }
 
 async fn export_lesson_html(
@@ -9052,6 +8759,7 @@ fn build_generation_request(payload: GenerateLessonPayload) -> Result<LessonGene
             user_bio: payload.user_bio,
         },
         pdf_content: payload.pdf_text,
+        pdf_images: payload.pdf_images.unwrap_or_default(),
         enable_web_search: payload.enable_web_search.unwrap_or(false),
         enable_image_generation: payload.enable_image_generation.unwrap_or(false),
         enable_video_generation: payload.enable_video_generation.unwrap_or(false),
@@ -9244,127 +8952,6 @@ fn build_sse_event(playback_event: &PlaybackEvent) -> Event {
         })
 }
 
-fn build_session_started_event(
-    session_id: &str,
-    runtime_session_id: &str,
-    runtime_session_mode: &str,
-) -> TutorStreamEvent {
-    TutorStreamEvent {
-        kind: TutorEventKind::SessionStarted,
-        session_id: session_id.to_string(),
-        runtime_session_id: Some(runtime_session_id.to_string()),
-        runtime_session_mode: Some(runtime_session_mode.to_string()),
-        turn_status: Some(TutorTurnStatus::Running),
-        agent_id: None,
-        agent_name: None,
-        action_name: None,
-        action_params: None,
-        execution_id: None,
-        ack_policy: None,
-        execution: None,
-        whiteboard_state: None,
-        content: None,
-        message: Some("Starting stateless tutor session".to_string()),
-        interruption_reason: None,
-        resume_allowed: None,
-        director_state: None,
-    }
-}
-
-fn map_graph_event_to_tutor_event(
-    ge: chat_graph::ChatGraphEvent,
-    session_id: &str,
-    runtime_session_id: &str,
-    runtime_session_mode: &str,
-) -> TutorStreamEvent {
-    let canonical_action_params = ge
-        .action_name
-        .as_deref()
-        .zip(ge.action_params.as_ref())
-        .map(|(action_name, params)| canonical_runtime_action_params(action_name, params));
-    let resolved_action_params = canonical_action_params.or(ge.action_params.clone());
-    let execution = ge
-        .action_name
-        .as_deref()
-        .and_then(action_execution_metadata_for_name);
-    let execution_id = ge
-        .action_name
-        .as_deref()
-        .zip(resolved_action_params.as_ref())
-        .map(|(action_name, params)| {
-            build_runtime_action_execution_id(session_id, action_name, params)
-        });
-    let ack_policy = ge
-        .action_name
-        .as_deref()
-        .and_then(action_ack_policy_for_name);
-    let kind = match ge.kind {
-        ChatGraphEventKind::Thinking => TutorEventKind::Thinking,
-        ChatGraphEventKind::AgentSelected => TutorEventKind::AgentSelected,
-        ChatGraphEventKind::TextDelta => TutorEventKind::TextDelta,
-        ChatGraphEventKind::ActionStarted => TutorEventKind::ActionStarted,
-        ChatGraphEventKind::ActionProgress => TutorEventKind::ActionProgress,
-        ChatGraphEventKind::ActionCompleted => TutorEventKind::ActionCompleted,
-        ChatGraphEventKind::Interrupted => TutorEventKind::Interrupted,
-        ChatGraphEventKind::CueUser => TutorEventKind::CueUser,
-        ChatGraphEventKind::Done => TutorEventKind::Done,
-    };
-
-    TutorStreamEvent {
-        kind,
-        session_id: session_id.to_string(),
-        runtime_session_id: Some(runtime_session_id.to_string()),
-        runtime_session_mode: Some(runtime_session_mode.to_string()),
-        turn_status: Some(match ge.kind {
-            ChatGraphEventKind::Interrupted => TutorTurnStatus::Interrupted,
-            ChatGraphEventKind::Done => TutorTurnStatus::Completed,
-            _ => TutorTurnStatus::Running,
-        }),
-        agent_id: ge.agent_id,
-        agent_name: ge.agent_name,
-        action_name: ge.action_name,
-        action_params: resolved_action_params,
-        execution_id,
-        ack_policy,
-        execution,
-        whiteboard_state: ge.whiteboard_state,
-        content: ge.content,
-        message: ge.message,
-        interruption_reason: ge.interruption_reason,
-        resume_allowed: ge.resume_allowed,
-        director_state: ge.director_state,
-    }
-}
-
-fn build_tutor_sse_event(tutor_event: &TutorStreamEvent) -> Event {
-    let event_name = match tutor_event.kind {
-        TutorEventKind::SessionStarted => "session_started",
-        TutorEventKind::Thinking => "thinking",
-        TutorEventKind::AgentSelected => "agent_selected",
-        TutorEventKind::TextDelta => "text_delta",
-        TutorEventKind::ActionStarted => "action_started",
-        TutorEventKind::ActionProgress => "action_progress",
-        TutorEventKind::ActionCompleted => "action_completed",
-        TutorEventKind::Interrupted => "interrupted",
-        TutorEventKind::ResumeAvailable => "resume_available",
-        TutorEventKind::ResumeRejected => "resume_rejected",
-        TutorEventKind::CueUser => "cue_user",
-        TutorEventKind::Done => "done",
-        TutorEventKind::Error => "error",
-    };
-
-    Event::default()
-        .event(event_name)
-        .json_data(tutor_event)
-        .unwrap_or_else(|_| {
-            Event::default().event("serialization_error").data(
-                tutor_event
-                    .message
-                    .clone()
-                    .unwrap_or_else(|| "serialization error".to_string()),
-            )
-        })
-}
 
 fn action_ack_policy_for_name(action_name: &str) -> Option<ActionAckPolicy> {
     match action_name {
@@ -12386,29 +11973,19 @@ mod tests {
                 .ok_or_else(|| anyhow!("missing resume outcome"))
         }
 
-        async fn stateless_chat(
-            &self,
-            _payload: StatelessChatRequest,
-        ) -> Result<Vec<TutorStreamEvent>> {
-            Ok(self.chat_events.lock().unwrap().clone())
-        }
-
-        async fn stateless_chat_stream(
-            &self,
-            _payload: StatelessChatRequest,
-            sender: mpsc::Sender<TutorStreamEvent>,
-        ) -> Result<()> {
-            let events = self.chat_events.lock().unwrap().clone();
-            for event in events {
-                if sender.send(event).await.is_err() {
-                    break;
-                }
-            }
-            Ok(())
-        }
 
         async fn get_lesson(&self, _id: &str) -> Result<Option<Lesson>> {
             Ok(self.lesson.clone())
+        }
+
+        async fn grade_quiz(&self, _payload: GradeQuizRequest) -> Result<GradeQuizResponse> {
+            Ok(GradeQuizResponse {
+                total_questions: 0,
+                correct_count: 0,
+                score_pct: 0.0,
+                question_results: vec![],
+                feedback: "Mock grading".to_string(),
+            })
         }
 
         async fn get_audio_asset(
@@ -13374,363 +12951,13 @@ mod tests {
         ))
     }
 
-    #[tokio::test]
-    async fn live_service_stateless_chat_runs_multi_turn_discussion_loop() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_service_with_fakes(Arc::clone(&storage));
-        let payload = sample_stateless_chat_request();
 
-        let events = service.stateless_chat(payload).await.unwrap();
-        let selected_count = events
-            .iter()
-            .filter(|event| matches!(event.kind, TutorEventKind::AgentSelected))
-            .count();
-        let final_state = events
-            .iter()
-            .rev()
-            .find_map(|event| event.director_state.clone())
-            .expect("director state should be returned on done");
 
-        assert!(selected_count >= 1);
-        assert!(final_state.turn_count >= 1);
-        assert_eq!(final_state.agent_responses.len(), final_state.turn_count as usize);
-    }
 
-    #[tokio::test]
-    async fn live_service_stateless_chat_emits_cue_user_for_discussion_sessions() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_service_with_fakes(Arc::clone(&storage));
-        let payload = sample_stateless_chat_request();
 
-        let events = service.stateless_chat(payload).await.unwrap();
-        let cue_user = events
-            .iter()
-            .find(|event| matches!(event.kind, TutorEventKind::CueUser));
 
-        assert!(cue_user.is_some());
-        assert!(cue_user
-            .and_then(|event| event.message.as_ref())
-            .is_some_and(|message| message.contains("Ask a follow-up")));
-    }
 
-    #[tokio::test]
-    async fn live_service_stateless_chat_reuses_client_supplied_director_state() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_chat_service_with_response(
-            Arc::clone(&storage),
-            vec![
-                r#"[{"type":"text","content":"Using the client tutor runtime state."}]"#
-                    .to_string(),
-                r#"[{"type":"text","content":"Continuing from the passed discussion context."}]"#
-                    .to_string(),
-            ],
-        );
 
-        let mut payload = sample_stateless_chat_request();
-        payload.session_id = Some("session-reuse".to_string());
-        payload.director_state = Some(DirectorState {
-            turn_count: 1,
-            agent_responses: vec![AgentTurnSummary {
-                agent_id: "teacher-1".to_string(),
-                agent_name: "Ms. Rivera".to_string(),
-                content_preview: "Previously client-carried discussion turn".to_string(),
-                action_count: 0,
-                whiteboard_actions: vec![],
-            }],
-            whiteboard_ledger: vec![],
-            whiteboard_state: None,
-        });
-
-        let events = service.stateless_chat(payload).await.unwrap();
-        let final_state = events
-            .iter()
-            .rev()
-            .find_map(|event| event.director_state.clone())
-            .expect("final director state should be returned");
-
-        assert!(final_state.turn_count > 1);
-        assert!(final_state.agent_responses.len() > 1);
-        assert_eq!(
-            final_state.agent_responses[0].content_preview,
-            "Previously client-carried discussion turn"
-        );
-    }
-
-    #[tokio::test]
-    async fn live_service_stateless_chat_does_not_persist_runtime_session_state() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_service_with_fakes(Arc::clone(&storage));
-
-        let mut payload = sample_stateless_chat_request();
-        payload.session_id = Some("session-no-persist".to_string());
-        payload.director_state = None;
-
-        let events = service.stateless_chat(payload).await.unwrap();
-        let final_state = events
-            .iter()
-            .rev()
-            .find_map(|event| event.director_state.clone())
-            .expect("final director state should be returned");
-        let saved_state = storage
-            .get_runtime_session("session-no-persist")
-            .await
-            .unwrap();
-
-        assert!(saved_state.is_none());
-        assert!(final_state.turn_count >= 1);
-    }
-
-    #[tokio::test]
-    async fn live_service_managed_runtime_session_loads_and_persists_state() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_chat_service_with_response(
-            Arc::clone(&storage),
-            vec![
-                r#"{"next_agent":"teacher-1"}"#.to_string(),
-                r#"[{"type":"text","content":"Resuming with managed runtime memory."}]"#
-                    .to_string(),
-            ],
-        );
-
-        storage
-            .save_runtime_session(
-                "managed-session-1",
-                &DirectorState {
-                    turn_count: 1,
-                    agent_responses: vec![AgentTurnSummary {
-                        agent_id: "teacher-1".to_string(),
-                        agent_name: "Ms. Rivera".to_string(),
-                        content_preview: "Persisted turn".to_string(),
-                        action_count: 0,
-                        whiteboard_actions: vec![],
-                    }],
-                    whiteboard_ledger: vec![],
-                    whiteboard_state: None,
-                },
-            )
-            .await
-            .unwrap();
-
-        let mut payload = sample_stateless_chat_request();
-        payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("managed-session-1".to_string()),
-            create_if_missing: Some(false),
-        });
-        payload.director_state = None;
-
-        let events = service.stateless_chat(payload).await.unwrap();
-        let final_state = events
-            .iter()
-            .rev()
-            .find_map(|event| event.director_state.clone())
-            .expect("final director state should be returned");
-        let persisted = storage
-            .get_runtime_session("managed-session-1")
-            .await
-            .unwrap()
-            .expect("managed session should be persisted");
-
-        assert!(final_state.turn_count > 1);
-        assert_eq!(persisted.turn_count, final_state.turn_count);
-        assert_eq!(
-            persisted.agent_responses[0].content_preview,
-            "Persisted turn".to_string()
-        );
-    }
-
-    #[tokio::test]
-    async fn live_service_managed_runtime_session_can_create_empty_state() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_chat_service_with_response(
-            Arc::clone(&storage),
-            vec![r#"[{"type":"text","content":"Fresh managed session."}]"#.to_string()],
-        );
-
-        let mut payload = sample_stateless_chat_request();
-        payload.config.agent_ids = vec!["teacher-1".to_string()];
-        payload.config.agent_configs.truncate(1);
-        payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("managed-session-new".to_string()),
-            create_if_missing: Some(true),
-        });
-        payload.director_state = None;
-
-        let events = service.stateless_chat(payload).await.unwrap();
-        let final_state = events
-            .iter()
-            .rev()
-            .find_map(|event| event.director_state.clone())
-            .expect("final director state should be returned");
-        let persisted = storage
-            .get_runtime_session("managed-session-new")
-            .await
-            .unwrap();
-
-        assert!(final_state.turn_count >= 1);
-        assert!(persisted.is_some());
-    }
-
-    #[tokio::test]
-    async fn live_service_managed_runtime_session_resume_advances_from_checkpoint() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_chat_service_with_response(
-            Arc::clone(&storage),
-            vec![
-                r#"{"next_agent":"teacher-1"}"#.to_string(),
-                r#"[{"type":"text","content":"Managed checkpoint turn."}]"#.to_string(),
-                r#"{"next_agent":"teacher-1"}"#.to_string(),
-                r#"[{"type":"text","content":"Managed checkpoint follow-up."}]"#.to_string(),
-            ],
-        );
-
-        let mut first_payload = sample_stateless_chat_request();
-        first_payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("managed-checkpoint-resume".to_string()),
-            create_if_missing: Some(true),
-        });
-        first_payload.director_state = None;
-
-        let first_events = service.stateless_chat(first_payload).await.unwrap();
-        let first_final_state = first_events
-            .iter()
-            .rev()
-            .find_map(|event| event.director_state.clone())
-            .expect("first call should emit final director state");
-        let first_persisted = storage
-            .get_runtime_session("managed-checkpoint-resume")
-            .await
-            .unwrap()
-            .expect("first managed call should persist state");
-        assert_eq!(first_persisted.turn_count, first_final_state.turn_count);
-
-        let mut second_payload = sample_stateless_chat_request();
-        second_payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("managed-checkpoint-resume".to_string()),
-            create_if_missing: Some(false),
-        });
-        second_payload.director_state = None;
-
-        let second_events = service.stateless_chat(second_payload).await.unwrap();
-        let second_final_state = second_events
-            .iter()
-            .rev()
-            .find_map(|event| event.director_state.clone())
-            .expect("second call should emit final director state");
-        let second_persisted = storage
-            .get_runtime_session("managed-checkpoint-resume")
-            .await
-            .unwrap()
-            .expect("second managed call should persist state");
-
-        assert!(
-            second_final_state.turn_count > first_final_state.turn_count,
-            "resume call should advance from persisted checkpoint"
-        );
-        assert_eq!(second_persisted.turn_count, second_final_state.turn_count);
-        assert_eq!(
-            second_persisted.agent_responses.first().map(|r| r.content_preview.clone()),
-            first_persisted.agent_responses.first().map(|r| r.content_preview.clone())
-        );
-    }
-
-    #[tokio::test]
-    async fn live_service_managed_runtime_session_stream_disconnect_persists_resumable_state() {
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_BASELINE_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_REASONING_MODEL", "openai:gpt-4o-mini");
-
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let started = Arc::new(Notify::new());
-        let cancelled = Arc::new(Notify::new());
-        let started_wait = started.notified();
-        let cancelled_wait = cancelled.notified();
-
-        let streaming_service = build_live_chat_service_with_blocking_cancellable_provider(
-            Arc::clone(&storage),
-            Arc::clone(&started),
-            Arc::clone(&cancelled),
-        );
-
-        let (sender, mut receiver) = mpsc::channel::<TutorStreamEvent>(8);
-        let mut stream_payload = sample_stateless_chat_request();
-        stream_payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("managed-disconnect-resume".to_string()),
-            create_if_missing: Some(true),
-        });
-        stream_payload.director_state = None;
-
-        let streaming_service_clone = Arc::clone(&streaming_service);
-        let stream_task = tokio::spawn(async move {
-            streaming_service_clone
-                .stateless_chat_stream(stream_payload, sender)
-                .await
-        });
-
-        let first_event = tokio::time::timeout(std::time::Duration::from_millis(150), receiver.recv())
-            .await
-            .expect("stream should send first event quickly")
-            .expect("first event should exist");
-        assert!(matches!(first_event.kind, TutorEventKind::SessionStarted));
-
-        started_wait.await;
-        drop(receiver);
-        cancelled_wait.await;
-
-        let stream_join = tokio::time::timeout(std::time::Duration::from_millis(300), stream_task)
-            .await
-            .expect("stream task should stop quickly after downstream disconnect")
-            .expect("stream task should join cleanly");
-        assert!(stream_join.is_ok());
-
-        let persisted_after_disconnect = storage
-            .get_runtime_session("managed-disconnect-resume")
-            .await
-            .unwrap()
-            .expect("disconnect should still persist resumable checkpoint state");
-
-        let resume_service = build_live_chat_service_with_response(
-            Arc::clone(&storage),
-            vec![
-                r#"{"next_agent":"teacher-1"}"#.to_string(),
-                r#"[{"type":"text","content":"Recovered after disconnect."}]"#.to_string(),
-                r#"{"next_agent":"teacher-1"}"#.to_string(),
-                r#"[{"type":"text","content":"Recovered follow-up after disconnect."}]"#.to_string(),
-            ],
-        );
-
-        let mut resume_payload = sample_stateless_chat_request();
-        resume_payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("managed-disconnect-resume".to_string()),
-            create_if_missing: Some(false),
-        });
-        resume_payload.director_state = None;
-
-        let resume_events = resume_service.stateless_chat(resume_payload).await.unwrap();
-        let resumed_final_state = resume_events
-            .iter()
-            .rev()
-            .find_map(|event| event.director_state.clone())
-            .expect("resume should emit final director state");
-
-        assert!(
-            resumed_final_state.turn_count >= persisted_after_disconnect.turn_count,
-            "resumed state should continue from persisted checkpoint without rewinding"
-        );
-    }
 
     #[tokio::test]
     async fn live_service_subscription_payment_upserts_active_subscription() {
@@ -14588,25 +13815,6 @@ mod tests {
         runtime.block_on(run_live_service_billing_maintenance_marks_exhausted_intents_uncollectible());
     }
 
-    #[tokio::test]
-    async fn live_service_rejects_missing_managed_runtime_session() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_service_with_fakes(Arc::clone(&storage));
-
-        let mut payload = sample_stateless_chat_request();
-        payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("missing-managed".to_string()),
-            create_if_missing: Some(false),
-        });
-        payload.director_state = None;
-
-        let error = service.stateless_chat(payload).await.unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("managed runtime session not found"));
-    }
 
     #[tokio::test]
     async fn live_service_system_status_reports_sqlite_backends_and_queue_depth() {
@@ -14644,6 +13852,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -14727,6 +13936,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -14914,6 +14124,7 @@ mod tests {
             language: Some("english".to_string()),
             model: Some("openai:gpt-4o-mini".to_string()),
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -15650,46 +14861,6 @@ mod tests {
             .any(|alert| alert == "tts_margin_review_required"));
     }
 
-    #[test]
-    fn graph_event_mapping_supports_action_progress() {
-        let tutor_event = map_graph_event_to_tutor_event(
-            ai_tutor_orchestrator::chat_graph::ChatGraphEvent {
-                kind: ai_tutor_orchestrator::chat_graph::ChatGraphEventKind::ActionProgress,
-                agent_id: Some("teacher-1".to_string()),
-                agent_name: Some("Teacher".to_string()),
-                action_name: Some("wb_draw_text".to_string()),
-                action_params: Some(serde_json::json!({"content":"1/2"})),
-                content: None,
-                message: Some("in-flight".to_string()),
-                director_state: None,
-                whiteboard_state: None,
-                interruption_reason: None,
-                resume_allowed: None,
-            },
-            "session-test",
-            "session-test",
-            "stateless_client_state",
-        );
-
-        assert!(matches!(tutor_event.kind, TutorEventKind::ActionProgress));
-        assert_eq!(tutor_event.action_name.as_deref(), Some("wb_draw_text"));
-        assert_eq!(
-            tutor_event
-                .action_params
-                .as_ref()
-                .and_then(|params| params.get("schema_version"))
-                .and_then(|value| value.as_str()),
-            Some("runtime_action_v1")
-        );
-        assert_eq!(
-            tutor_event
-                .action_params
-                .as_ref()
-                .and_then(|params| params.get("action_name"))
-                .and_then(|value| value.as_str()),
-            Some("wb_draw_text")
-        );
-    }
 
     #[test]
     fn runtime_native_streaming_selector_parsing_is_trimmed() {
@@ -15757,6 +14928,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -15813,6 +14985,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -16720,50 +15893,6 @@ mod tests {
         assert!(transport_records.is_empty());
     }
 
-    #[tokio::test]
-    async fn live_service_rejects_managed_runtime_resume_with_unresolved_action_execution() {
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let service = build_live_chat_service_with_response_concrete(
-            Arc::clone(&storage),
-            vec![r#"[{"type":"text","content":"No-op response."}]"#.to_string()],
-        );
-
-        storage
-            .save_runtime_session("managed-runtime-session", &empty_director_state())
-            .await
-            .unwrap();
-        storage
-            .save_runtime_action_execution(&RuntimeActionExecutionRecord {
-                session_id: "managed-runtime-session".to_string(),
-                runtime_session_mode: "managed_runtime_session".to_string(),
-                execution_id: "managed-runtime-session:wb_open:{}".to_string(),
-                action_name: "wb_open".to_string(),
-                status: RuntimeActionExecutionStatus::Pending,
-                created_at_unix_ms: 10,
-                updated_at_unix_ms: 10,
-                timeout_at_unix_ms: i64::MAX,
-                last_error: None,
-            })
-            .await
-            .unwrap();
-
-        let mut payload = sample_stateless_chat_request();
-        payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("managed-runtime-session".to_string()),
-            create_if_missing: Some(false),
-        });
-        payload.director_state = None;
-
-        let error = service
-            .run_stateless_chat_graph(payload, "transport-session", None, None)
-            .await
-            .expect_err("resume should be blocked while unresolved actions remain");
-        let message = format!("{error:#}");
-        assert!(message.contains("unresolved action executions"));
-        assert!(message.contains("wb_open"));
-    }
 
     #[tokio::test]
     async fn live_service_runtime_action_ack_rejects_runtime_session_mismatch() {
@@ -16931,136 +16060,8 @@ mod tests {
         assert_eq!(second_workspace.active_issue_id.as_deref(), Some("issue-2"));
     }
 
-    #[tokio::test]
-    async fn runtime_chat_stream_route_rejects_missing_runtime_session_contract() {
-        let app = build_router(Arc::new(MockLessonAppService {
-            google_login_response: Mutex::new(None),
-            auth_session_response: Mutex::new(None),
-            credit_balance: Mutex::new(None),
-            credit_ledger: Mutex::new(None),
-            generate_response: Mutex::new(None),
-            queued_response: Mutex::new(None),
-            cancel_outcome: Mutex::new(None),
-            resume_outcome: Mutex::new(None),
-            chat_events: Mutex::new(vec![]),
-            action_acks: Mutex::new(vec![]),
-            job: None,
-            lesson: None,
-            audio_asset: None,
-            media_asset: None,
-        }));
 
-        let mut payload = sample_stateless_chat_request();
-        payload.runtime_session = None;
 
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/runtime/chat/stream")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_vec(&payload).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload = String::from_utf8(body.to_vec()).unwrap();
-        assert!(payload.contains("runtime_session"));
-    }
-
-    #[tokio::test]
-    async fn runtime_chat_stream_route_rejects_ambiguous_managed_session_payload() {
-        let app = build_router(Arc::new(MockLessonAppService {
-            google_login_response: Mutex::new(None),
-            auth_session_response: Mutex::new(None),
-            credit_balance: Mutex::new(None),
-            credit_ledger: Mutex::new(None),
-            generate_response: Mutex::new(None),
-            queued_response: Mutex::new(None),
-            cancel_outcome: Mutex::new(None),
-            resume_outcome: Mutex::new(None),
-            chat_events: Mutex::new(vec![]),
-            action_acks: Mutex::new(vec![]),
-            job: None,
-            lesson: None,
-            audio_asset: None,
-            media_asset: None,
-        }));
-
-        let mut payload = sample_stateless_chat_request();
-        payload.runtime_session = Some(RuntimeSessionSelector {
-            mode: RuntimeSessionMode::ManagedRuntimeSession,
-            session_id: Some("managed-ambiguous".to_string()),
-            create_if_missing: Some(false),
-        });
-        payload.director_state = Some(empty_director_state());
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/runtime/chat/stream")
-                    .header("content-type", "application/json")
-                    .body(Body::from(serde_json::to_vec(&payload).unwrap()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload = String::from_utf8(body.to_vec()).unwrap();
-        assert!(payload.contains("managed_runtime_session"));
-        assert!(payload.contains("director_state"));
-    }
-
-    #[tokio::test]
-    async fn live_service_stateless_chat_stream_aborts_on_downstream_disconnect() {
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_BASELINE_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_CHAT_REASONING_MODEL", "openai:gpt-4o-mini");
-
-        let root = temp_root();
-        let storage = Arc::new(FileStorage::new(&root));
-        let started = Arc::new(Notify::new());
-        let cancelled = Arc::new(Notify::new());
-        let started_wait = started.notified();
-        let cancelled_wait = cancelled.notified();
-        let service = build_live_chat_service_with_blocking_cancellable_provider(
-            Arc::clone(&storage),
-            Arc::clone(&started),
-            Arc::clone(&cancelled),
-        );
-
-        let (sender, mut receiver) = mpsc::channel::<TutorStreamEvent>(8);
-        let payload = sample_stateless_chat_request();
-        let service_clone = Arc::clone(&service);
-        let stream_task =
-            tokio::spawn(async move { service_clone.stateless_chat_stream(payload, sender).await });
-
-        let first_event =
-            tokio::time::timeout(std::time::Duration::from_millis(150), receiver.recv())
-                .await
-                .expect("stream should send first event quickly")
-                .expect("first event should exist");
-        assert!(matches!(first_event.kind, TutorEventKind::SessionStarted));
-
-        started_wait.await;
-        drop(receiver);
-        cancelled_wait.await;
-
-        let completed = tokio::time::timeout(std::time::Duration::from_millis(250), stream_task)
-            .await
-            .expect("stream task should stop quickly after disconnect");
-        let stream_result = completed.expect("stream task should join");
-        assert!(
-            stream_result.is_ok(),
-            "stream should exit cleanly after disconnect"
-        );
-    }
 
     #[tokio::test]
     async fn audio_asset_route_returns_binary_audio() {
@@ -17249,6 +16250,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: Some("openai:gpt-4o-mini".to_string()),
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(true),
             enable_video_generation: Some(false),
             enable_tts: Some(true),
@@ -17358,6 +16360,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: Some("openai:gpt-4o-mini".to_string()),
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(true),
             enable_video_generation: Some(false),
             enable_tts: Some(true),
@@ -17453,6 +16456,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -17605,6 +16609,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: None,
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),
@@ -17668,6 +16673,7 @@ mod tests {
             language: Some("en-US".to_string()),
             model: Some("openai:gpt-4o-mini".to_string()),
             pdf_text: None,
+            pdf_images: None,
             enable_image_generation: Some(false),
             enable_video_generation: Some(false),
             enable_tts: Some(false),

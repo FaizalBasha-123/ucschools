@@ -35,6 +35,7 @@ ai_tutor_domain = { path = "../domain" }
 ai_tutor_media = { path = "../media" }
 ai_tutor_orchestrator = { path = "../orchestrator" }
 ai_tutor_providers = { path = "../providers" }
+ai_tutor_routing = { path = "../routing" }
 ai_tutor_runtime = { path = "../runtime" }
 ai_tutor_storage = { path = "../storage" }
 

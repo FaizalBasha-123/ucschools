@@ -1,0 +1,9 @@
+[package]
+name = "ai_tutor_routing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+ai_tutor_domain = { path = "../domain" }

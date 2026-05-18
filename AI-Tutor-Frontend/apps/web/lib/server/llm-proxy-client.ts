@@ -1,13 +1,3 @@
-/**
- * LLM Proxy Client
- *
- * Sends pre-built prompts to the Rust backend proxy instead of
- * calling LLM providers directly. Enabled via AI_TUTOR_PROXY_URL env var.
- *
- * The proxy handles model resolution, API key injection, and provider
- * routing on the Rust side.
- */
-
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('LLMProxyClient');
@@ -17,6 +7,17 @@ const MAX_RETRIES = 2;
 
 export function getProxyUrl(): string | undefined {
   return process.env.AI_TUTOR_PROXY_URL || undefined;
+}
+
+export function assertProxyConfigured(): string {
+  const url = getProxyUrl();
+  if (!url) {
+    throw new Error(
+      'AI_TUTOR_PROXY_URL is not configured. ' +
+      'This endpoint requires the Rust backend proxy for LLM generation.',
+    );
+  }
+  return url;
 }
 
 async function proxyFetch(url: string, options?: RequestInit & { timeout?: number }, retries = MAX_RETRIES): Promise<Response> {
@@ -56,12 +57,11 @@ function combineAbortSignals(s1: AbortSignal, s2: AbortSignal): AbortSignal {
   return controller.signal;
 }
 
-export function isProxyEnabled(): boolean {
-  return !!getProxyUrl();
-}
-
 export interface ProxyGenerateParams {
-  model: string;
+  model?: string;
+  task?: string;
+  quality_mode?: string;
+  learning_mode?: string;
   system_prompt: string;
   user_prompt: string;
   api_key?: string;
@@ -99,17 +99,10 @@ export class LlmProxyError extends Error {
   }
 }
 
-/**
- * Generate text via Rust proxy (non-streaming).
- */
 export async function proxyGenerateText(
   params: ProxyGenerateParams,
 ): Promise<ProxyGenerateResult> {
-  const proxyUrl = getProxyUrl();
-  if (!proxyUrl) {
-    throw new LlmProxyError('AI_TUTOR_PROXY_URL is not configured');
-  }
-
+  const proxyUrl = assertProxyConfigured();
   const url = `${proxyUrl.replace(/\/$/, '')}/api/generate/llm`;
 
   const response = await proxyFetch(url, {
@@ -129,19 +122,10 @@ export async function proxyGenerateText(
   return response.json() as Promise<ProxyGenerateResult>;
 }
 
-/**
- * Stream text via Rust proxy (SSE).
- *
- * Returns an async generator that yields ProxyStreamEvent objects.
- */
 export async function* proxyStreamText(
   params: ProxyGenerateParams,
 ): AsyncGenerator<ProxyStreamEvent> {
-  const proxyUrl = getProxyUrl();
-  if (!proxyUrl) {
-    throw new LlmProxyError('AI_TUTOR_PROXY_URL is not configured');
-  }
-
+  const proxyUrl = assertProxyConfigured();
   const url = `${proxyUrl.replace(/\/$/, '')}/api/generate/llm/stream`;
 
   const response = await proxyFetch(url, {
@@ -188,7 +172,6 @@ export async function* proxyStreamText(
       }
     }
 
-    // Process remaining buffer
     if (buffer.startsWith('data: ')) {
       try {
         const event = JSON.parse(buffer.slice(6));
@@ -202,14 +185,13 @@ export async function* proxyStreamText(
   }
 }
 
-/**
- * Build proxy params from a resolved model and prompt strings.
- */
 export function buildProxyParams(
-  modelString: string,
+  task: string,
   systemPrompt: string,
   userPrompt: string,
   overrides?: {
+    qualityMode?: string;
+    learningMode?: string;
     apiKey?: string;
     baseUrl?: string;
     providerType?: string;
@@ -218,7 +200,9 @@ export function buildProxyParams(
   },
 ): ProxyGenerateParams {
   return {
-    model: modelString,
+    task,
+    quality_mode: overrides?.qualityMode,
+    learning_mode: overrides?.learningMode,
     system_prompt: systemPrompt,
     user_prompt: userPrompt,
     api_key: overrides?.apiKey,
@@ -226,68 +210,5 @@ export function buildProxyParams(
     provider_type: overrides?.providerType,
     requires_api_key: overrides?.requiresApiKey,
     max_tokens: overrides?.maxTokens,
-  };
-}
-
-/**
- * Fetch deterministic profiles from the proxy.
- */
-export async function fetchProfiles(
-  qualityMode: string,
-  learningMode: string,
-): Promise<{
-  learning_profile: string;
-  persona_profile: string;
-  layout_profile: string;
-  pacing_profile: string;
-}> {
-  const proxyUrl = getProxyUrl();
-  if (!proxyUrl) {
-    throw new LlmProxyError('AI_TUTOR_PROXY_URL is not configured');
-  }
-
-  const url = `${proxyUrl.replace(/\/$/, '')}/api/generate/profiles?quality_mode=${encodeURIComponent(qualityMode)}&learning_mode=${encodeURIComponent(learningMode)}`;
-
-  const response = await proxyFetch(url);
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => 'unknown');
-    throw new LlmProxyError(
-      `Profiles endpoint returned ${response.status}: ${errorBody}`,
-      response.status,
-    );
-  }
-
-  return response.json();
-}
-
-/**
- * Create a proxy-aware aiCall function.
- *
- * If AI_TUTOR_PROXY_URL is configured, sends prompts to the Rust proxy.
- * Otherwise uses the provided directAiCall function as fallback.
- */
-export function createProxyAwareAiCall(
-  modelString: string,
-  directAiCall: (
-    systemPrompt: string,
-    userPrompt: string,
-    images?: Array<{ id: string; src: string }>,
-  ) => Promise<string>,
-  overrides?: {
-    apiKey?: string;
-    baseUrl?: string;
-    providerType?: string;
-    requiresApiKey?: boolean;
-    maxTokens?: number;
-  },
-): (systemPrompt: string, userPrompt: string, images?: Array<{ id: string; src: string }>) => Promise<string> {
-  const proxyUrl = getProxyUrl();
-  if (!proxyUrl) return directAiCall;
-
-  return async (systemPrompt: string, userPrompt: string, _images?: Array<{ id: string; src: string }>) => {
-    const result = await proxyGenerateText(
-      buildProxyParams(modelString, systemPrompt, userPrompt, overrides),
-    );
-    return result.text;
   };
 }

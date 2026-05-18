@@ -13,11 +13,13 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, info, warn};
 
+use ai_tutor_domain::routing::{GenerationTask, LearningMode, QualityTier};
 use ai_tutor_providers::{
     config::ServerProviderConfig,
     resolve::{resolve_model, ResolvedModel},
     traits::{LlmProviderFactory, ProviderUsage},
 };
+use ai_tutor_routing::capabilities::resolve_generation_model;
 
 // ---------------------------------------------------------------------------
 // State
@@ -35,7 +37,12 @@ pub struct LlmProxyState {
 
 #[derive(Debug, Deserialize)]
 pub struct LlmProxyRequest {
-    pub model: String,
+    /// Explicit model override (optional — if absent, resolved via capability router)
+    pub model: Option<String>,
+    /// Generation task for capability-based resolution
+    pub task: Option<String>,
+    pub quality_mode: Option<String>,
+    pub learning_mode: Option<String>,
     pub system_prompt: String,
     pub user_prompt: String,
     pub api_key: Option<String>,
@@ -81,16 +88,48 @@ pub struct ProfilesResponse {
     pub persona_profile: String,
     pub layout_profile: String,
     pub pacing_profile: String,
+    pub generation_budget: String,
 }
 
 // ---------------------------------------------------------------------------
 // Helper: resolve model config from request
 // ---------------------------------------------------------------------------
 
+/// Resolve the effective model string from the request.
+///
+/// Priority:
+///   1. Explicit `model` field in the request (frontend override)
+///   2. Capability-based resolution from `task` + `quality_mode` + `learning_mode`
+fn resolve_model_string(req: &LlmProxyRequest) -> Result<String, LlmProxyError> {
+    if let Some(ref explicit_model) = req.model {
+        return Ok(explicit_model.clone());
+    }
+
+    let task_str = req.task.as_deref().ok_or_else(|| LlmProxyError {
+        error: "Either 'model' or 'task' must be provided in the request".into(),
+    })?;
+    let quality_str = req.quality_mode.as_deref().unwrap_or("standard");
+    let learning_str = req.learning_mode.as_deref().unwrap_or("explain");
+
+    let task = GenerationTask::from_str_loose(task_str);
+    let quality = QualityTier::from_str_loose(quality_str);
+    let learning = LearningMode::from_str_loose(learning_str);
+
+    let model = resolve_generation_model(task, learning, quality);
+    info!(
+        "LLM proxy: resolved model via capability router [task={}, quality={}, learning={} → model={}]",
+        task_str, quality_str, learning_str, model
+    );
+
+    Ok(model.to_string())
+}
+
 fn resolve_from_request(
     config: &ServerProviderConfig,
     req: &LlmProxyRequest,
 ) -> Result<ResolvedModel, LlmProxyError> {
+    let model_string = resolve_model_string(req)?;
+
     let provider_type = req
         .provider_type
         .as_deref()
@@ -106,7 +145,7 @@ fn resolve_from_request(
 
     resolve_model(
         config,
-        Some(&req.model),
+        Some(&model_string),
         req.api_key.as_deref(),
         req.base_url.as_deref(),
         provider_type,
@@ -254,7 +293,7 @@ async fn generate_llm_stream(
 }
 
 // ---------------------------------------------------------------------------
-// Profiles handler
+// Profiles handler (deterministic — no LLM)
 // ---------------------------------------------------------------------------
 
 async fn get_profiles(
@@ -268,17 +307,23 @@ async fn get_profiles(
 }
 
 fn build_profiles(quality_mode: &str, learning_mode: &str) -> ProfilesResponse {
+    use ai_tutor_domain::routing::{QualityTier, TopicComplexity};
+
+    let tier = QualityTier::from_str_loose(quality_mode);
+    let budget = ai_tutor_domain::routing::compute_generation_budget(tier, TopicComplexity::Normal);
+
     ProfilesResponse {
         learning_profile: build_learning_profile(learning_mode),
         persona_profile: build_persona_profile(quality_mode),
         layout_profile: build_layout_profile(),
         pacing_profile: build_pacing_profile(learning_mode),
+        generation_budget: budget.to_budget_prompt_block(),
     }
 }
 
 fn build_learning_profile(learning_mode: &str) -> String {
     match learning_mode {
-        "exam" => 
+        "exam" =>
             "Assessment-focused preparation mode. Content should be precise, \
             definition-driven, and highlight common mistakes. Include practice \
             questions and exam-style scenarios. Scaffolding: minimal — assume \

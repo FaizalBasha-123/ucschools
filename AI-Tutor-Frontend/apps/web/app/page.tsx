@@ -30,7 +30,7 @@ import { cn } from '@/lib/utils';
 import { SettingsDialog } from '@/components/settings';
 import { SiteHeader } from '@/components/layout/site-header';
 import { GenerationToolbar } from '@/components/generation/generation-toolbar';
-import { AgentBar } from '@/components/agent/agent-bar';
+
 import { MissionSection } from '@/components/landing/mission-section';
 import { UseCasesSection } from '@/components/landing/use-cases-section';
 import { FinalCTA } from '@/components/landing/final-cta';

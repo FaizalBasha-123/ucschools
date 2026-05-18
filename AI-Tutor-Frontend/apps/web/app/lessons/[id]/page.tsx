@@ -7,7 +7,6 @@ import { loadImageMapping } from '@/lib/utils/image-storage';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Download, Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
-import { useSceneGenerator } from '@/lib/hooks/use-scene-generator';
 import { useMediaGenerationStore } from '@/lib/store/media-generation';
 import { useWhiteboardHistoryStore } from '@/lib/store/whiteboard-history';
 import { createLogger } from '@/lib/logger';
@@ -41,14 +40,7 @@ export default function LessonStudioPage() {
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const generationStartedRef = useRef(false);
   const shelfOpenedRef = useRef(false);
-
-  const { generateRemaining, retrySingleOutline, stop } = useSceneGenerator({
-    onComplete: () => {
-      log.info('[Studio] All scenes generated');
-    },
-  });
 
   // ── Studio input state ─────────────────────────────────────────────────────
   const [studioInput, setStudioInput] = useState('');
@@ -143,7 +135,6 @@ export default function LessonStudioPage() {
 
     setLoading(true);
     setError(null);
-    generationStartedRef.current = false;
 
     const mediaStore = useMediaGenerationStore.getState();
     mediaStore.revokeObjectUrls();
@@ -152,8 +143,8 @@ export default function LessonStudioPage() {
 
     loadClassroom();
 
-    return () => { stop(); };
-  }, [classroomId, loadClassroom, router, stop]);
+    return () => { /* no-op */ };
+  }, [classroomId, loadClassroom, router]);
 
   useEffect(() => {
     if (loading || error || shelfOpenedRef.current) return;
@@ -163,43 +154,17 @@ export default function LessonStudioPage() {
     });
   }, [classroomId, loading, error]);
 
-  // Auto-resume generation for pending outlines
+  // Trigger media generation for outlines if needed
   useEffect(() => {
-    if (loading || error || generationStartedRef.current) return;
+    if (loading || error) return;
     const state = useStageStore.getState();
-    const { outlines, scenes, stage } = state;
-    const completedOrders = new Set(scenes.map((s) => s.order));
-    const hasPending = outlines.some((o) => !completedOrders.has(o.order));
-
-    if (hasPending && stage) {
-      generationStartedRef.current = true;
-      const genParamsStr = sessionStorage.getItem('generationParams');
-      const genParams = genParamsStr ? JSON.parse(genParamsStr) : {};
-      const storageIds = (genParams.pdfImages || [])
-        .map((img: { storageId?: string }) => img.storageId)
-        .filter(Boolean);
-
-      loadImageMapping(storageIds).then((imageMapping) => {
-        generateRemaining({
-          pdfImages: genParams.pdfImages,
-          imageMapping,
-          stageInfo: {
-            name: stage.name || '',
-            description: stage.description,
-            language: stage.language,
-            style: stage.style,
-          },
-          agents: genParams.agents,
-          userProfile: genParams.userProfile,
-        });
-      });
-    } else if (outlines.length > 0 && stage) {
-      generationStartedRef.current = true;
+    const { outlines, stage } = state;
+    if (outlines.length > 0 && stage) {
       generateMediaForOutlines(outlines, stage.id).catch((err) => {
         log.warn('[Studio] Media generation resume error:', err);
       });
     }
-  }, [loading, error, generateRemaining]);
+  }, [loading, error]);
 
   // ── Export video ───────────────────────────────────────────────────────────
   const handleExportVideo = async () => {
@@ -486,7 +451,7 @@ export default function LessonStudioPage() {
                   className="flex-1 overflow-hidden"
                   style={{ paddingBottom: STUDIO_BAR_HEIGHT }}
                 >
-                  <Stage onRetryOutline={retrySingleOutline} />
+                  <Stage />
                 </div>
               )}
 

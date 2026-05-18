@@ -175,8 +175,169 @@ pub fn effective_max_slides(tier: QualityTier, complexity: TopicComplexity) -> u
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Retry Policy — timeout + max attempts; NO fallback model
+// Capability — determines model selection by task requirement
 // ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Capability {
+    FastCheap,
+    StructuredGeneration,
+    LightweightEvaluation,
+    PremiumReasoning,
+    LongContext,
+    VisionAnalysis,
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Generation Task — what step of the pipeline needs an LLM call
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationTask {
+    Outlines,
+    SceneContent,
+    SceneActions,
+    QuizGrade,
+}
+
+impl GenerationTask {
+    pub fn from_str_loose(value: &str) -> Self {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "outlines" | "outline" => Self::Outlines,
+            "scene-content" | "scene_content" | "content" => Self::SceneContent,
+            "scene-actions" | "scene_actions" | "actions" => Self::SceneActions,
+            "quiz-grade" | "quiz_grade" | "grade" => Self::QuizGrade,
+            _ => Self::SceneContent,
+        }
+    }
+}
+
+/// Map a GenerationTask to its base Capability (before escalation).
+impl From<GenerationTask> for Capability {
+    fn from(task: GenerationTask) -> Self {
+        match task {
+            GenerationTask::Outlines => Capability::StructuredGeneration,
+            GenerationTask::SceneContent => Capability::StructuredGeneration,
+            GenerationTask::SceneActions => Capability::FastCheap,
+            GenerationTask::QuizGrade => Capability::LightweightEvaluation,
+        }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Scene Priority — used for intelligent truncation
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScenePriority {
+    Critical,
+    Important,
+    Optional,
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Generation Budget — token & scene control per quality tier
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct GenerationBudget {
+    pub max_scenes: usize,
+    pub max_interactions: usize,
+    pub max_visuals: usize,
+    pub max_tokens_per_scene: usize,
+    pub max_bullets_per_scene: usize,
+    pub max_chars_per_bullet: usize,
+    pub require_quiz_scene: bool,
+}
+
+impl GenerationBudget {
+    /// Returns a prompt-friendly constraint string.
+    pub fn to_constraint_prompt(&self) -> String {
+        format!(
+            "Scene Limit Rules:\n\
+             - Maximum scenes: {max_scenes}\n\
+             - Maximum interactive elements: {max_interactions}\n\
+             - Maximum visual elements: {max_visuals}\n\
+             - Maximum tokens per scene: {max_tokens_per_scene}\n\
+             - Maximum bullets per scene: {max_bullets_per_scene}\n\
+             - Maximum characters per bullet: {max_chars_per_bullet}\n\
+             {quiz_rule}\
+             Never exceed these limits.",
+            max_scenes = self.max_scenes,
+            max_interactions = self.max_interactions,
+            max_visuals = self.max_visuals,
+            max_tokens_per_scene = self.max_tokens_per_scene,
+            max_bullets_per_scene = self.max_bullets_per_scene,
+            max_chars_per_bullet = self.max_chars_per_bullet,
+            quiz_rule = if self.require_quiz_scene {
+                "- Include at least one quiz scene.\n"
+            } else {
+                ""
+            },
+        )
+    }
+
+    pub fn to_budget_prompt_block(&self) -> String {
+        format!(
+            "GENERATION BUDGET:\n\
+             - Max {max_scenes} scenes\n\
+             - Max {max_interactions} interactive elements\n\
+             - Max {max_visuals} visual elements\n\
+             - Max {max_bullets} bullets per scene\n\
+             - Max {max_chars_per_bullet} characters per bullet\n\
+             - Max {max_tokens} tokens per scene\n\
+             - No paragraphs — use concise bullet points\n\
+             - No fluff, no introductions, no conclusions in individual scene content\n\
+             {quiz_rule}\
+             All limits are hard — do not exceed them.",
+            max_scenes = self.max_scenes,
+            max_interactions = self.max_interactions,
+            max_visuals = self.max_visuals,
+            max_bullets = self.max_bullets_per_scene,
+            max_chars_per_bullet = self.max_chars_per_bullet,
+            max_tokens = self.max_tokens_per_scene,
+            quiz_rule = if self.require_quiz_scene {
+                "- Must include at least 1 quiz scene\n"
+            } else {
+                ""
+            },
+        )
+    }
+}
+
+pub fn compute_generation_budget(tier: QualityTier, _complexity: TopicComplexity) -> GenerationBudget {
+    match tier {
+        QualityTier::Basic => GenerationBudget {
+            max_scenes: 5,
+            max_interactions: 2,
+            max_visuals: 1,
+            max_tokens_per_scene: 512,
+            max_bullets_per_scene: 3,
+            max_chars_per_bullet: 60,
+            require_quiz_scene: false,
+        },
+        QualityTier::Standard => GenerationBudget {
+            max_scenes: 10,
+            max_interactions: 5,
+            max_visuals: 3,
+            max_tokens_per_scene: 1024,
+            max_bullets_per_scene: 4,
+            max_chars_per_bullet: 80,
+            require_quiz_scene: false,
+        },
+        QualityTier::Premium => GenerationBudget {
+            max_scenes: 15,
+            max_interactions: 8,
+            max_visuals: 5,
+            max_tokens_per_scene: 2048,
+            max_bullets_per_scene: 6,
+            max_chars_per_bullet: 100,
+            require_quiz_scene: true,
+        },
+    }
+}
 
 /// Retry is triggered ONLY by technical failures (API error, timeout, unparseable
 /// JSON). Quality issues route to the escalation model instead.

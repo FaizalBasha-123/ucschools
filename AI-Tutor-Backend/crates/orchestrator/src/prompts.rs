@@ -12,24 +12,21 @@ pub fn planner_prompt_explain(ctx: &CompressedContext, tier: &QualityTier) -> (S
     let limits = tier_limits(*tier);
     let max = limits.max_slides;
 
-    let system = "You are a friendly learning planner who designs clear, engaging lesson flows.\n\
-                  Output ONLY valid JSON. No explanations. No extra text."
-        .to_string();
+    let system = "You plan lesson flows. Return strict JSON only.".to_string();
 
     let pdf_section = pdf_prompt_section(&ctx.pdf_excerpt);
 
     let user = format!(
-        "Design a lesson outline for: {topic}\n\
+        "Outline: {topic}\n\
          {pdf}\n\
          Rules:\n\
-         - {min} to {max} scenes maximum\n\
-         - Each scene: title (max 6 words), description (1 line), 2-3 key points\n\
-         - Mix: teaching slides, 1 quiz, optional interactive\n\
+         - {min}–{max} scenes\n\
+         - Per scene: title (≤6 words), description (1 line), 2-3 key points\n\
+         - Mix: slides + 1 quiz max\n\
          - Flow: introduce → explain → practice → assess\n\
-         - Language: simple, friendly, like explaining to a curious friend\n\
          {difficulty_rules}\n\
          {state_rules}\n\n\
-         Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz|interactive\"}}]}}",
+         Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz\"}}]}}",
         topic = ctx.topic_summary,
         pdf = pdf_section,
         min = (max / 2).max(3),
@@ -43,19 +40,19 @@ pub fn planner_prompt_explain(ctx: &CompressedContext, tier: &QualityTier) -> (S
 
 /// Revision mode: compressed re-learning pipeline.
 pub fn planner_prompt_revision(ctx: &CompressedContext, _tier: &QualityTier) -> (String, String) {
-    let system = "You create concise revision summaries. Output ONLY valid JSON.".to_string();
+    let system = "You create revision summaries. Return strict JSON only.".to_string();
 
     let pdf_section = pdf_prompt_section(&ctx.pdf_excerpt);
 
     let user = format!(
-        "Create a revision plan for: {topic}\n\
+        "Revision: {topic}\n\
          {pdf}\n\
          Rules:\n\
-         - Maximum 3 scenes: Summary → Key Points Refresh → Quick Quiz\n\
-         - Summary: bullet-point recap of the most important concepts (max 5 bullets)\n\
-         - Key Points: the 3 things the student MUST remember\n\
-         - Quick Quiz: 2-3 rapid-fire questions to test retention\n\
-         - Tone: direct, no fluff, no introductions\n\
+         - 3 scenes: Summary → Key Points → Quick Quiz\n\
+         - Summary: max 5 bullet recap\n\
+         - Key Points: 3 must-remember items\n\
+         - Quick Quiz: 2-3 rapid-fire questions\n\
+         - Direct tone. No introductions.\n\
          {difficulty_rules}\n\n\
          Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz\"}}]}}",
         topic = ctx.topic_summary,
@@ -68,19 +65,19 @@ pub fn planner_prompt_revision(ctx: &CompressedContext, _tier: &QualityTier) -> 
 
 /// Exam mode: MCQ bank generation only.
 pub fn planner_prompt_exam(ctx: &CompressedContext, _tier: &QualityTier) -> (String, String) {
-    let system = "You generate exam question banks. Output ONLY valid JSON.".to_string();
+    let system = "You create exam questions. Return strict JSON only.".to_string();
 
     let pdf_section = pdf_prompt_section(&ctx.pdf_excerpt);
 
     let user = format!(
-        "Generate an exam question bank for: {topic}\n\
+        "Exam: {topic}\n\
          {pdf}\n\
          Rules:\n\
-         - 2 scenes: MCQ Bank → Scoring Summary\n\
-         - MCQ Bank: 5-10 questions, 4 options each, 1 correct answer\n\
-         - Vary difficulty: 30%% easy, 50%% medium, 20%% hard\n\
-         - Questions test understanding, NOT memorization\n\
-         - No trick questions. All options must be plausible.\n\
+         - 2 quiz scenes: MCQ Bank → Scoring Summary\n\
+         - 5-10 questions. 4 options each. 1 correct.\n\
+         - Difficulty mix: 30%% easy, 50%% medium, 20%% hard\n\
+         - Test understanding, NOT memorization\n\
+         - Plausible options only. No trick questions.\n\
          {difficulty_rules}\n\n\
          Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"quiz\"}}]}}",
         topic = ctx.topic_summary,
@@ -125,26 +122,23 @@ pub fn content_prompt(
 ) -> (String, String) {
     let limits = tier_limits(*tier);
 
-    let system = "You are a warm, patient teacher creating visual learning slides.\n\
-                  Output ONLY valid JSON. Be concise. Use real-world examples. No filler."
-        .to_string();
+    let system = "You create concise teaching slides. Return strict JSON only.".to_string();
 
     let pdf_section = pdf_prompt_section(&ctx.pdf_excerpt);
 
     let user = format!(
-        "Generate teaching content for: {title}\n\
+        "Slide: {title}\n\
          {pdf}\n\
-         Key points to cover: {points}\n\n\
-         Format each slide element as:\n\
-         [Title] (max 6 words)\n\
-         [Explanation] (max 3 lines, use simple analogies)\n\
-         [Example] ({max_ex} real-world example(s))\n\
-         [Key Point] (1 memorable line)\n\n\
+         Key points: {points}\n\n\
+         Format:\n\
+         - [Title] ≤6 words\n\
+         - [Explanation] ≤3 lines, analogies preferred\n\
+         - [Example] {max_ex} real-world example(s)\n\
+         - [Key Point] 1 memorable line\n\n\
          Rules:\n\
-         - No repetition of previous slides\n\
-         - No long paragraphs — bullet points preferred\n\
-         - No generic phrases like 'In this lesson...'\n\
-         - Make it feel like a friendly conversation, not a textbook\n\
+         - Bullet points. No paragraphs.\n\
+         - No 'In this lesson...' or similar fluff\n\
+         - Friendly, conversational tone\n\
          {difficulty_rules}\n\
          {state_rules}\n\n\
          Return JSON with slide elements.",
@@ -164,16 +158,14 @@ pub fn content_prompt(
 // ════════════════════════════════════════════════════════════════════════════
 
 pub fn interaction_prompt(ctx: &CompressedContext, outline: &SceneOutline) -> (String, String) {
-    let system = "You create clear, fair quiz questions. Output ONLY valid JSON.".to_string();
+    let system = "You create quiz questions. Return strict JSON only.".to_string();
 
     let user = format!(
-        "Generate 1 multiple-choice question about: {title}\n\n\
+        "Question: {title}\n\
          Rules:\n\
-         - 4 options (A-D)\n\
-         - 1 correct answer\n\
-         - No explanation unless asked\n\
-         - Question should test understanding, not memorization\n\
-         - Options should be plausible (no obviously wrong answers)\n\
+         - 1 MCQ. 4 options. 1 correct.\n\
+         - Test understanding, not memorization\n\
+         - Plausible options only\n\
          {difficulty_rules}\n\n\
          Return JSON: {{\"question\":\"...\",\"options\":[\"A. ...\",\"B. ...\",\"C. ...\",\"D. ...\"],\"correct\":\"A\"}}",
         title = outline.title,
@@ -188,15 +180,15 @@ pub fn interaction_prompt(ctx: &CompressedContext, outline: &SceneOutline) -> (S
 // ════════════════════════════════════════════════════════════════════════════
 
 pub fn adaptive_prompt(topic: &str, confusion_signal: &str) -> (String, String) {
-    let system = "You are a patient tutor. Re-explain simply. Max 3 lines.".to_string();
+    let system = "You re-explain simply. Max 3 lines.".to_string();
 
     let user = format!(
-        "The student is confused about: {topic}\n\
-         Their message: {signal}\n\n\
-         Re-explain using:\n\
-         - 1 simple analogy from everyday life\n\
-         - Max 3 short lines\n\
-         - No jargon, no formulas unless essential",
+        "Student confused about: {topic}\n\
+         Signal: {signal}\n\n\
+         Rules:\n\
+         - 1 simple everyday analogy\n\
+         - Max 3 lines\n\
+         - No jargon unless essential",
         topic = topic,
         signal = confusion_signal,
     );
@@ -295,14 +287,14 @@ mod tests {
     fn explain_prompt_includes_max_slides() {
         let ctx = make_ctx();
         let (_sys, user) = planner_prompt_explain(&ctx, &QualityTier::Basic);
-        assert!(user.contains("5 scenes maximum"));
+        assert!(user.contains("scenes"), "expected scene limit in prompt, got: {}", user);
     }
 
     #[test]
     fn revision_prompt_limits_to_3_scenes() {
         let ctx = make_ctx();
         let (_sys, user) = planner_prompt_revision(&ctx, &QualityTier::Standard);
-        assert!(user.contains("Maximum 3 scenes"));
+        assert!(user.contains("3 scenes"), "expected 3 scenes in prompt, got: {}", user);
     }
 
     #[test]

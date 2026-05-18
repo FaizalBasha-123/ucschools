@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -15,7 +16,7 @@ use ai_tutor_domain::{
         LessonGenerationJobStatus, LessonGenerationStep,
     },
     lesson::Lesson,
-    routing::{tier_limits, QualityTier},
+    routing::{compute_generation_budget, tier_limits, QualityTier},
     scene::{Scene, SceneContent, SceneOutline, Stage},
 };
 use ai_tutor_media::{
@@ -29,6 +30,7 @@ use ai_tutor_storage::repositories::{LessonJobRepository, LessonRepository};
 use crate::context::{self, detect_complexity};
 use crate::cost_guard::{self, CostDecision};
 use crate::state::{GenerationOutput, GenerationState};
+use crate::telemetry::PipelineTelemetry;
 use crate::validator;
 
 #[async_trait]
@@ -156,6 +158,7 @@ where
             .await
             .map_err(|err| anyhow!(err))?;
 
+        let pdf_images = request.pdf_images.clone();
         let mut state = GenerationState {
             request_id,
             lesson_id: lesson_id.clone(),
@@ -165,6 +168,7 @@ where
             outlines: Vec::new(),
             scenes: Vec::new(),
             pdf_context: None,
+            pdf_images,
             started_at: now,
         };
 
@@ -227,8 +231,11 @@ where
     }
 
     async fn run_pipeline(&self, state: &mut GenerationState, _base_url: &str) -> Result<()> {
+        let mut telemetry = PipelineTelemetry::new();
+
         // Step 0: PDF Processing
         if let Some(pdf_b64) = &state.request.pdf_content {
+            let pdf_start = Instant::now();
             update_job(
                 &self.jobs,
                 &mut state.job,
@@ -247,7 +254,6 @@ where
                 .map_err(|err| anyhow!("Failed to decode PDF content: {}", err))?;
 
             if let Ok(pdf_result) = PdfProcessor::process_pdf(&pdf_bytes) {
-                // Use tier-aware PDF compression instead of naive truncation.
                 let tier = resolve_quality_tier(&state.request);
                 let limits = tier_limits(tier);
                 let compressed =
@@ -260,6 +266,7 @@ where
                 );
                 state.pdf_context = Some(compressed);
             }
+            telemetry.record_pdf_timing(pdf_start.elapsed());
         }
 
         update_job(
@@ -272,14 +279,17 @@ where
         )
         .await?;
 
+        let outlines_start = Instant::now();
         state.outlines = self
             .pipeline
             .generate_outlines(&state.request, state.pdf_context.as_deref())
             .await?;
+        telemetry.record_outlines_timing(outlines_start.elapsed());
 
-        // ── Outline count validation: complexity-aware slide cap ──────
+        // ── Outline count validation: priority-aware scene cap ───────────
         let tier = resolve_quality_tier(&state.request);
         let complexity = detect_complexity(&state.request.requirements.requirement);
+        let original_count = state.outlines.len();
         let max_slides = ai_tutor_domain::routing::effective_max_slides(tier, complexity);
         if state.outlines.len() > max_slides {
             info!(
@@ -289,7 +299,47 @@ where
                 tier,
                 complexity
             );
-            state.outlines.truncate(max_slides);
+            // Priority-aware truncation: preserve educational flow
+            let mut with_priority: Vec<(usize, &SceneOutline, u8)> = state
+                .outlines
+                .iter()
+                .enumerate()
+                .map(|(i, o)| {
+                    let priority = scene_priority(o, i, state.outlines.len());
+                    (i, o, priority)
+                })
+                .collect();
+            // Sort by priority descending, then by original position
+            with_priority.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+            let kept: std::collections::HashSet<usize> = with_priority
+                .into_iter()
+                .take(max_slides)
+                .map(|(i, _, _)| i)
+                .collect();
+            let mut trimmed: Vec<SceneOutline> = state
+                .outlines
+                .drain(..)
+                .enumerate()
+                .filter(|(i, _)| kept.contains(i))
+                .map(|(_, o)| o)
+                .collect();
+            // Re-assign order after truncation
+            for (idx, outline) in trimmed.iter_mut().enumerate() {
+                outline.order = (idx + 1) as i32;
+            }
+            state.outlines = trimmed;
+            telemetry.record_outline_truncation(original_count, state.outlines.len());
+        } else {
+            telemetry.record_outlines(state.outlines.len());
+        }
+
+        // Ensure budget constraints against outlines
+        let budget = compute_generation_budget(tier, complexity);
+        if let Some(issue) = validator::validate_interaction_count(&state.outlines, &budget) {
+            telemetry.record_validation(1.0, &[issue]);
+        }
+        if let Some(issue) = validator::validate_visual_count(&state.outlines, &budget) {
+            telemetry.record_validation(1.0, &[issue]);
         }
 
         state.job.total_scenes = Some(state.outlines.len() as i32);
@@ -332,31 +382,36 @@ where
                         cost_estimate.estimated_tokens,
                         cost_estimate.estimated_cost_usd
                     );
-                    // Skip this scene entirely rather than blowing budget.
+                    telemetry.record_cost_decision("Deny");
                     continue;
                 }
                 CostDecision::Compress => {
                     info!("CostGuard: compressing context for scene {}", outline.title);
-                    // Context is already compressed via tier limits — this is a
-                    // signal that we should not add any extra research/PDF context.
+                    telemetry.record_cost_decision("Compress");
                 }
                 CostDecision::Warn => {
                     info!(
                         "CostGuard WARN: scene {} approaching budget limit",
                         outline.title
                     );
+                    telemetry.record_cost_decision("Warn");
                 }
-                CostDecision::Allow => {}
+                CostDecision::Allow => {
+                    telemetry.record_cost_decision("Allow");
+                }
             }
 
             // ── Step 2: Generate content ──────────────────────────────
+            let content_start = Instant::now();
             let mut content = self
                 .pipeline
                 .generate_scene_content(&state.request, outline, state.pdf_context.as_deref())
                 .await?;
+            telemetry.record_scene_content_timing(&outline.title, content_start.elapsed());
 
             // ── Step 3: Validate (structural + semantic) with fix-in-place
             let validation = validator::validate_content(&mut content, &tier);
+            telemetry.record_validation(validation.score, &validation.issues);
             if !validation.issues.is_empty() {
                 info!(
                     "Validator fixed {} issues in scene {} (score={})",
@@ -367,17 +422,11 @@ where
             }
 
             // ── Step 4: Quality Escalation (Premium only) ────────────
-            // If validation score is below threshold and we are on Premium,
-            // we could invoke a refinement model here. For now we log the
-            // signal — the actual refinement call is wired separately via
-            // the generation pipeline's `refine` LLM slot.
             if crate::router::should_escalate(validation.score, &tier) {
                 info!(
                     "Quality escalation triggered for scene {} (score={})",
                     outline.title, validation.score
                 );
-                // Future: invoke refinement model to polish content.
-                // content = self.pipeline.refine_content(&content).await?;
             }
 
             // ── Step 5: Generate actions for this scene ───────────────
@@ -421,6 +470,7 @@ where
 
         let media_tasks = collect_media_tasks(&state.lesson_id, &state.outlines);
         if !media_tasks.is_empty() {
+            let media_start = Instant::now();
             update_job(
                 &self.jobs,
                 &mut state.job,
@@ -458,66 +508,70 @@ where
                     .await
                     .map_err(|err| anyhow!(err))?;
 
-                match task.media_type {
-                    ai_tutor_domain::scene::MediaType::Image => {
-                        let image = self.image.as_ref().ok_or_else(|| {
-                            anyhow!(
-                                "image generation requested but no image provider is configured"
+                    match task.media_type {
+                        ai_tutor_domain::scene::MediaType::Image => {
+                            let image = self.image.as_ref().ok_or_else(|| {
+                                anyhow!(
+                                    "image generation requested but no image provider is configured"
+                                )
+                            })?;
+                            match generate_image_with_retry(
+                                image.as_ref(),
+                                &task.prompt,
+                                task.aspect_ratio.as_deref(),
+                                &task.element_id,
                             )
-                        })?;
-                        match generate_image_with_retry(
-                            image.as_ref(),
-                            &task.prompt,
-                            task.aspect_ratio.as_deref(),
-                            &task.element_id,
-                        )
-                        .await
-                        {
-                            Ok(output_url) => {
-                                media_map.insert(task.element_id.clone(), output_url);
-                                successful_media += 1;
+                            .await
+                            {
+                                Ok(output_url) => {
+                                    media_map.insert(task.element_id.clone(), output_url);
+                                    successful_media += 1;
+                                    telemetry.record_image_success();
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        "Image generation failed for {} after retries: {}",
+                                        task.element_id, err
+                                    );
+                                    failed_media.push(task.element_id.clone());
+                                    telemetry.record_image_failure();
+                                    media_map
+                                        .insert(task.element_id.clone(), fallback_image_data_uri());
+                                }
                             }
-                            Err(err) => {
-                                warn!(
-                                    "Image generation failed for {} after retries: {}",
-                                    task.element_id, err
-                                );
-                                failed_media.push(task.element_id.clone());
-                                media_map
-                                    .insert(task.element_id.clone(), fallback_image_data_uri());
+                        }
+                        ai_tutor_domain::scene::MediaType::Video => {
+                            let video = self.video.as_ref().ok_or_else(|| {
+                                anyhow!(
+                                    "video generation requested but no video provider is configured"
+                                )
+                            })?;
+                            match generate_video_with_retry(
+                                video.as_ref(),
+                                &task.prompt,
+                                task.aspect_ratio.as_deref(),
+                                &task.element_id,
+                            )
+                            .await
+                            {
+                                Ok(output_url) => {
+                                    media_map.insert(task.element_id.clone(), output_url);
+                                    successful_media += 1;
+                                    telemetry.record_video_success();
+                                }
+                                Err(err) => {
+                                    warn!(
+                                        "Video generation failed for {} after retries: {}",
+                                        task.element_id, err
+                                    );
+                                    failed_media.push(task.element_id.clone());
+                                    telemetry.record_video_failure();
+                                    media_map
+                                        .insert(task.element_id.clone(), fallback_video_data_uri());
+                                }
                             }
                         }
                     }
-                    ai_tutor_domain::scene::MediaType::Video => {
-                        let video = self.video.as_ref().ok_or_else(|| {
-                            anyhow!(
-                                "video generation requested but no video provider is configured"
-                            )
-                        })?;
-                        match generate_video_with_retry(
-                            video.as_ref(),
-                            &task.prompt,
-                            task.aspect_ratio.as_deref(),
-                            &task.element_id,
-                        )
-                        .await
-                        {
-                            Ok(output_url) => {
-                                media_map.insert(task.element_id.clone(), output_url);
-                                successful_media += 1;
-                            }
-                            Err(err) => {
-                                warn!(
-                                    "Video generation failed for {} after retries: {}",
-                                    task.element_id, err
-                                );
-                                failed_media.push(task.element_id.clone());
-                                media_map
-                                    .insert(task.element_id.clone(), fallback_video_data_uri());
-                            }
-                        }
-                    }
-                }
             }
 
             replace_media_placeholders(&mut state.scenes, &media_map)?;
@@ -571,10 +625,12 @@ where
                         .map_err(|update_err| anyhow!(update_err))?;
                 }
             }
+            telemetry.record_media_timing(media_start.elapsed());
         }
 
         if state.request.enable_tts {
             if let Some(tts) = &self.tts {
+                let tts_start = Instant::now();
                 update_job(
                     &self.jobs,
                     &mut state.job,
@@ -596,6 +652,7 @@ where
                     {
                         Ok(audio_url) => {
                             audio_map.insert(task.action_id, audio_url);
+                            telemetry.record_tts_success();
                         }
                         Err(err) => {
                             warn!(
@@ -605,9 +662,11 @@ where
                                 "TTS synthesis failed for one lesson action; continuing without audio"
                             );
                             failed_tts.push(task.action_id);
+                            telemetry.record_tts_failure();
                         }
                     }
                 }
+                telemetry.record_tts_timing(tts_start.elapsed());
 
                 apply_tts_results(&mut state.scenes, &audio_map)?;
 
@@ -659,6 +718,9 @@ where
             "Persisting lesson",
         )
         .await?;
+
+        telemetry.finish();
+        telemetry.report();
 
         Ok(())
     }
@@ -836,6 +898,31 @@ fn resolve_quality_tier(request: &LessonGenerationRequest) -> QualityTier {
         .as_deref()
         .map(QualityTier::from_str_loose)
         .unwrap_or_default()
+}
+
+/// Priority-aware scene truncation: assign a priority score to each outline.
+/// Higher = more important to keep.
+///
+/// Priority tiers:
+///   - First scene (intro) → 100 (Critical)
+///   - Last scene (recap) → 80 (Important)
+///   - Quiz scenes → 70 (Important)
+///   - PBL scenes → 60 (Important)
+///   - Slide scenes → 50 (Important)
+///   - Interactive scenes → 30 (Optional)
+fn scene_priority(outline: &SceneOutline, index: usize, total: usize) -> u8 {
+    if index == 0 {
+        return 100; // intro: critical
+    }
+    if index == total - 1 {
+        return 80; // recap/assessment: important
+    }
+    match outline.scene_type {
+        ai_tutor_domain::scene::SceneType::Quiz => 70,
+        ai_tutor_domain::scene::SceneType::Pbl => 60,
+        ai_tutor_domain::scene::SceneType::Slide => 50,
+        ai_tutor_domain::scene::SceneType::Interactive => 30,
+    }
 }
 
 #[cfg(test)]

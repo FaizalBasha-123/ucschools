@@ -1,6 +1,5 @@
 import { type NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
-import { type GenerateClassroomInput } from '@/lib/server/classroom-generation';
 import { buildRequestOrigin } from '@/lib/server/classroom-storage';
 import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
@@ -13,10 +12,11 @@ export const maxDuration = 30;
 export async function POST(req: NextRequest) {
   let requirementSnippet: string | undefined;
   try {
-    const rawBody = (await req.json()) as Partial<GenerateClassroomInput>;
-    requirementSnippet = rawBody.requirement?.substring(0, 60);
+    const rawBody = (await req.json()) as Record<string, unknown>;
 
-    if (!rawBody.requirement) {
+    requirementSnippet = String(rawBody.requirement || '').substring(0, 60);
+
+    if (!rawBody.requirement || typeof rawBody.requirement !== 'string') {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'Missing required field: requirement');
     }
 
@@ -27,10 +27,10 @@ export async function POST(req: NextRequest) {
       enable_image_generation: rawBody.enableImageGeneration,
       enable_video_generation: rawBody.enableVideoGeneration,
       enable_tts: rawBody.enableTTS,
-      agent_mode: rawBody.agentMode,
       quality_mode: rawBody.qualityMode,
       learning_mode: rawBody.learningMode,
-    };    const baseUrl = buildRequestOrigin(req);
+    };
+    const baseUrl = buildRequestOrigin(req);
 
     const backendRes = await fetch(`${backendUrl()}/api/lessons/generate-async`, {
       method: 'POST',

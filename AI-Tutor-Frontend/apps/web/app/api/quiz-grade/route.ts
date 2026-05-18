@@ -6,11 +6,9 @@
  */
 
 import { NextRequest } from 'next/server';
-import { callLLM } from '@/lib/ai/llm';
 import { createLogger } from '@/lib/logger';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
-import { resolveModelForTask } from '@/lib/server/resolve-model';
-import { isProxyEnabled, proxyGenerateText, buildProxyParams } from '@/lib/server/llm-proxy-client';
+import { proxyGenerateText, buildProxyParams } from '@/lib/server/llm-proxy-client';
 const log = createLogger('Quiz Grade');
 
 interface GradeRequest {
@@ -27,25 +25,22 @@ interface GradeResponse {
 }
 
 export async function POST(req: NextRequest) {
-  let questionSnippet: string | undefined;
-  let resolvedPoints: number | undefined;
   try {
-    const body = (await req.json()) as GradeRequest;
+    const body: GradeRequest = await req.json();
     const { question, userAnswer, points, commentPrompt } = body;
-    questionSnippet = question?.substring(0, 60);
-    resolvedPoints = points;
 
-    if (!question || !userAnswer) {
-      return apiError('MISSING_REQUIRED_FIELD', 400, 'question and userAnswer are required');
+    if (!question) {
+      return apiError('INVALID_REQUEST', 400, 'question is required');
     }
-
-    // Validate points is a positive finite number
-    if (!points || !Number.isFinite(points) || points <= 0) {
+    if (!userAnswer) {
+      return apiError('INVALID_REQUEST', 400, 'userAnswer is required');
+    }
+    if (!points || points < 1) {
       return apiError('INVALID_REQUEST', 400, 'points must be a positive number');
     }
 
-    // Resolve model from request headers with task-aware routing
-    const { model: languageModel, modelString } = resolveModelForTask(req, 'quiz-grade');
+    const qualityMode = req.headers.get('x-quality-mode') || 'standard';
+    const learningMode = req.headers.get('x-learning-mode') || 'explain';
 
     const systemPrompt = `You are a professional educational assessor. Grade the student's answer and provide brief feedback.
 You must reply in the following JSON format only (no other content):
@@ -55,56 +50,35 @@ You must reply in the following JSON format only (no other content):
 Full marks: ${points} points
 ${commentPrompt ? `Grading guidance: ${commentPrompt}\n` : ''}Student answer: ${userAnswer}`;
 
-    let resultText: string;
+    const result = await proxyGenerateText(
+      buildProxyParams('quiz-grade', systemPrompt, userPrompt, {
+        qualityMode,
+        learningMode,
+      }),
+    );
 
-    if (isProxyEnabled()) {
-      const proxyResult = await proxyGenerateText(
-        buildProxyParams(
-          modelString,
-          systemPrompt,
-          userPrompt,
-        ),
-      );
-      resultText = proxyResult.text;
-    } else {
-      const result = await callLLM(
-        {
-          model: languageModel,
-          system: systemPrompt,
-          prompt: userPrompt,
-        },
-        'quiz-grade',
-      );
-      resultText = result.text.trim();
-    }
+    const text = result.text.trim();
 
-    // Parse the LLM response as JSON
-    const text = resultText.trim();
     let gradeResult: GradeResponse;
 
     try {
-      // Try to extract JSON from the response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON found');
-      const parsed = JSON.parse(jsonMatch[0]);
-      gradeResult = {
-        score: Math.max(0, Math.min(points, Math.round(Number(parsed.score)))),
-        comment: String(parsed.comment || ''),
-      };
+      gradeResult = JSON.parse(jsonMatch[0]);
     } catch {
-      // Fallback: give partial credit with a generic comment
-      gradeResult = {
-        score: Math.round(points * 0.5),
-        comment: 'Answer received. Please refer to the standard answer.',
-      };
+      log.warn(`Failed to parse grade response as JSON, text="${text}"`);
+      return apiError('PARSE_FAILED', 500, 'Failed to parse LLM response as JSON');
     }
 
-    return apiSuccess({ ...gradeResult });
+    if (typeof gradeResult.score !== 'number' || typeof gradeResult.comment !== 'string') {
+      return apiError('PARSE_FAILED', 500, 'Invalid grade response format');
+    }
+
+    gradeResult.score = Math.max(0, Math.min(points, gradeResult.score));
+
+    return apiSuccess(gradeResult as unknown as Record<string, unknown>);
   } catch (error) {
-    log.error(
-      `Quiz grading failed [question="${questionSnippet ?? 'unknown'}...", points=${resolvedPoints ?? 'unknown'}]:`,
-      error,
-    );
-    return apiError('INTERNAL_ERROR', 500, 'Failed to grade answer');
+    log.error('Quiz grade failed:', error);
+    return apiError('INTERNAL_ERROR', 500, error instanceof Error ? error.message : String(error));
   }
 }

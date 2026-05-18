@@ -57,6 +57,7 @@ dependencies = [
  "ai_tutor_media",
  "ai_tutor_orchestrator",
  "ai_tutor_providers",
+ "ai_tutor_routing",
  "ai_tutor_runtime",
  "ai_tutor_storage",
  "anyhow",
@@ -162,6 +163,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "ai_tutor_routing"
+version = "0.1.0"
+dependencies = [
+ "ai_tutor_domain",
+ "serde",
 ]
 
 [[package]]

@@ -304,7 +304,7 @@ You may invoke the tool up to {max_calls} times if you need multiple searches.
             outline.key_points.join(" | ")
         );
 
-        let response = self.generate_with_search_tool(system, &user).await.ok()?;
+        let response = self.generate_with_search_tool(&system, &user).await.ok()?;
         let parsed: ScientificModelEnvelope = parse_json_with_repair(&response).ok()?;
         if parsed.core_formulas.is_empty()
             && parsed.mechanism.is_empty()
@@ -638,52 +638,44 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         let language = language_code(&request.requirements.language);
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
 
-        let system = "You are an instructional designer. Return strict JSON only.";
+        let system = "You are an instructional planner. Return strict JSON only.".to_string();
 
         let learning_profile = engine::compute_learning_profile(request);
-        let persona_profile = engine::compute_persona_profile(request);
         let layout = engine::compute_layout_constraints(request);
+        let budget = engine::compute_generation_budget(request);
 
         let user = format!(
-    "Create a lesson outline for this requirement.
-     Requirement: {}
-     {}
-     Language: {}
-     
-     {}
-     
-     {}
-     
-     {}
-     
-     Infer a coherent 15-30 minute classroom flow unless the requirement implies otherwise.
-     Return JSON object with shape {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"teaching_objective\":\"...\",\"estimated_duration\":120,\"order\":1,\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz|interactive|pbl\",\"suggested_image_ids\":[\"img_1\"],\"quiz_config\":{{\"question_count\":2,\"difficulty\":\"easy|medium|hard\",\"question_types\":[\"single\",\"multiple\"]}},\"interactive_config\":{{\"concept_name\":\"...\",\"concept_overview\":\"...\",\"design_idea\":\"...\",\"subject\":\"...\"}},\"project_config\":{{\"project_topic\":\"...\",\"project_description\":\"...\",\"target_skills\":[\"...\"],\"issue_count\":3,\"language\":\"{}\"}},\"media_generations\":[{{\"element_id\":\"gen_img_1\",\"media_type\":\"image|video\",\"prompt\":\"...\",\"aspect_ratio\":\"16:9\"}}]}}]}}.
-     {}
-     Keep key points concrete and scene-specific rather than generic.
-      VISUAL STYLE DIRECTIVE:
-     - Emulate a high-density, modern technical explainer aesthetic.
-     - Use structured diagrammatic elements: color-coded blocks, flow arrows, and geometric hierarchies.
-     - Prioritize layout-driven storytelling (e.g., 'System Maps', 'Logic Gates', 'Data Pipelines') over decorative art.
-     - Only use `media_generations` if the concept is impossible to explain with shapes and text (e.g., a specific real-world object).
-     
-     Image generation enabled: {}.
-     Video generation enabled: {}.
-     If image generation is enabled, you may request 0 or 1 generated image for a slide scene.
-     If video generation is disabled, do not request video media.",
-    request.requirements.requirement,
-    pdf_info,
-    language,
-    learning_profile.to_prompt_block(),
-    persona_profile.to_prompt_block(),
-    layout.to_prompt_block(),
-    language,
-    layout.to_scene_cap_prompt(6),
-    request.enable_image_generation,
-    request.enable_video_generation
+"Lesson outline for: {requirement}
+{pdf}Language: {lang}
+
+{learning}
+
+{layout}
+
+{budget}
+
+Rules:
+- {scene_cap}
+- Each scene: title (≤6 words), description (1 line), 2-3 key points
+- Mix slide scenes with 1 quiz scene max
+- Flow: introduce → explain → practice → assess
+- No media unless concept requires it
+- Image gen: {img_enabled}. Video gen: {video_enabled}.
+- If image disabled, no media_generations field.
+Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz\"}}]}}",
+    requirement = request.requirements.requirement,
+    pdf = pdf_info,
+    lang = language,
+    learning = learning_profile.to_prompt_block(),
+    layout = layout.to_prompt_block(),
+    budget = budget.to_budget_prompt_block(),
+    scene_cap = layout.to_scene_cap_prompt(),
+    img_enabled = request.enable_image_generation,
+    video_enabled = request.enable_video_generation,
 );
 
         let final_response = self
-            .generate_with_search_tool_using(self.outlines_llm(), system, &user)
+            .generate_with_search_tool_using(self.outlines_llm(), &system, &user)
             .await?;
 
         let payload: OutlineEnvelope = parse_json_with_repair(&final_response)
@@ -827,47 +819,34 @@ impl LlmGenerationPipeline {
     ) -> Result<SceneContent> {
         let language = language_code(&request.requirements.language);
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-        let persona_profile = engine::compute_persona_profile(request);
         let layout = engine::compute_layout_constraints(request);
-        let system = "You are a slide designer. Return strict JSON only. Slides are visual aids, not lecture scripts. Keep on-slide text concise, scannable, and layout-aware.";
+        let system = "You are a slide designer. Return strict JSON only. Slides are visual aids, not lecture scripts.".to_string();
         let user = format!(
-            "Create slide elements for a teaching slide.\n\
-             Lesson requirement: {}\n\
-             {}\n\
-             Scene title: {}\n\
-             Scene description: {}\n\
-             Teaching objective: {}\n\
-             Key points: {}\n\
-             Media placeholders available for this slide: {}.\n\
-             \n\
-             {}\n\
-             \n\
-             {}\n\
-             \n\
-             Canvas size: 1000x563.\n\
-             Return JSON object with shape {{\"elements\":[{{\"id\":\"optional\",\"kind\":\"text|image|video|shape|line|chart|latex|table\",\"content\":\"optional\",\"src\":\"optional\",\"latex\":\"optional\",\"shape_name\":\"optional\",\"chart_type\":\"optional\",\"left\":0,\"top\":0,\"width\":0,\"height\":0}}]}}.\n\
-             Use a strong visual hierarchy: title near the top, and 2-5 concise content elements.\n\
-             CRITICAL: Emulate a modern visual explainer (like ByteMonk). Use very modern, structured diagrammatical shapes, vibrant colors, and layout components to explain concepts visually.\n\
-             Prefer `shape`, `line`, `chart`, and `table` elements to build visual intuition. Use `image` or `video` media placeholders ONLY if they are provided and strictly necessary.\n\
-             If a media placeholder exists, create an image or video element using its exact `src` placeholder value.\n\
-             Text must stay within the canvas margins, and all dimensions must be positive.\n\
-             Language: {}",
-            request.requirements.requirement,
-            pdf_info,
-            outline.title,
-            outline.description,
-            outline
-                .teaching_objective
-                .as_deref()
-                .unwrap_or("Build understanding of the scene topic"),
-            outline.key_points.join(" | "),
-            media_generation_summary(outline),
-            persona_profile.to_prompt_block(),
-            layout.to_prompt_block(),
-            language
-        );
+"Slide: {title}
+Requirement: {req}
+{pdf}Key points: {points}
+Media: {media}
 
-        let response = self.generate_with_search_tool(system, &user).await?;
+{layout}
+
+Canvas: 1000x563. Language: {lang}
+Return JSON: {{\"elements\":[{{\"kind\":\"text|shape|chart|table|image|video\",\"content\":\"...\",\"left\":0,\"top\":0,\"width\":0,\"height\":0}}]}}
+Rules:
+- 2-4 elements. Title at top.
+- {bullet_rule}
+- Use shapes/charts for visual explanations. Images/video only if media placeholder exists.
+- All dimensions positive. Text within margins.",
+    title = outline.title,
+    req = request.requirements.requirement,
+    pdf = pdf_info,
+    points = outline.key_points.join(" | "),
+    media = media_generation_summary(outline),
+    layout = layout.to_prompt_block(),
+    lang = language,
+    bullet_rule = format!("Max {} bullets, max {} chars each, no paragraphs", layout.max_bullets, layout.max_chars_per_bullet),
+);
+
+        let response = self.generate_with_search_tool(&system, &user).await?;
         let payload: SlideContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| SlideContentEnvelope { elements: vec![] });
 
@@ -914,29 +893,25 @@ impl LlmGenerationPipeline {
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-        let persona_profile = engine::compute_persona_profile(request);
-        let system = "You are a quiz generator. Return strict JSON only.";
+        let system = "You create quiz questions. Return strict JSON only.".to_string();
         let user = format!(
-            "Create quiz questions for this lesson scene.\n\
-             Requirement: {}\n\
-             {}\n\
-             Scene title: {}\n\
-             Key points: {}\n\
-             \n\
-             {}\n\
-             \n\
-             Return JSON object with shape {{\"questions\":[{{\"question\":\"...\",\"options\":[\"...\"],\"answer\":[\"...\"]}}]}}.\n\
-             Use 2 or 3 questions.\n\
-             Keep questions concise. No paragraphs in questions or options.\n\
-             Each question must have exactly one correct answer.",
-            request.requirements.requirement,
-            pdf_info,
-            outline.title,
-            outline.key_points.join(" | "),
-            persona_profile.to_prompt_block(),
-        );
+"Quiz: {title}
+Requirement: {req}
+{pdf}Key points: {points}
 
-        let response = self.generate_with_search_tool(system, &user).await?;
+Return JSON: {{\"questions\":[{{\"question\":\"...\",\"options\":[\"...\"],\"answer\":[\"...\"]}}]}}
+Rules:
+- 2 questions max
+- 4 options each. 1 correct answer.
+- Concise. No paragraphs.
+- Test understanding, not memorization.",
+    title = outline.title,
+    req = request.requirements.requirement,
+    pdf = pdf_info,
+    points = outline.key_points.join(" | "),
+);
+
+        let response = self.generate_with_search_tool(&system, &user).await?;
         let payload: QuizContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| QuizContentEnvelope { questions: vec![] });
         let questions = if payload.questions.is_empty() {
@@ -982,34 +957,31 @@ impl LlmGenerationPipeline {
         let scientific_model = self
             .generate_interactive_scientific_model(request, outline, pdf_context)
             .await;
-        let persona_profile = engine::compute_persona_profile(request);
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-        let system = "You are a professional educational interactive web developer. Return a complete self-contained HTML document.";
+        let system = "You create educational HTML interactives. Return a complete self-contained HTML document.".to_string();
         let user = format!(
-            "Create interactive scene HTML.\n\
-             Requirement: {}\n\
-             {}\n\
-             Scene title: {}\n\
-             Scene description: {}\n\
-             Key points: {}\n\
-             Scientific constraints:\n{}\n\
-             \n\
-             {}\n\
-             \n\
-             Return a complete HTML5 document directly. The page must be self-contained, safe, responsive, and use plain HTML/CSS/JavaScript only.\n\
-             The interaction should guide students from simple observation to active exploration. Include concise instructions, visible controls, and immediate feedback.\n\
-             Keep the experience classroom-friendly and in {}.",
-            request.requirements.requirement,
-            pdf_info,
-            outline.title,
-            outline.description,
-            outline.key_points.join(" | "),
-            interactive_scientific_constraints(&scientific_model),
-            persona_profile.to_prompt_block(),
-            language_code(&request.requirements.language)
-        );
+"Interactive: {title}
+Requirement: {req}
+{pdf}Key points: {points}
+Scientific model:
+{model}
 
-        let response = self.generate_with_search_tool(system, &user).await?;
+Return complete HTML5 document. Self-contained. Safe. Responsive. Plain HTML/CSS/JS.
+Language: {lang}
+Rules:
+- Concise instructions. Visible controls. Immediate feedback.
+- Guide: observe → explore → conclude.
+- No external dependencies. No iframes. No network calls.
+- Max 1 interactive per scene.",
+    title = outline.title,
+    req = request.requirements.requirement,
+    pdf = pdf_info,
+    points = outline.key_points.join(" | "),
+    model = interactive_scientific_constraints(&scientific_model),
+    lang = language_code(&request.requirements.language),
+);
+
+        let response = self.generate_with_search_tool(&system, &user).await?;
         let payload: InteractiveContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(InteractiveContentEnvelope {
                 html: None,
@@ -1050,33 +1022,27 @@ impl LlmGenerationPipeline {
         outline: &SceneOutline,
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
-        let persona_profile = engine::compute_persona_profile(request);
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-        let system = "You design structured project-based learning plans. Return strict JSON only.";
+        let system = "You design project-based learning plans. Return strict JSON only.".to_string();
         let user = format!(
-            "Create a structured project plan for a PBL scene.\n\
-             Requirement: {}\n\
-             {}\n\
-             Scene title: {}\n\
-             Scene description: {}\n\
-             Key points: {}\n\
-             Project outline config: {}\n\
-             \n\
-             {}\n\
-             \n\
-             Return JSON object with shape {{\"summary\":\"...\",\"title\":\"...\",\"driving_question\":\"...\",\"final_deliverable\":\"...\",\"target_skills\":[\"...\"],\"milestones\":[\"...\"],\"team_roles\":[\"...\"],\"assessment_focus\":[\"...\"],\"starter_prompt\":\"...\"}}.\n\
-             Make it classroom-usable: include a clear driving question, a concrete deliverable, 3-5 milestones, useful team roles, and concise assessment criteria.\n\
-             Keep all sections concise. No paragraphs in summaries or milestones.",
-            request.requirements.requirement,
-            pdf_info,
-            outline.title,
-            outline.description,
-            outline.key_points.join(" | "),
-            project_outline_summary(outline),
-            persona_profile.to_prompt_block(),
-        );
+"PBL: {title}
+Requirement: {req}
+{pdf}Key points: {points}
+Outline: {config}
 
-        let response = self.generate_with_search_tool(system, &user).await?;
+Return JSON: {{\"summary\":\"...\",\"driving_question\":\"...\",\"final_deliverable\":\"...\",\"target_skills\":[\"...\"],\"milestones\":[\"...\"],\"team_roles\":[\"...\"],\"assessment_focus\":[\"...\"]}}
+Rules:
+- 1 driving question. 1 concrete deliverable.
+- 3-5 milestones. 3-5 team roles. 2-3 assessment criteria.
+- Concise. No paragraphs. No fluff.",
+    title = outline.title,
+    req = request.requirements.requirement,
+    pdf = pdf_info,
+    points = outline.key_points.join(" | "),
+    config = project_outline_summary(outline),
+);
+
+        let response = self.generate_with_search_tool(&system, &user).await?;
         let mut payload: ProjectContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(ProjectContentEnvelope {
                 summary: fallback_project_summary(outline),
@@ -1235,7 +1201,7 @@ impl LlmGenerationPipeline {
                 .map(|items| items.join(" | "))
                 .unwrap_or_else(|| "Not specified".to_string()),
         );
-        let response = self.generate_with_search_tool(system, &user).await?;
+        let response = self.generate_with_search_tool(&system, &user).await?;
         parse_json_with_repair(&response)
     }
 
@@ -1310,7 +1276,7 @@ impl LlmGenerationPipeline {
             roles_summary,
             issue_count,
         );
-        let response = self.generate_with_search_tool(system, &user).await?;
+        let response = self.generate_with_search_tool(&system, &user).await?;
         parse_json_with_repair(&response)
     }
 }
@@ -1677,111 +1643,89 @@ fn build_scene_action_prompt(
     let content_summary = scene_content_summary(content)?;
     let language = language_code(&request.requirements.language);
     let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-    let persona_profile = engine::compute_persona_profile(request);
-    let persona_block = persona_profile.to_prompt_block();
     let prompt = match outline.scene_type {
         SceneType::Slide => format!(
-            "Create ordered classroom actions for this slide scene.\n\
-             Lesson requirement: {}\n\
-             {}\n\
-             Slide title: {}\n\
-             Scene description: {}\n\
-             Key points: {}\n\
-             Slide elements: {}\n\
-             Scene summary JSON: {}\n\
-             \n\
-             {}\n\
-             \n\
-             Return a JSON array directly. Interleave objects shaped as {{\"type\":\"action\",\"name\":\"spotlight|laser|play_video|discussion\",\"params\":{{...}}}} and {{\"type\":\"text\",\"content\":\"...\"}}.\n\
-             spotlight or laser must reference valid element ids from the provided element list.\n\
-             spotlight should usually come before the speech that explains the focused element.\n\
-             If the slide contains a video element, you may use play_video with that video's element id.\n\
-             discussion is optional and must be the final action if used.\n\
-             Generate 4-8 items, include at least one spoken text segment, and keep all speech in {}.",
-            request.requirements.requirement,
-            pdf_info,
-            outline.title,
-            outline.description,
-            outline.key_points.join(" | "),
-            slide_focus_targets(content),
-            content_summary,
-            persona_block,
-            language
-        ),
+"Slide actions: {title}
+Requirement: {req}
+{pdf}Key points: {points}
+Elements: {elements}
+Content JSON: {content}
+
+Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}} or {{\"type\":\"action\",\"name\":\"spotlight|laser|play_video|discussion\",\"params\":{{...}}}}
+Rules:
+- 3-6 items. At least 1 speech segment.
+- spotlight/laser must reference valid element ids.
+- discussion optional, must be last.
+- Speech in {lang}.",
+    req = request.requirements.requirement,
+    pdf = pdf_info,
+    title = outline.title,
+    points = outline.key_points.join(" | "),
+    elements = slide_focus_targets(content),
+    content = content_summary,
+    lang = language
+),
         SceneType::Quiz => format!(
-            "Create ordered classroom actions for this quiz scene.\n\
-             Lesson requirement: {}\n\
-             {}\n\
-             Scene title: {}\n\
-             Scene description: {}\n\
-             Key points: {}\n\
-             Quiz summary JSON: {}\n\
-             \n\
-             {}\n\
-             \n\
-             Return a JSON array directly using {{\"type\":\"text\",\"content\":\"...\"}} and an optional final discussion action {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\",\"prompt\":\"optional\"}}}}.\n\
-             Use 3-6 items, keep all speech in {}, and only use discussion when the quiz genuinely invites reflection.",
-            request.requirements.requirement,
-            pdf_info,
-            outline.title,
-            outline.description,
-            outline.key_points.join(" | "),
-            content_summary,
-            persona_block,
-            language
-        ),
+"Quiz actions: {title}
+Requirement: {req}
+{pdf}Key points: {points}
+Content JSON: {content}
+
+Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}}; optional final {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\"}}}}
+Rules:
+- 2-4 items. Speech segments only.
+- Discussion optional, must be last.
+- Speech in {lang}.",
+    req = request.requirements.requirement,
+    pdf = pdf_info,
+    title = outline.title,
+    points = outline.key_points.join(" | "),
+    content = content_summary,
+    lang = language
+),
         SceneType::Interactive => format!(
-            "Create ordered teaching narration for this interactive scene.\n\
-             Lesson requirement: {}\n\
-             Scene title: {}\n\
-             Scene description: {}\n\
-             Key points: {}\n\
-             Interactive summary JSON: {}\n\
-             Scientific model summary: {}\n\
-             \n\
-             {}\n\
-             \n\
-             Return a JSON array directly using only {{\"type\":\"text\",\"content\":\"...\"}} items.\n\
-             Generate 3-6 speech segments that guide exploration, encourage interaction, and connect observations back to the concept.\n\
-             Sequence them like a live facilitator: orient the learner, give one concrete manipulation step, ask what changed, then help interpret the result.\n\
-             Keep all speech in {}.",
-            request.requirements.requirement,
-            outline.title,
-            outline.description,
-            outline.key_points.join(" | "),
-            content_summary,
-            interactive_scene_summary(content),
-            persona_block,
-            language
-        ),
+"Interactive narration: {title}
+Requirement: {req}
+{pdf}Key points: {points}
+Interactive JSON: {content}
+Scientific model: {model}
+
+Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}} only.
+Rules:
+- 2-4 speech segments.
+- Sequence: orient → manipulate → observe → conclude.
+- Speech in {lang}.",
+    req = request.requirements.requirement,
+    pdf = pdf_info,
+    title = outline.title,
+    points = outline.key_points.join(" | "),
+    content = content_summary,
+    model = interactive_scene_summary(content),
+    lang = language
+),
         SceneType::Pbl => format!(
-            "Create ordered teaching narration for this project-based learning scene.\n\
-             Lesson requirement: {}\n\
-             Scene title: {}\n\
-             Scene description: {}\n\
-             Key points: {}\n\
-             Project summary JSON: {}\n\
-             Project facilitation summary: {}\n\
-             \n\
-             {}\n\
-             \n\
-             Return a JSON array directly using {{\"type\":\"text\",\"content\":\"...\"}} items and an optional final discussion action.\n\
-             Generate 2-5 items that introduce the project goal, deliverable, and first student decision.\n\
-             Speak like a project facilitator: clarify the challenge, name one role or work package, and end with the most important first choice students must make.\n\
-             Keep all speech in {}.",
-            request.requirements.requirement,
-            outline.title,
-            outline.description,
-            outline.key_points.join(" | "),
-            content_summary,
-            project_scene_summary(content),
-            persona_block,
-            language
-        ),
+"PBL narration: {title}
+Requirement: {req}
+{pdf}Key points: {points}
+PBL JSON: {content}
+Facilitation: {facilitation}
+
+Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}}; optional final {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\"}}}}
+Rules:
+- 2-4 items. Introduce goal, deliverable, first decision.
+- Speech in {lang}.",
+    req = request.requirements.requirement,
+    pdf = pdf_info,
+    title = outline.title,
+    points = outline.key_points.join(" | "),
+    content = content_summary,
+    facilitation = interactive_scene_summary(content),
+    lang = language
+),
     };
 
     Ok((
-        "You are a professional instructional designer. Return strict JSON only.".to_string(),
+        "You are an instructional designer. Return strict JSON only.".to_string(),
         prompt,
     ))
 }
@@ -2244,41 +2188,7 @@ fn interactive_scene_summary(content: &SceneContent) -> String {
     }
 }
 
-fn project_scene_summary(content: &SceneContent) -> String {
-    match content {
-        SceneContent::Project { project_config } => {
-            let mut parts = vec![format!("summary={}", project_config.summary)];
-            if let Some(question) = project_config.driving_question.as_deref() {
-                parts.push(format!("driving_question={question}"));
-            }
-            if let Some(deliverable) = project_config.final_deliverable.as_deref() {
-                parts.push(format!("deliverable={deliverable}"));
-            }
-            if let Some(roles) = project_config.agent_roles.as_ref() {
-                parts.push(format!(
-                    "agent_roles={}",
-                    roles
-                        .iter()
-                        .map(|role| format!("{}:{}", role.name, role.responsibility))
-                        .collect::<Vec<_>>()
-                        .join(" | ")
-                ));
-            }
-            if let Some(issue_board) = project_config.issue_board.as_ref() {
-                parts.push(format!(
-                    "issue_board={}",
-                    issue_board
-                        .iter()
-                        .map(|issue| issue.title.clone())
-                        .collect::<Vec<_>>()
-                        .join(" | ")
-                ));
-            }
-            parts.join("; ")
-        }
-        _ => "none".to_string(),
-    }
-}
+
 
 fn parse_structured_actions(
     response: &str,
