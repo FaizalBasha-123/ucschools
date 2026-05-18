@@ -24,10 +24,13 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
         method: 'GET',
         cache: 'no-store',
       });
+      if (res.status === 401) {
+        // Not logged in with user session (e.g. on an operator-only page)
+        setCredits(null);
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
-        // apiSuccess() spreads data at root: { success: true, entitlement: {...}, ... }
-        // The fallback to .data.entitlement handles any wrapped format for safety.
         const balance = data?.entitlement?.credit_balance ?? data?.data?.entitlement?.credit_balance ?? null;
         if (balance !== null) {
           setCredits(balance);

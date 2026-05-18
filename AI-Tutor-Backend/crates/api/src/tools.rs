@@ -6,6 +6,9 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use std::env;
 
+use ai_tutor_domain::routing::QualityTier;
+use ai_tutor_routing::routing_rules;
+
 use crate::app::{ApiError, AppState};
 
 #[derive(Deserialize)]
@@ -87,8 +90,7 @@ pub async fn web_search(
             if pdf_excerpt.is_empty() { "None" } else { &pdf_excerpt }
         );
 
-        let scaffold_model = env::var("BALANCED_MODE_AI_TUTOR_CHAT_SCAFFOLD_MODEL")
-            .unwrap_or_else(|_| "openrouter:google/gemini-2.5-flash".to_string())
+        let scaffold_model = routing_rules::resolve_chat_scaffold_model(QualityTier::Standard)
             .replace("openrouter:", "");
 
         let openrouter_key = env::var("OPENROUTER_API_KEY").unwrap_or_default();
@@ -235,8 +237,7 @@ pub async fn parse_pdf(
         });
     }
 
-    let model = env::var("BALANCED_MODE_AI_TUTOR_PDF_MODEL")
-        .unwrap_or_else(|_| "openrouter:google/gemini-2.0-flash-001".to_string())
+    let model = routing_rules::resolve_specialized_model(routing_rules::SpecializedTask::PdfParsing, QualityTier::Standard)
         .replace("openrouter:", "");
 
     let base_url = env::var("PDF_OPENROUTER_BASE_URL")

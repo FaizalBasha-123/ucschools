@@ -5,6 +5,7 @@ use reqwest::Url;
 use tracing::{error, info};
 
 use ai_tutor_api::app::{build_router, LessonAppService, LiveLessonAppService};
+use ai_tutor_routing::{operator_emails, overrides};
 use ai_tutor_api::llm_proxy::{llm_proxy_router, LlmProxyState};
 use ai_tutor_api::queue::LessonQueue;
 use ai_tutor_api::queue_redis::RedisLessonQueue;
@@ -256,6 +257,8 @@ async fn run_startup_readiness_checks(
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
 
+    overrides::init_overrides("model-overrides.json");
+
     let host = std::env::var("AI_TUTOR_API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     let port = std::env::var("AI_TUTOR_API_PORT").unwrap_or_else(|_| "8099".to_string());
     let storage_root =
@@ -278,6 +281,16 @@ async fn main() -> Result<()> {
         .ensure_postgres_ready()
         .await
         .expect("initialize postgres migrations");
+
+    // Initialize operator emails from env var + DB
+    {
+        let env_emails = std::env::var("AI_TUTOR_OPERATOR_ALLOWED_EMAILS").unwrap_or_default();
+        operator_emails::init_emails(&env_emails);
+        if let Ok(db_emails) = storage.list_operator_emails().await {
+            operator_emails::sync_from_db(&db_emails);
+        }
+    }
+
     let cleanup_root = storage.root_dir().to_path_buf();
     let cleanup_cfg = CleanupConfig::from_env();
     let billing_maintenance_interval_minutes = std::env::var(

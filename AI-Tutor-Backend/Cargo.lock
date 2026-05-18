@@ -171,6 +171,8 @@ version = "0.1.0"
 dependencies = [
  "ai_tutor_domain",
  "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]

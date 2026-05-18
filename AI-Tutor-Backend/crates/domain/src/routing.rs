@@ -134,28 +134,28 @@ pub struct TierLimits {
 pub fn tier_limits(tier: QualityTier) -> TierLimits {
     match tier {
         QualityTier::Basic => TierLimits {
-            max_slides: env_usize("MAX_SLIDES_BASIC", 5),
+            max_slides: 5,
             max_examples_per_slide: 1,
             max_tokens_per_response: 2048,
             enable_refinement: false,
             max_pdf_context_chars: 300,
-            max_cost_usd_per_request: env_f64("MAX_COST_USD_BASIC", 0.01),
+            max_cost_usd_per_request: 0.01,
         },
         QualityTier::Standard => TierLimits {
-            max_slides: env_usize("MAX_SLIDES_STANDARD", 8),
+            max_slides: 8,
             max_examples_per_slide: 2,
             max_tokens_per_response: 4096,
             enable_refinement: false,
             max_pdf_context_chars: 600,
-            max_cost_usd_per_request: env_f64("MAX_COST_USD_STANDARD", 0.05),
+            max_cost_usd_per_request: 0.05,
         },
         QualityTier::Premium => TierLimits {
-            max_slides: env_usize("MAX_SLIDES_PREMIUM", 15),
+            max_slides: 15,
             max_examples_per_slide: 3,
             max_tokens_per_response: 8192,
-            enable_refinement: env_bool("ENABLE_REFINEMENT", true),
+            enable_refinement: true,
             max_pdf_context_chars: 1000,
-            max_cost_usd_per_request: env_f64("MAX_COST_USD_PREMIUM", 0.15),
+            max_cost_usd_per_request: 0.15,
         },
     }
 }
@@ -166,8 +166,8 @@ pub fn tier_limits(tier: QualityTier) -> TierLimits {
 pub fn effective_max_slides(tier: QualityTier, complexity: TopicComplexity) -> usize {
     let base = tier_limits(tier).max_slides;
     if complexity == TopicComplexity::High {
-        let extra = env_usize("TOPIC_COMPLEXITY_EXTRA_SLIDES", 2);
-        let premium_cap = env_usize("MAX_SLIDES_PREMIUM", 15);
+        let extra = 2usize;
+        let premium_cap = tier_limits(QualityTier::Premium).max_slides;
         (base + extra).min(premium_cap)
     } else {
         base
@@ -353,7 +353,7 @@ impl Default for RetryPolicy {
     fn default() -> Self {
         Self {
             max_attempts: 2,
-            timeout_ms: env_u64("LLM_TIMEOUT_MS", 30_000),
+            timeout_ms: 30_000,
         }
     }
 }
@@ -449,39 +449,6 @@ pub fn pipeline_stages(mode: LearningMode) -> Vec<PipelineStage> {
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
-
-fn env_usize(key: &str, default: usize) -> usize {
-    std::env::var(key)
-        .ok()
-        .and_then(|v| v.trim().parse::<usize>().ok())
-        .unwrap_or(default)
-}
-
-fn env_u64(key: &str, default: u64) -> u64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|v| v.trim().parse::<u64>().ok())
-        .unwrap_or(default)
-}
-
-fn env_f64(key: &str, default: f64) -> f64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|v| v.trim().parse::<f64>().ok())
-        .unwrap_or(default)
-}
-
-fn env_bool(key: &str, default: bool) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|v| {
-            matches!(
-                v.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(default)
-}
 
 #[cfg(test)]
 mod tests {

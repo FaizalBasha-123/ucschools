@@ -1,17 +1,18 @@
-use ai_tutor_domain::routing::{Capability, GenerationTask, GenerationBudget, LearningMode, QualityTier, TopicComplexity};
+use std::borrow::Cow;
+
+use ai_tutor_domain::routing::{Capability, GenerationBudget, GenerationTask, LearningMode, QualityTier, TopicComplexity};
 
 use crate::capabilities::{resolve_capability, resolve_model};
+use crate::routing_rules;
 
 /// Complete routing result for a generation request.
 pub struct GenerationRoute {
-    pub model: &'static str,
+    pub model: Cow<'static, str>,
     pub capability: Capability,
     pub budget: GenerationBudget,
 }
 
 /// Resolve the full generation route: model + capability + budget.
-///
-/// This is the SINGLE entry point for all LLM generation routing.
 pub fn resolve_generation_route(
     task: GenerationTask,
     learning_mode: LearningMode,
@@ -20,24 +21,11 @@ pub fn resolve_generation_route(
 ) -> GenerationRoute {
     let cap = resolve_capability(task, learning_mode);
     let model = resolve_model(cap, quality_mode);
-    let budget = compute_budget(quality_mode, complexity, task);
-    GenerationRoute { model, capability: cap, budget }
-}
-
-/// Compute the generation budget for a task, adjusted by tier and complexity.
-fn compute_budget(
-    tier: QualityTier,
-    complexity: TopicComplexity,
-    _task: GenerationTask,
-) -> GenerationBudget {
-    let mut budget = ai_tutor_domain::routing::compute_generation_budget(tier, complexity);
-
-    // High-complexity topics get +2 scenes
+    let mut budget = routing_rules::compute_generation_budget(quality_mode, complexity);
     if complexity == TopicComplexity::High {
         budget.max_scenes = budget.max_scenes.saturating_add(2);
     }
-
-    budget
+    GenerationRoute { model, capability: cap, budget }
 }
 
 #[cfg(test)]
@@ -75,7 +63,7 @@ mod tests {
             QualityTier::Standard,
             TopicComplexity::High,
         );
-        assert_eq!(route.budget.max_scenes, 12); // 10 + 2
+        assert_eq!(route.budget.max_scenes, 12);
     }
 
     #[test]

@@ -13,7 +13,7 @@ use axum::{
     middleware::{self, Next},
     response::sse::{Event, KeepAlive, Sse},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use jsonwebtoken::{
@@ -42,6 +42,7 @@ use crate::telemetry_provider::{
 };
 use ai_tutor_domain::{
     auth::{TutorAccount, TutorAccountStatus},
+    routing::{GenerationTask, QualityTier},
     billing::{
         BillingContext, BillingInterval, BillingProductKind, Invoice, InvoiceLine,
         InvoiceLineType, InvoiceStatus, InvoiceType, PaymentIntent, PaymentIntentStatus,
@@ -80,6 +81,7 @@ use ai_tutor_providers::{
         VideoProvider, VideoProviderFactory,
     },
 };
+use ai_tutor_routing::routing_rules;
 use ai_tutor_runtime::session::{
     lesson_playback_events,
     ActionAckPolicy, PlaybackEvent, TutorStreamEvent,
@@ -304,10 +306,13 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
         || path == "/api/operator/stats/payments"
         || path == "/api/operator/stats/promo-codes"
         || path == "/api/operator/users"
+        || path.starts_with("/api/operator/users/")
         || path == "/api/operator/settings"
         || path == "/api/operator/jobs"
         || path == "/api/operator/audit-logs"
         || path == "/api/operator/api-costs"
+        || path == "/api/operator/settings/emails"
+        || path.starts_with("/api/operator/settings/emails/")
         || path == "/api/operator/system/toggle-maintenance"
         || path == "/api/operator/schools"
         || path.starts_with("/api/operator/schools/")
@@ -688,6 +693,28 @@ pub struct OperatorJobsListResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorAuditLogsResponse {
     pub logs: Vec<ai_tutor_domain::billing::FinancialAuditLog>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorEmailListResponse {
+    pub emails: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddOperatorEmailRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddOperatorEmailResponse {
+    pub added: bool,
+    pub email: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoveOperatorEmailResponse {
+    pub removed: bool,
+    pub email: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1514,15 +1541,6 @@ enum ResolvedRuntimeSessionMode {
     },
 }
 
-#[derive(Debug, Clone)]
-struct GenerationModelPolicy {
-    outlines_model: String,
-    scene_content_model: String,
-    scene_actions_model: String,
-    scene_actions_fallback_model: Option<String>,
-    agent_profiles_model: Option<String>,
-}
-
 #[async_trait]
 pub trait LessonAppService: Send + Sync {
     async fn google_login(&self) -> Result<GoogleAuthLoginResponse>;
@@ -1600,6 +1618,10 @@ pub trait LessonAppService: Send + Sync {
     async fn get_operator_settings(&self) -> Result<OperatorSettingsResponse>;
     async fn get_operator_jobs(&self) -> Result<OperatorJobsListResponse>;
     async fn get_operator_audit_logs(&self) -> Result<OperatorAuditLogsResponse>;
+    async fn list_operator_emails(&self) -> Result<Vec<String>>;
+    async fn add_operator_email(&self, email: &str) -> Result<bool>;
+    async fn remove_operator_email(&self, email: &str) -> Result<bool>;
+    async fn get_operator_user_ledger(&self, account_id: &str) -> Result<CreditLedgerResponse>;
     async fn create_promo_code(&self, payload: CreatePromoCodeRequest) -> Result<()>;
     async fn list_all_promo_codes(&self, limit: usize) -> Result<OperatorPromoCodeListResponse>;
     /// Returns aggregated API cost data for the operator console.
@@ -4054,78 +4076,35 @@ impl LiveLessonAppService {
         request: &LessonGenerationRequest,
         _model_string: Option<&str>,
     ) -> Result<LessonGenerationOrchestrator<LlmGenerationPipeline, FileStorage, FileStorage>> {
-        let generation_policy = resolve_generation_model_policy(request)?;
+        let quality = request.quality_mode.as_deref().unwrap_or("standard");
+        let learning = request.learning_mode.as_deref().unwrap_or("explain");
+        let tier = routing_rules::effective_quality_tier(learning, quality);
 
         let account_id = request.account_id.as_deref();
 
-        let resolved_outlines = resolve_model(
-            &self.provider_config,
-            Some(&generation_policy.outlines_model),
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let outlines_config = resolved_outlines.model_config.clone();
-        let outlines_llm = self.wrap_llm_provider(
-            self.provider_factory.build(resolved_outlines.model_config)?,
-            &outlines_config,
-            account_id,
-            "orchestrator",
-        );
-
-        let resolved_scene_content = resolve_model(
-            &self.provider_config,
-            Some(&generation_policy.scene_content_model),
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let scene_content_config = resolved_scene_content.model_config.clone();
-        let scene_content_llm = self.wrap_llm_provider(
-            self.provider_factory
-                .build(resolved_scene_content.model_config)?,
-            &scene_content_config,
-            account_id,
-            "content",
-        );
-
-        let resolved_scene_actions = resolve_model(
-            &self.provider_config,
-            Some(&generation_policy.scene_actions_model),
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let scene_actions_config = resolved_scene_actions.model_config.clone();
-        let scene_actions_llm = self.wrap_llm_provider(
-            self.provider_factory
-                .build(resolved_scene_actions.model_config)?,
-            &scene_actions_config,
-            account_id,
-            "scene_actions",
-        );
-
-        let resolved_pipeline = resolve_model(
-            &self.provider_config,
-            Some(&generation_policy.scene_content_model),
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let pipeline_config = resolved_pipeline.model_config.clone();
-        let pipeline = LlmGenerationPipeline::new(
-            self.wrap_llm_provider(
-                self.provider_factory.build(resolved_pipeline.model_config)?,
-                &pipeline_config,
+        let build_llm = |model_string: &str, tag: &str| -> Result<_> {
+            let resolved = resolve_model(&self.provider_config, Some(model_string), None, None, None, None)?;
+            let config = resolved.model_config.clone();
+            let llm = self.wrap_llm_provider(
+                self.provider_factory.build(resolved.model_config)?,
+                &config,
                 account_id,
-                "content",
-            ),
-        )
-        .with_phase_llms(outlines_llm, scene_content_llm, scene_actions_llm);
+                tag,
+            );
+            Ok(llm)
+        };
+
+        let outlines_model = routing_rules::resolve_task_model_with_override(GenerationTask::Outlines, tier);
+        let scene_content_model = routing_rules::resolve_task_model_with_override(GenerationTask::SceneContent, tier);
+        let scene_actions_model = routing_rules::resolve_task_model_with_override(GenerationTask::SceneActions, tier);
+
+        let outlines_llm = build_llm(&outlines_model, "orchestrator")?;
+        let scene_content_llm = build_llm(&scene_content_model, "content")?;
+        let scene_actions_llm = build_llm(&scene_actions_model, "scene_actions")?;
+        let pipeline_llm = build_llm(&scene_content_model, "content")?;
+
+        let pipeline = LlmGenerationPipeline::new(pipeline_llm)
+            .with_phase_llms(outlines_llm, scene_content_llm, scene_actions_llm);
         let pipeline = Arc::new(pipeline);
         let mut orchestrator = LessonGenerationOrchestrator::new(
             pipeline,
@@ -4135,9 +4114,7 @@ impl LiveLessonAppService {
         .with_asset_store(self.build_asset_store().await?);
 
         if request.enable_image_generation {
-            let image_prefix = effective_quality_prefix(request);
-            let image_model_string = std::env::var(format!("{}AI_TUTOR_IMAGE_MODEL", image_prefix))
-                .unwrap_or_else(|_| "openai:gpt-image-1".to_string());
+            let image_model_string = routing_rules::resolve_media_model_with_override(routing_rules::MediaTask::Image, tier);
             let resolved_image = resolve_model(
                 &self.provider_config,
                 Some(&image_model_string),
@@ -4158,9 +4135,7 @@ impl LiveLessonAppService {
         }
 
         if request.enable_video_generation {
-            let video_prefix = effective_quality_prefix(request);
-            let video_model_string = std::env::var(format!("{}AI_TUTOR_VIDEO_MODEL", video_prefix))
-                .unwrap_or_else(|_| "openai:gpt-video-1".to_string());
+            let video_model_string = routing_rules::resolve_media_model_with_override(routing_rules::MediaTask::Video, tier);
             let resolved_video = resolve_model(
                 &self.provider_config,
                 Some(&video_model_string),
@@ -4181,9 +4156,7 @@ impl LiveLessonAppService {
         }
 
         if request.enable_tts {
-            let tts_prefix = effective_quality_prefix(request);
-            let tts_model_string = std::env::var(format!("{}AI_TUTOR_TTS_MODEL", tts_prefix))
-                .unwrap_or_else(|_| "openai:tts-1".to_string());
+            let tts_model_string = routing_rules::resolve_media_model_with_override(routing_rules::MediaTask::Tts, tier);
             let resolved_tts = resolve_model(
                 &self.provider_config,
                 Some(&tts_model_string),
@@ -4329,25 +4302,18 @@ impl LiveLessonAppService {
     }
 
     async fn system_status(&self) -> Result<SystemStatusResponse> {
-        let current_model = std::env::var("STANDARD_MODE_AI_TUTOR_MODEL").ok();
-        let generation_model_policy_result =
-            load_generation_model_policy_from_env("STANDARD_MODE_");
-
-        let generation_model_policy = match generation_model_policy_result {
-            Ok(policy) => policy,
-            Err(_) => GenerationModelPolicy {
-                outlines_model: "openai:gpt-4o-mini".to_string(),
-                scene_content_model: "openai:gpt-4o-mini".to_string(),
-                scene_actions_model: "openai:gpt-4o-mini".to_string(),
-                scene_actions_fallback_model: None,
-                agent_profiles_model: None,
-            },
+        let current_model = routing_rules::resolve_task_model(GenerationTask::SceneContent, QualityTier::Standard);
+        let generation_model_policy = GenerationModelPolicyResponse {
+            outlines_model: routing_rules::resolve_task_model_with_override(GenerationTask::Outlines, QualityTier::Standard).into_owned(),
+            scene_content_model: routing_rules::resolve_task_model_with_override(GenerationTask::SceneContent, QualityTier::Standard).into_owned(),
+            scene_actions_model: routing_rules::resolve_task_model_with_override(GenerationTask::SceneActions, QualityTier::Standard).into_owned(),
+            scene_actions_fallback_model: Some(routing_rules::resolve_scene_actions_fallback_with_override(QualityTier::Standard).into_owned()),
+            agent_profiles_model: Some(routing_rules::resolve_agent_profiles_model_with_override(QualityTier::Standard).into_owned()),
         };
 
-        let selected_model_profile = current_model
-            .as_deref()
-            .and_then(|model| selected_model_profile(&self.provider_config, Some(model)).ok());
-        
+        let selected_model_profile =
+            selected_model_profile(&self.provider_config, Some(current_model)).ok();
+
         let leases_result = self.queue.get_lease_counts().await;
         let (queue_pending_jobs, queue_active_leases, queue_stale_leases, queue_status_error) =
             match &leases_result {
@@ -4356,7 +4322,7 @@ impl LiveLessonAppService {
             };
 
         let (provider_runtime, provider_status_error) =
-            match self.current_provider_runtime_status(current_model.as_deref()) {
+            match self.current_provider_runtime_status(Some(current_model)) {
                 Ok(statuses) => (statuses, None),
                 Err(err) => (Vec::new(), Some(err.to_string())),
             };
@@ -4385,7 +4351,7 @@ impl LiveLessonAppService {
             } else {
                 "degraded"
             },
-            current_model,
+            current_model: Some(current_model.to_string()),
             deployment_environment: std::env::var("AI_TUTOR_DEPLOYMENT_ENV")
                 .ok()
                 .filter(|value| !value.trim().is_empty())
@@ -4397,13 +4363,7 @@ impl LiveLessonAppService {
                 .ok()
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| "stable".to_string()),
-            generation_model_policy: GenerationModelPolicyResponse {
-                outlines_model: generation_model_policy.outlines_model,
-                scene_content_model: generation_model_policy.scene_content_model,
-                scene_actions_model: generation_model_policy.scene_actions_model,
-                scene_actions_fallback_model: generation_model_policy.scene_actions_fallback_model,
-                agent_profiles_model: generation_model_policy.agent_profiles_model,
-            },
+            generation_model_policy,
             selected_model_profile,
             auth_blueprint,
             deployment_blueprint,
@@ -4455,13 +4415,9 @@ impl LiveLessonAppService {
         let model_string = model_string
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
-            .or_else(|| {
-                std::env::var("STANDARD_MODE_AI_TUTOR_MODEL")
-                    .ok()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-            })
-            .ok_or_else(|| anyhow!("No model specified and STANDARD_MODE_AI_TUTOR_MODEL is not set"))?;
+            .unwrap_or_else(|| {
+                routing_rules::resolve_task_model_with_override(GenerationTask::SceneContent, QualityTier::Standard).into_owned()
+            });
 
         let resolved = resolve_model(
             &self.provider_config,
@@ -5345,6 +5301,10 @@ impl LessonAppService for LiveLessonAppService {
         Ok(OperatorUsersListResponse { users })
     }
 
+    async fn get_operator_user_ledger(&self, account_id: &str) -> Result<CreditLedgerResponse> {
+        self.get_credit_ledger(account_id, 100).await
+    }
+
     async fn create_promo_code(&self, payload: CreatePromoCodeRequest) -> Result<()> {
         let now = chrono::Utc::now();
         let promo = ai_tutor_domain::credits::PromoCode {
@@ -5387,6 +5347,18 @@ impl LessonAppService for LiveLessonAppService {
     async fn get_operator_audit_logs(&self) -> Result<OperatorAuditLogsResponse> {
         let logs = self.storage.list_all_audit_logs(500).await.map_err(|e| anyhow!(e))?;
         Ok(OperatorAuditLogsResponse { logs })
+    }
+
+    async fn list_operator_emails(&self) -> Result<Vec<String>> {
+        self.storage.list_operator_emails().await.map_err(|e| anyhow!(e))
+    }
+
+    async fn add_operator_email(&self, email: &str) -> Result<bool> {
+        self.storage.add_operator_email(email).await.map_err(|e| anyhow!(e))
+    }
+
+    async fn remove_operator_email(&self, email: &str) -> Result<bool> {
+        self.storage.remove_operator_email(email).await.map_err(|e| anyhow!(e))
     }
 
     async fn run_worker_loop(&self) -> Result<()> {
@@ -6647,10 +6619,7 @@ impl LessonAppService for LiveLessonAppService {
             payload.workspace.clone()
         };
 
-        let model_string = std::env::var("STANDARD_MODE_AI_TUTOR_PBL_RUNTIME_MODEL")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| anyhow!("STANDARD_MODE_AI_TUTOR_PBL_RUNTIME_MODEL is required"))?;
+        let model_string = routing_rules::resolve_specialized_model_with_override(routing_rules::SpecializedTask::PblRuntime, QualityTier::Standard);
 
         let resolved = resolve_model(
             &self.provider_config,
@@ -6745,9 +6714,9 @@ impl LessonAppService for LiveLessonAppService {
         let model_string = payload
             .model_string
             .clone()
-            .or_else(|| std::env::var("AI_TUTOR_DEFAULT_ASR_MODEL").ok())
+            .or_else(|| Some(routing_rules::resolve_specialized_model_with_override(routing_rules::SpecializedTask::Asr, QualityTier::Standard).into_owned()))
             .filter(|value| !value.trim().is_empty())
-            .ok_or_else(|| anyhow!("AI_TUTOR_DEFAULT_ASR_MODEL or model_string is required"))?;
+            .ok_or_else(|| anyhow!("ASR model is required"))?;
 
         let resolved = resolve_model(
             &self.provider_config,
@@ -7346,9 +7315,12 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/operator/stats/promo-codes", get(get_operator_promo_code_stats))
         .route("/api/operator/promo-codes", get(get_operator_promo_codes).post(create_operator_promo_code))
         .route("/api/operator/users", get(get_operator_users))
+        .route("/api/operator/users/{account_id}/ledger", get(get_operator_user_ledger))
         .route("/api/operator/settings", get(get_operator_settings))
         .route("/api/operator/jobs", get(get_operator_jobs))
         .route("/api/operator/audit-logs", get(get_operator_audit_logs))
+        .route("/api/operator/settings/emails", get(list_operator_emails).post(add_operator_email))
+        .route("/api/operator/settings/emails/{email}", delete(remove_operator_email))
         .route("/api/operator/api-costs", get(get_operator_api_costs))
         .route("/api/internal/usage", post(post_internal_usage))
         .route("/api/operator/system/toggle-maintenance", post(toggle_maintenance))
@@ -8132,6 +8104,19 @@ async fn get_operator_users(
         .map_err(ApiError::internal)
 }
 
+async fn get_operator_user_ledger(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Path(account_id): Path<String>,
+) -> Result<Json<CreditLedgerResponse>, ApiError> {
+    state
+        .service
+        .get_operator_user_ledger(&account_id)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
 async fn get_operator_settings(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
@@ -8166,6 +8151,42 @@ async fn get_operator_audit_logs(
         .await
         .map(Json)
         .map_err(ApiError::internal)
+}
+
+async fn list_operator_emails(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<OperatorEmailListResponse>, ApiError> {
+    let emails = state.service.list_operator_emails().await.map_err(ApiError::internal)?;
+    Ok(Json(OperatorEmailListResponse { emails }))
+}
+
+async fn add_operator_email(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Json(payload): Json<AddOperatorEmailRequest>,
+) -> Result<Json<AddOperatorEmailResponse>, ApiError> {
+    let email = payload.email.trim().to_ascii_lowercase();
+    if email.is_empty() || !email.contains('@') {
+        return Err(ApiError {
+            status: axum::http::StatusCode::BAD_REQUEST,
+            message: "invalid email address".to_string(),
+        });
+    }
+    state.service.add_operator_email(&email).await.map_err(ApiError::internal)?;
+    ai_tutor_routing::operator_emails::add(&email);
+    Ok(Json(AddOperatorEmailResponse { added: true, email }))
+}
+
+async fn remove_operator_email(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Path(email): Path<String>,
+) -> Result<Json<RemoveOperatorEmailResponse>, ApiError> {
+    let email = email.trim().to_ascii_lowercase();
+    state.service.remove_operator_email(&email).await.map_err(ApiError::internal)?;
+    ai_tutor_routing::operator_emails::remove(&email);
+    Ok(Json(RemoveOperatorEmailResponse { removed: true, email }))
 }
 
 async fn toggle_maintenance(
@@ -9154,70 +9175,6 @@ fn aggregate_provider_runtime_status(
         provider_reported_total_tokens,
         provider_reported_total_cost_microusd,
     }
-}
-
-/// Map learning mode + quality mode to an effective quality prefix.
-///   exam/placement_prep → bump up one tier
-///   revision            → bump down one tier
-///   explain             → use quality as-is
-fn effective_quality_prefix(request: &LessonGenerationRequest) -> &'static str {
-    let quality = request.quality_mode.as_deref().unwrap_or("standard");
-    let learning = request.learning_mode.as_deref().unwrap_or("explain");
-    match learning {
-        "exam" | "placement_prep" => match quality {
-            "basic" => "STANDARD_MODE_",
-            _ => "PREMIUM_MODE_",
-        },
-        "revision" => match quality {
-            "premium" => "STANDARD_MODE_",
-            _ => "BASIC_MODE_",
-        },
-        _ => match quality {
-            "premium" => "PREMIUM_MODE_",
-            "basic" => "BASIC_MODE_",
-            _ => "STANDARD_MODE_",
-        },
-    }
-}
-
-/// Resolve generation models using the effective quality prefix from env (no request context).
-/// Reads `{QUALITY}MODE_AI_TUTOR_GENERATION_{TASK}_MODEL` — no fallback chain.
-fn load_generation_model_policy_from_env(quality_prefix: &str) -> Result<GenerationModelPolicy> {
-    let read_var = |key: &str| -> Result<String> {
-        std::env::var(key)
-            .map(|v| v.trim().to_string())
-            .map_err(|_| anyhow!("Required env var {key} is not set"))
-    };
-
-    let outlines_model = read_var(&format!("{}AI_TUTOR_GENERATION_OUTLINES_MODEL", quality_prefix))?;
-    let scene_content_model =
-        read_var(&format!("{}AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", quality_prefix))?;
-    let scene_actions_model =
-        read_var(&format!("{}AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", quality_prefix))?;
-    let scene_actions_fallback_model = read_var(&format!(
-        "{}AI_TUTOR_GENERATION_SCENE_ACTIONS_FALLBACK_MODEL",
-        quality_prefix
-    ))
-    .ok();
-    let agent_profiles_model =
-        read_var(&format!("{}AI_TUTOR_GENERATION_AGENT_PROFILES_MODEL", quality_prefix)).ok();
-
-    Ok(GenerationModelPolicy {
-        outlines_model,
-        scene_content_model,
-        scene_actions_model,
-        scene_actions_fallback_model,
-        agent_profiles_model,
-    })
-}
-
-/// Resolve per-task generation models using quality mode and learning mode from
-/// the request. Reads `{EFFECTIVE}MODE_AI_TUTOR_GENERATION_{TASK}_MODEL` env vars.
-fn resolve_generation_model_policy(
-    request: &LessonGenerationRequest,
-) -> Result<GenerationModelPolicy> {
-    let prefix = effective_quality_prefix(request);
-    load_generation_model_policy_from_env(prefix)
 }
 
 fn selected_model_profile(
@@ -10278,12 +10235,8 @@ fn operator_name_from_email(email: &str) -> String {
 }
 
 fn operator_email_allowed(email: &str) -> bool {
-    let Some(raw) = read_optional_env("AI_TUTOR_OPERATOR_ALLOWED_EMAILS") else {
-        return false;
-    };
-    raw.split(',')
-        .map(|value| value.trim().to_ascii_lowercase())
-        .any(|value| !value.is_empty() && value == email)
+    // Check the global set (populated from env var + DB at startup)
+    ai_tutor_routing::operator_emails::is_allowed(email)
 }
 
 fn generate_numeric_otp(length: usize) -> String {
@@ -10753,7 +10706,7 @@ pub(crate) struct CreditUsage {
 }
 
 fn estimated_generation_duration_secs() -> f64 {
-    env_i64("AI_TUTOR_ESTIMATED_DURATION_SECS", 1200) as f64
+    routing_rules::estimated_generation_duration_secs()
 }
 
 fn estimate_generation_credits_for_modes(
@@ -11713,6 +11666,13 @@ mod tests {
                 Ok(OperatorUsersListResponse { users: vec![] })
             }
 
+            async fn get_operator_user_ledger(&self, _account_id: &str) -> Result<CreditLedgerResponse> {
+                Ok(CreditLedgerResponse {
+                    account_id: _account_id.to_string(),
+                    entries: vec![],
+                })
+            }
+
             async fn create_promo_code(&self, _payload: CreatePromoCodeRequest) -> Result<()> {
                 Ok(())
             }
@@ -11734,6 +11694,18 @@ mod tests {
 
             async fn get_operator_audit_logs(&self) -> Result<OperatorAuditLogsResponse> {
                 Ok(OperatorAuditLogsResponse { logs: vec![] })
+            }
+
+            async fn list_operator_emails(&self) -> Result<Vec<String>> {
+                Ok(vec![])
+            }
+
+            async fn add_operator_email(&self, _email: &str) -> Result<bool> {
+                Ok(true)
+            }
+
+            async fn remove_operator_email(&self, _email: &str) -> Result<bool> {
+                Ok(true)
             }
 
             async fn get_api_usage_costs(&self, _days: Option<i64>) -> Result<OperatorApiCostsResponse> {

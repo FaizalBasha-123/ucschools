@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, Loader2, Search, CreditCard, Ticket } from 'lucide-react';
+import { Users, Loader2, Search, CreditCard, Ticket, History, X, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { createLogger } from '@/lib/logger';
@@ -23,6 +23,139 @@ interface OperatorUser {
   promo_codes_used: number;
 }
 
+interface LedgerEntry {
+  id: string;
+  kind: string;
+  amount: number;
+  reason: string;
+  created_at: string;
+}
+
+interface LedgerResponse {
+  account_id: string;
+  entries: LedgerEntry[];
+}
+
+function sourceType(reason: string): { label: string; color: string } {
+  if (reason.startsWith('payment_order:')) return { label: 'PAID', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' };
+  if (reason.startsWith('Promo code redeemed:')) return { label: 'PROMO', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' };
+  if (reason.startsWith('subscription_initial:') || reason.startsWith('subscription_renewal:')) return { label: 'SUBSCRIPTION', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' };
+  if (reason.startsWith('free_payment_order:')) return { label: 'FREE', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' };
+  if (reason === 'starter_grant') return { label: 'STARTER', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400' };
+  if (reason.startsWith('lesson:')) return { label: 'DEBIT', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400' };
+  return { label: 'OTHER', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400' };
+}
+
+function formatReason(reason: string): string {
+  if (reason.startsWith('payment_order:')) {
+    const parts = reason.split(':');
+    return parts[1] || reason;
+  }
+  if (reason.startsWith('Promo code redeemed:')) return reason.replace('Promo code redeemed:', 'Promo:').trim();
+  if (reason.startsWith('lesson:')) return `Lesson ${reason.split(' ')[0].split(':')[1]?.slice(0, 8) || ''}`;
+  if (reason.startsWith('subscription_initial:')) return `Initial: ${reason.split(':')[1] || ''}`;
+  if (reason.startsWith('subscription_renewal:')) return 'Monthly Renewal';
+  if (reason === 'starter_grant') return 'Starter Grant';
+  return reason;
+}
+
+function HistoryModal({ accountId, email, onClose }: { accountId: string; email: string | null; onClose: () => void }) {
+  const [entries, setEntries] = useState<LedgerEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchLedger = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/operator/users/${accountId}/ledger`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed to fetch ledger');
+        const data = await res.json();
+        if (data.success && data.entries) {
+          setEntries(data.entries);
+        }
+      } catch (err) {
+        log.error('Failed to fetch ledger', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchLedger();
+  }, [accountId]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 w-full max-w-2xl max-h-[80vh] flex flex-col mx-4">
+        <div className="flex items-center justify-between p-6 border-b border-neutral-100 dark:border-neutral-800">
+          <div>
+            <h2 className="text-lg font-black text-[#0F172A] dark:text-white uppercase tracking-tight">Credit History</h2>
+            <p className="text-xs text-neutral-500 mt-0.5">{email || accountId}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">
+            <X className="size-5 text-neutral-400" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex flex-col items-center py-16">
+              <Loader2 className="size-8 animate-spin text-[#10B981] mb-4" />
+              <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Loading ledger...</p>
+            </div>
+          ) : entries.length === 0 ? (
+            <div className="text-center py-16">
+              <History className="size-10 mx-auto mb-3 text-neutral-300" />
+              <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest">No credit transactions yet</p>
+              <p className="text-xs text-neutral-400 mt-1">This user has no credit history.</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm text-left">
+              <thead>
+                <tr className="border-b border-neutral-100 dark:border-neutral-800">
+                  <th className="pb-3 font-black text-neutral-400 uppercase text-[10px] tracking-widest">Date</th>
+                  <th className="pb-3 font-black text-neutral-400 uppercase text-[10px] tracking-widest">Type</th>
+                  <th className="pb-3 font-black text-neutral-400 uppercase text-[10px] tracking-widest text-right">Amount</th>
+                  <th className="pb-3 font-black text-neutral-400 uppercase text-[10px] tracking-widest">Description</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800">
+                {entries.map((entry) => {
+                  const src = sourceType(entry.reason);
+                  const isCredit = entry.kind === 'grant' || entry.kind === 'refund';
+                  return (
+                    <tr key={entry.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors">
+                      <td className="py-3.5 pr-4 text-neutral-600 dark:text-neutral-400 text-xs whitespace-nowrap">
+                        {new Date(entry.created_at).toLocaleString()}
+                      </td>
+                      <td className="py-3.5 pr-4">
+                        <span className={cn("inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider", src.color)}>
+                          {src.label}
+                        </span>
+                      </td>
+                      <td className={cn("py-3.5 pr-4 text-right font-black text-sm whitespace-nowrap", isCredit ? "text-emerald-600" : "text-rose-600")}>
+                        <span className="inline-flex items-center gap-1">
+                          {isCredit ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
+                          {isCredit ? '+' : '-'}{entry.amount.toFixed(2)}
+                        </span>
+                      </td>
+                      <td className="py-3.5 text-neutral-500 text-xs max-w-[200px] truncate" title={entry.reason}>
+                        {formatReason(entry.reason)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="p-4 border-t border-neutral-100 dark:border-neutral-800 text-center">
+          <Button variant="ghost" size="sm" onClick={onClose} className="text-xs font-bold uppercase tracking-widest">
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OperatorUsersPage() {
   const router = useRouter();
   
@@ -30,6 +163,7 @@ export default function OperatorUsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<OperatorUser[]>([]);
   const [search, setSearch] = useState('');
+  const [historyUser, setHistoryUser] = useState<OperatorUser | null>(null);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -114,7 +248,7 @@ export default function OperatorUsersPage() {
               <table className="w-full text-sm text-left">
                 <thead className="bg-[#F8FAFC] dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800">
                   <tr>
-                    {['Account / Email','Phone','Billing Plan','Credit Balance','Joined Date','Enterprise'].map(h => (
+                    {['Account / Email','Phone','Billing Plan','Credit Balance','Joined Date','Enterprise','History'].map(h => (
                       <th key={h} className="px-6 py-4 font-black text-neutral-400 uppercase text-[10px] tracking-widest">{h}</th>
                     ))}
                   </tr>
@@ -122,21 +256,21 @@ export default function OperatorUsersPage() {
                 <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800">
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-16 text-center">
+                      <td colSpan={7} className="px-6 py-16 text-center">
                         <Loader2 className="size-8 animate-spin mx-auto mb-4 text-[#10B981] opacity-60" />
                         <p className="text-sm font-bold text-neutral-400 uppercase tracking-widest">Loading global directory...</p>
                       </td>
                     </tr>
                   ) : error ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-16 text-center">
+                      <td colSpan={7} className="px-6 py-16 text-center">
                         <div className="p-3 bg-rose-50 text-rose-600 rounded-xl inline-block border border-rose-100 font-bold text-xs uppercase mb-2">Sync Error</div>
                         <p className="text-sm text-neutral-500">{error}</p>
                       </td>
                     </tr>
                   ) : filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-16 text-center text-neutral-400 italic">
+                      <td colSpan={7} className="px-6 py-16 text-center text-neutral-400 italic">
                         No accounts match your criteria.
                       </td>
                     </tr>
@@ -186,6 +320,15 @@ export default function OperatorUsersPage() {
                             <span className="text-[10px] font-bold text-neutral-300 uppercase tracking-widest">Personal</span>
                           )}
                         </td>
+                        <td className="px-6 py-5">
+                          <button
+                            onClick={() => setHistoryUser(user)}
+                            className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-neutral-400 hover:text-[#10B981]"
+                            title="View credit history"
+                          >
+                            <History className="size-4" />
+                          </button>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -203,6 +346,14 @@ export default function OperatorUsersPage() {
           </div>
         </div>
       </div>
+
+      {historyUser && (
+        <HistoryModal
+          accountId={historyUser.account_id}
+          email={historyUser.email}
+          onClose={() => setHistoryUser(null)}
+        />
+      )}
     </DashboardShell>
   );
 }

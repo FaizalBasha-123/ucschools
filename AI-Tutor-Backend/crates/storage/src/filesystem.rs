@@ -558,6 +558,37 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             CREATE UNIQUE INDEX IF NOT EXISTS idx_tutor_accounts_email_lower ON tutor_accounts (LOWER(email));
         "#,
     },
+    PostgresMigration {
+        version: 15,
+        name: "fix_schools_column_names",
+        sql: r#"
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                    AND table_name = 'schools'
+                    AND column_name = 'admin_email'
+                ) THEN
+                    ALTER TABLE schools RENAME COLUMN admin_email TO operator_email;
+                END IF;
+            END $$;
+
+            ALTER TABLE schools ADD COLUMN IF NOT EXISTS institution_type TEXT NOT NULL DEFAULT 'school';
+            ALTER TABLE schools ADD COLUMN IF NOT EXISTS description TEXT;
+        "#,
+    },
+    PostgresMigration {
+        version: 16,
+        name: "operator_emails",
+        sql: r#"
+            CREATE TABLE IF NOT EXISTS operator_emails (
+                email TEXT PRIMARY KEY,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL
+            );
+        "#,
+    },
 ];
 
 impl FileStorage {
@@ -4024,6 +4055,51 @@ impl SchoolRepository for FileStorage {
     }
 }
 
+// ── Operator Email methods (inherent) ────────────────────────────────────
+impl FileStorage {
+    pub async fn list_operator_emails(&self) -> Result<Vec<String>, String> {
+        let postgres_url = self.postgres_url.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<String>, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+            let rows = client.query(
+                "SELECT email FROM operator_emails ORDER BY email ASC",
+                &[],
+            ).map_err(|e| e.to_string())?;
+            Ok(rows.iter().map(|r| r.get::<_, String>("email")).collect())
+        }).await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn add_operator_email(&self, email: &str) -> Result<bool, String> {
+        let postgres_url = self.postgres_url.clone();
+        let email = email.trim().to_ascii_lowercase();
+        tokio::task::spawn_blocking(move || -> Result<bool, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+            let now = chrono::Utc::now();
+            let result = client.execute(
+                "INSERT INTO operator_emails (email, created_at, updated_at) VALUES ($1, $2, $3)
+                 ON CONFLICT (email) DO UPDATE SET updated_at = EXCLUDED.updated_at",
+                &[&email, &now, &now],
+            ).map_err(|e| e.to_string())?;
+            Ok(result > 0)
+        }).await.map_err(|e| e.to_string())?
+    }
+
+    pub async fn remove_operator_email(&self, email: &str) -> Result<bool, String> {
+        let postgres_url = self.postgres_url.clone();
+        let email = email.trim().to_ascii_lowercase();
+        tokio::task::spawn_blocking(move || -> Result<bool, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            Self::run_postgres_migrations(&mut client).map_err(|e| e.to_string())?;
+            let result = client.execute(
+                "DELETE FROM operator_emails WHERE email = $1",
+                &[&email],
+            ).map_err(|e| e.to_string())?;
+            Ok(result > 0)
+        }).await.map_err(|e| e.to_string())?
+    }
+}
 
 #[async_trait]
 impl crate::repositories::ApiUsageRepository for FileStorage {
