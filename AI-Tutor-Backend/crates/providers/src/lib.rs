@@ -6,6 +6,7 @@ pub mod google;
 pub mod openai;
 pub mod openrouter;
 pub mod registry;
+pub mod request_params;
 pub mod resilient;
 pub mod resolve;
 pub mod traits;

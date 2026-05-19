@@ -13,10 +13,12 @@ use crate::{
         supports_openai_compatible, OpenAiCompatibleAsrProvider, OpenAiCompatibleImageProvider,
         OpenAiCompatibleProvider, OpenAiCompatibleTtsProvider, OpenAiCompatibleVideoProvider,
     },
+    request_params::GenerationParams,
     resolve::resolve_model_chain,
     resilient::{is_non_retryable, ProviderPricing},
     traits::{
         ImageProvider, ImageProviderFactory, LlmProvider, LlmProviderFactory, ProviderCapabilities,
+        ProviderUsage,
         ProviderRuntimeStatus, ProviderStreamEvent, StreamingPath, TtsProvider, TtsProviderFactory,
         VideoProvider, VideoProviderFactory,
     },
@@ -185,6 +187,17 @@ impl CapabilityOverrideLlmProvider {
 impl LlmProvider for CapabilityOverrideLlmProvider {
     async fn generate_text(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
         self.inner.generate_text(system_prompt, user_prompt).await
+    }
+
+    async fn generate_text_with_params(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        self.inner
+            .generate_text_with_params(system_prompt, user_prompt, params)
+            .await
     }
 
     async fn generate_text_stream(

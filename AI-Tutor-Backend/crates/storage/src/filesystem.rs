@@ -491,15 +491,13 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             CREATE TABLE IF NOT EXISTS api_usage_records (
                 id TEXT PRIMARY KEY,
                 account_id TEXT NOT NULL,
-                request_id TEXT NOT NULL,
                 component TEXT NOT NULL,
-                provider_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
                 model_id TEXT NOT NULL,
-                input_tokens BIGINT NOT NULL,
-                output_tokens BIGINT NOT NULL,
-                total_tokens BIGINT NOT NULL,
-                estimated_cost_usd DOUBLE PRECISION NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL
+                input_tokens BIGINT NOT NULL DEFAULT 0,
+                output_tokens BIGINT NOT NULL DEFAULT 0,
+                cost_usd_millicents BIGINT NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
 
             CREATE INDEX IF NOT EXISTS idx_api_usage_account_created ON api_usage_records (account_id, created_at DESC);
@@ -587,6 +585,60 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
                 created_at TIMESTAMPTZ NOT NULL,
                 updated_at TIMESTAMPTZ NOT NULL
             );
+        "#,
+    },
+    PostgresMigration {
+        version: 17,
+        name: "fix_api_usage_records_schema",
+        sql: r#"
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'api_usage_records') THEN
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'api_usage_records' AND column_name = 'request_id') THEN
+                        ALTER TABLE api_usage_records DROP COLUMN request_id;
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'api_usage_records' AND column_name = 'total_tokens') THEN
+                        ALTER TABLE api_usage_records DROP COLUMN total_tokens;
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'api_usage_records' AND column_name = 'estimated_cost_usd') THEN
+                        ALTER TABLE api_usage_records DROP COLUMN estimated_cost_usd;
+                    END IF;
+                    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'api_usage_records' AND column_name = 'provider_id') THEN
+                        ALTER TABLE api_usage_records RENAME COLUMN provider_id TO provider;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'api_usage_records' AND column_name = 'cost_usd_millicents') THEN
+                        ALTER TABLE api_usage_records ADD COLUMN cost_usd_millicents BIGINT NOT NULL DEFAULT 0;
+                    END IF;
+                END IF;
+            END $$;
+        "#,
+    },
+    PostgresMigration {
+        version: 18,
+        name: "enable_lz4_toast_compression",
+        sql: r#"
+            DO $$
+            BEGIN
+                IF current_setting('server_version_num')::int >= 140000 THEN
+                    ALTER TABLE lessons ALTER COLUMN data_json SET COMPRESSION lz4;
+                    ALTER TABLE lessons ALTER COLUMN title SET COMPRESSION lz4;
+                    ALTER TABLE lessons ALTER COLUMN description SET COMPRESSION lz4;
+                    ALTER TABLE lesson_jobs ALTER COLUMN result_json SET COMPRESSION lz4;
+                    ALTER TABLE lesson_jobs ALTER COLUMN input_summary_json SET COMPRESSION lz4;
+                    ALTER TABLE lesson_jobs ALTER COLUMN message SET COMPRESSION lz4;
+                    ALTER TABLE lesson_jobs ALTER COLUMN error SET COMPRESSION lz4;
+                    ALTER TABLE lesson_adaptive_states ALTER COLUMN state_json SET COMPRESSION lz4;
+                    ALTER TABLE runtime_sessions ALTER COLUMN director_state_json SET COMPRESSION lz4;
+                    ALTER TABLE runtime_action_executions ALTER COLUMN record_json SET COMPRESSION lz4;
+                END IF;
+            END $$;
+        "#,
+    },
+    PostgresMigration {
+        version: 19,
+        name: "drop_redundant_api_usage_index",
+        sql: r#"
+            DROP INDEX IF EXISTS idx_api_usage_created;
         "#,
     },
 ];
@@ -4148,6 +4200,44 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
         .await
         .map_err(|e| e.to_string())?
 
+    }
+
+    async fn insert_api_usage_records_batch(
+        &self,
+        records: &[ai_tutor_domain::billing::ApiUsageRecord],
+    ) -> Result<(), String> {
+        if records.is_empty() {
+            return Ok(());
+        }
+        let postgres_url = self.postgres_url.clone();
+        let batch = records.to_vec();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            let mut tx = client.transaction().map_err(|e| e.to_string())?;
+            for record in &batch {
+                tx.execute(
+                    "INSERT INTO api_usage_records
+                        (id, account_id, component, provider, model_id, input_tokens, output_tokens, cost_usd_millicents, created_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                     ON CONFLICT (id) DO NOTHING",
+                    &[
+                        &record.id,
+                        &record.account_id,
+                        &record.component,
+                        &record.provider,
+                        &record.model_id,
+                        &record.input_tokens,
+                        &record.output_tokens,
+                        &record.cost_usd_millicents,
+                        &record.created_at,
+                    ],
+                ).map_err(|e| e.to_string())?;
+            }
+            tx.commit().map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 
     async fn list_api_usage_records_since(

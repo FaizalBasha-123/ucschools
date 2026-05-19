@@ -5,6 +5,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use ai_tutor_domain::provider::ModelConfig;
+use crate::request_params::GenerationParams;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamingPath {
@@ -133,7 +134,25 @@ pub struct ProviderToolCall {
 
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    async fn generate_text(&self, system_prompt: &str, user_prompt: &str) -> Result<String>;
+    /// Generate text with full generation parameters (response_format, tools, etc.).
+    /// This is the new primary method. The default delegates to the legacy `generate_text`.
+    async fn generate_text_with_params(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        _params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        let text = self.generate_text(system_prompt, user_prompt).await?;
+        Ok((text, None))
+    }
+
+    /// Legacy convenience wrapper — no structured output params.
+    async fn generate_text(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
+        let (text, _) = self
+            .generate_text_with_params(system_prompt, user_prompt, &GenerationParams::default())
+            .await?;
+        Ok(text)
+    }
 
     /// Structured generation result that can include provider-reported usage.
     ///

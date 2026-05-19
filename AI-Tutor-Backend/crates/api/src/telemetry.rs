@@ -1,8 +1,10 @@
 use std::sync::Arc;
-use anyhow::{anyhow, Result};
+use std::time::Duration;
+use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tokio::sync::mpsc;
+use tracing::{info, warn};
 
 use ai_tutor_storage::repositories::ApiUsageRepository;
 
@@ -18,77 +20,109 @@ pub struct UsageEvent {
 }
 
 pub struct TelemetryService {
-    repository: Arc<dyn ApiUsageRepository>,
+    tx: mpsc::UnboundedSender<UsageEvent>,
 }
+
+const BATCH_SIZE: usize = 50;
+const FLUSH_INTERVAL_SECS: u64 = 1;
 
 impl TelemetryService {
     pub fn new(repository: Arc<dyn ApiUsageRepository>) -> Self {
-        Self { repository }
+        let (tx, mut rx) = mpsc::unbounded_channel::<UsageEvent>();
+
+        tokio::spawn(async move {
+            let mut buffer: Vec<UsageEvent> = Vec::with_capacity(BATCH_SIZE);
+            let mut flush_timer = tokio::time::interval(Duration::from_secs(FLUSH_INTERVAL_SECS));
+            flush_timer.tick().await;
+
+            loop {
+                tokio::select! {
+                    Some(event) = rx.recv() => {
+                        buffer.push(event);
+                        if buffer.len() >= BATCH_SIZE {
+                            let batch = std::mem::take(&mut buffer);
+                            flush_batch(&repository, batch).await;
+                        }
+                    }
+                    _ = flush_timer.tick() => {
+                        if !buffer.is_empty() {
+                            let batch = std::mem::take(&mut buffer);
+                            flush_batch(&repository, batch).await;
+                        }
+                    }
+                }
+            }
+        });
+
+        Self { tx }
     }
 
     pub async fn record_usage(&self, event: UsageEvent) -> Result<()> {
-        let cost_usd_millicents = self.calculate_cost_millicents(&event.provider_id, &event.model_id, event.input_tokens, event.output_tokens);
-        
-        let record = ai_tutor_domain::billing::ApiUsageRecord {
-            id: uuid::Uuid::new_v4().to_string(),
-            account_id: event.account_id,
-            model_id: event.model_id,
-            provider: event.provider_id,
-            component: event.component,
-            input_tokens: event.input_tokens,
-            output_tokens: event.output_tokens,
-            cost_usd_millicents,
-            created_at: Utc::now(),
-        };
-
-        self.repository.insert_api_usage_record(&record).await.map_err(|e| anyhow!(e))?;
-        
-        info!(
-            event = "api_usage",
-            provider = %record.provider,
-            model = %record.model_id,
-            tokens = record.input_tokens + record.output_tokens,
-            cost = %format!("{:.6}", record.cost_usd()),
-            "recorded api usage"
-        );
-
+        if let Err(e) = self.tx.send(event) {
+            warn!("failed to enqueue usage event: {}", e);
+        }
         Ok(())
     }
+}
 
-    fn calculate_cost_millicents(&self, provider: &str, model: &str, input: i64, output: i64) -> i64 {
-        let (input_rate, output_rate) = match (provider, model) {
-            // OpenRouter – Google
-            ("openrouter", "google/gemini-2.5-flash") => (0.15, 0.60),
-            ("openrouter", "google/gemini-2.0-flash") => (0.10, 0.40),
-            ("openrouter", "google/gemini-1.5-flash") => (0.075, 0.30),
-            ("openrouter", "google/gemini-flash-lite") => (0.075, 0.30),
-            // OpenRouter – DeepSeek
-            ("openrouter", m) if m.starts_with("deepseek/deepseek-chat") => (0.27, 1.10),
-            // OpenRouter – Anthropic
-            ("openrouter", m) if m.starts_with("anthropic/claude-sonnet-4") => (3.00, 15.00),
-            ("openrouter", m) if m.starts_with("anthropic/claude-sonnet-3") => (3.00, 15.00),
-            ("openrouter", "anthropic/claude-3-5-haiku") => (0.80, 4.00),
-            // OpenRouter – Flux (image). output tokens encode pixel-count cost.
-            ("openrouter", m) if m.starts_with("black-forest-labs/flux-1.1-pro") => (0.050, 0.050),
-            ("openrouter", m) if m.starts_with("black-forest-labs/flux-dev")    => (0.025, 0.025),
-            ("openrouter", m) if m.starts_with("black-forest-labs/flux-schnell") => (0.003, 0.003),
-            // OpenRouter – Kokoro TTS
-            ("openrouter", "hexgrad/kokoro-82m") => (0.01, 0.01),
-            // Groq
-            ("groq", m) if m.starts_with("llama3") || m.starts_with("llama-3") => (0.05, 0.10),
-            ("groq", "whisper-large-v3") => (0.0, 0.0),
-            ("groq", "whisper-small") => (0.0, 0.0),
-            // ElevenLabs TTS – output tokens encode character count
-            ("elevenlabs", _) => (0.0, 0.30),
-            // Fallback
-            _ => (10.0, 30.0),
-        };
+async fn flush_batch(repo: &Arc<dyn ApiUsageRepository>, events: Vec<UsageEvent>) {
+    let batch_size = events.len();
+    let records: Vec<ai_tutor_domain::billing::ApiUsageRecord> = events
+        .into_iter()
+        .map(|event| {
+            let cost = calculate_event_cost(&event);
+            ai_tutor_domain::billing::ApiUsageRecord {
+                id: uuid::Uuid::new_v4().to_string(),
+                account_id: event.account_id,
+                model_id: event.model_id,
+                provider: event.provider_id,
+                component: event.component,
+                input_tokens: event.input_tokens,
+                output_tokens: event.output_tokens,
+                cost_usd_millicents: cost,
+                created_at: Utc::now(),
+            }
+        })
+        .collect();
 
-        ai_tutor_domain::billing::ApiUsageRecord::compute_cost_millicents(
-            input,
-            output,
-            input_rate,
-            output_rate
-        )
+    if let Err(e) = repo.insert_api_usage_records_batch(&records).await {
+        warn!(
+            batch_size,
+            error = %e,
+            "failed to flush usage records batch"
+        );
+    } else {
+        info!(
+            batch_size,
+            "flushed usage records batch"
+        );
     }
+}
+
+fn calculate_event_cost(event: &UsageEvent) -> i64 {
+    let (input_rate, output_rate) = match (event.provider_id.as_str(), event.model_id.as_str()) {
+        ("openrouter", "google/gemini-2.5-flash") => (0.15, 0.60),
+        ("openrouter", "google/gemini-2.0-flash") => (0.10, 0.40),
+        ("openrouter", "google/gemini-1.5-flash") => (0.075, 0.30),
+        ("openrouter", "google/gemini-flash-lite") => (0.075, 0.30),
+        ("openrouter", m) if m.starts_with("deepseek/deepseek-chat") => (0.27, 1.10),
+        ("openrouter", m) if m.starts_with("anthropic/claude-sonnet-4") => (3.00, 15.00),
+        ("openrouter", m) if m.starts_with("anthropic/claude-sonnet-3") => (3.00, 15.00),
+        ("openrouter", "anthropic/claude-3-5-haiku") => (0.80, 4.00),
+        ("openrouter", m) if m.starts_with("black-forest-labs/flux-1.1-pro") => (0.050, 0.050),
+        ("openrouter", m) if m.starts_with("black-forest-labs/flux-dev")    => (0.025, 0.025),
+        ("openrouter", m) if m.starts_with("black-forest-labs/flux-schnell") => (0.003, 0.003),
+        ("openrouter", "hexgrad/kokoro-82m") => (0.01, 0.01),
+        ("groq", m) if m.starts_with("llama3") || m.starts_with("llama-3") => (0.05, 0.10),
+        ("groq", "whisper-large-v3") => (0.0, 0.0),
+        ("groq", "whisper-small") => (0.0, 0.0),
+        ("elevenlabs", _) => (0.0, 0.30),
+        _ => (10.0, 30.0),
+    };
+    ai_tutor_domain::billing::ApiUsageRecord::compute_cost_millicents(
+        event.input_tokens,
+        event.output_tokens,
+        input_rate,
+        output_rate,
+    )
 }

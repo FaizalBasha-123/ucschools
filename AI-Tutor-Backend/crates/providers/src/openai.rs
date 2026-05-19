@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 
 use ai_tutor_domain::provider::{ModelConfig, ProviderType};
 
+use crate::request_params::{GenerationParams, ResponseFormat};
 use crate::traits::{
     ImageProvider, LlmProvider, ProviderCapabilities, ProviderStreamEvent, ProviderToolCall,
     ProviderUsage, ProviderUsageSource, StreamingPath, TtsProvider, VideoProvider,
@@ -116,6 +117,7 @@ impl OpenAiCompatibleProvider {
             stream_options: Some(OpenAiStreamOptions {
                 include_usage: true,
             }),
+            response_format: None,
         };
 
         let response = self
@@ -334,6 +336,15 @@ struct ChatCompletionRequest<'a> {
     stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream_options: Option<OpenAiStreamOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<OpenAiResponseFormat>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OpenAiResponseFormat {
+    Text,
+    JsonObject,
 }
 
 #[derive(Serialize)]
@@ -488,6 +499,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             temperature: 0.2,
             stream: None,
             stream_options: None,
+            response_format: None,
         };
 
         let response = self
@@ -525,6 +537,81 @@ impl LlmProvider for OpenAiCompatibleProvider {
         Ok(content)
     }
 
+    async fn generate_text_with_params(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        let provider_messages = vec![
+            ChatMessage {
+                role: "system",
+                content: system_prompt,
+            },
+            ChatMessage {
+                role: "user",
+                content: user_prompt,
+            },
+        ];
+
+        let request = ChatCompletionRequest {
+            model: &self.model_config.model_id,
+            messages: provider_messages,
+            temperature: params.temperature.unwrap_or(0.2),
+            stream: None,
+            stream_options: None,
+            response_format: params.response_format.as_ref().map(response_format_to_openai),
+        };
+
+        let response = self
+            .client
+            .post(self.endpoint())
+            .header(
+                "Authorization",
+                format!("Bearer {}", self.model_config.api_key),
+            )
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "provider request failed with status {}: {}",
+                status,
+                body
+            ));
+        }
+
+        let body: ChatCompletionResponse = response.json().await?;
+        let usage = body.usage.and_then(|u| {
+            let input = u.prompt_tokens.unwrap_or(0);
+            let output = u.completion_tokens.unwrap_or(0);
+            if input == 0 && output == 0 {
+                None
+            } else {
+                Some(ProviderUsage {
+                    input_tokens: input,
+                    output_tokens: output,
+                    total_tokens: u.total_tokens,
+                    source: ProviderUsageSource::ProviderReported,
+                })
+            }
+        });
+        let content = body
+            .choices
+            .into_iter()
+            .next()
+            .and_then(|choice| choice.message)
+            .and_then(|msg| msg.content)
+            .map(extract_content)
+            .ok_or_else(|| anyhow!("provider returned no choices"))?;
+
+        Ok((content, usage))
+    }
+
     async fn generate_text_with_history_and_usage(
         &self,
         messages: &[(String, String)],
@@ -542,6 +629,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             temperature: 0.2,
             stream: None,
             stream_options: None,
+            response_format: None,
         };
 
         let response = self
@@ -1245,6 +1333,14 @@ fn maybe_emit_tool_call(
             name,
             arguments,
         }));
+    }
+}
+
+fn response_format_to_openai(format: &ResponseFormat) -> OpenAiResponseFormat {
+    match format {
+        ResponseFormat::Text => OpenAiResponseFormat::Text,
+        ResponseFormat::JsonObject => OpenAiResponseFormat::JsonObject,
+        ResponseFormat::JsonSchema { .. } => OpenAiResponseFormat::JsonObject,
     }
 }
 

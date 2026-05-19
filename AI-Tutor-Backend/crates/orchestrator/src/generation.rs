@@ -18,6 +18,7 @@ use ai_tutor_domain::{
         SlideTheme,
     },
 };
+use ai_tutor_providers::request_params::GenerationParams;
 use ai_tutor_providers::traits::LlmProvider;
 
 use crate::engine;
@@ -231,9 +232,11 @@ You may invoke the tool up to {max_calls} times if you need multiple searches.
     ) -> Result<String> {
         let mut last_error = None;
 
+        let params = GenerationParams::json_object();
+
         for attempt in 0..MAX_LLM_ATTEMPTS {
-            match llm.generate_text(system_prompt, user_prompt).await {
-                Ok(response) => return Ok(response),
+            match llm.generate_text_with_params(system_prompt, user_prompt, &params).await {
+                Ok((response, _)) => return Ok(response),
                 Err(err) => {
                     let should_retry = should_retry_llm_error(&err);
                     last_error = Some(err);

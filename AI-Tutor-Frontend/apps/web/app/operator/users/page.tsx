@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, Loader2, Search, CreditCard, Ticket, History, X, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { Users, Loader2, Search, CreditCard, Ticket, History, X, ArrowUpRight, ArrowDownRight, Coins, Plus, Minus, Check, AlertCircle } from 'lucide-react';
 import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { createLogger } from '@/lib/logger';
@@ -31,14 +31,10 @@ interface LedgerEntry {
   created_at: string;
 }
 
-interface LedgerResponse {
-  account_id: string;
-  entries: LedgerEntry[];
-}
-
 function sourceType(reason: string): { label: string; color: string } {
   if (reason.startsWith('payment_order:')) return { label: 'PAID', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' };
   if (reason.startsWith('Promo code redeemed:')) return { label: 'PROMO', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' };
+  if (reason.startsWith('operator_grant:') || reason.startsWith('operator_debit:')) return { label: 'PROMO', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' };
   if (reason.startsWith('subscription_initial:') || reason.startsWith('subscription_renewal:')) return { label: 'SUBSCRIPTION', color: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400' };
   if (reason.startsWith('free_payment_order:')) return { label: 'FREE', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' };
   if (reason === 'starter_grant') return { label: 'STARTER', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400' };
@@ -52,6 +48,8 @@ function formatReason(reason: string): string {
     return parts[1] || reason;
   }
   if (reason.startsWith('Promo code redeemed:')) return reason.replace('Promo code redeemed:', 'Promo:').trim();
+  if (reason.startsWith('operator_grant:')) return `Operator: ${reason.slice('operator_grant:'.length).trim()}`;
+  if (reason.startsWith('operator_debit:')) return `Operator: ${reason.slice('operator_debit:'.length).trim()}`;
   if (reason.startsWith('lesson:')) return `Lesson ${reason.split(' ')[0].split(':')[1]?.slice(0, 8) || ''}`;
   if (reason.startsWith('subscription_initial:')) return `Initial: ${reason.split(':')[1] || ''}`;
   if (reason.startsWith('subscription_renewal:')) return 'Monthly Renewal';
@@ -156,41 +154,215 @@ function HistoryModal({ accountId, email, onClose }: { accountId: string; email:
   );
 }
 
+function CreditModal({
+  user,
+  onClose,
+  onSuccess,
+}: {
+  user: OperatorUser;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const numAmount = parseFloat(amount) || 0;
+  const isNegative = numAmount < 0;
+  const newBalance = user.credits + numAmount;
+
+  const handleSubmit = async () => {
+    if (numAmount === 0) {
+      setError('Amount must be non-zero');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/operator/users/${user.account_id}/credits`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: numAmount,
+          reason: reason.trim() || 'manual adjustment',
+        }),
+      });
+      if (res.status === 401) { clearOperatorSession(); return; }
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to adjust credits');
+      }
+      setSuccess(`Balance updated: ${user.credits.toFixed(1)} → ${data.new_balance?.toFixed(1) || newBalance.toFixed(1)}`);
+      setTimeout(() => { onSuccess(); onClose(); }, 1200);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to adjust credits');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl border border-neutral-200 dark:border-neutral-800 w-full max-w-md mx-4">
+        <div className="flex items-center justify-between p-6 border-b border-neutral-100 dark:border-neutral-800">
+          <div>
+            <h2 className="text-lg font-black text-[#0F172A] dark:text-white uppercase tracking-tight flex items-center gap-2">
+              <Coins className="size-5 text-blue-500" /> Adjust Credits
+            </h2>
+            <p className="text-xs text-neutral-500 mt-0.5 truncate max-w-[300px]">{user.email || user.account_id}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors">
+            <X className="size-5 text-neutral-400" />
+          </button>
+        </div>
+        <div className="p-6 space-y-5">
+          {/* Current Balance */}
+          <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-900/50 border border-neutral-100 dark:border-neutral-800">
+            <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Current Balance</span>
+            <span className="text-lg font-black text-[#10B981]">{user.credits.toFixed(1)}</span>
+          </div>
+
+          {/* Amount Input */}
+          <div>
+            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-1.5 block">Amount</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 font-bold text-sm">$</span>
+              <input
+                type="number"
+                step="any"
+                placeholder="0.00"
+                value={amount}
+                onChange={(e) => { setAmount(e.target.value); setError(null); setSuccess(null); }}
+                className="w-full h-11 pl-7 pr-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-bold transition-all"
+              />
+            </div>
+            <div className="flex gap-2 mt-2">
+              {[-50, -10, -5, 5, 10, 50].map((v) => (
+                <button
+                  key={v}
+                  onClick={() => { setAmount(String(v)); setError(null); setSuccess(null); }}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all",
+                    v < 0
+                      ? "border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-900/50 dark:text-rose-400 dark:hover:bg-rose-950/30"
+                      : "border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-900/50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                  )}
+                >
+                  {v > 0 ? '+' : ''}{v}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Reason Input */}
+          <div>
+            <label className="text-xs font-bold text-neutral-500 uppercase tracking-widest mb-1.5 block">Reason</label>
+            <input
+              type="text"
+              placeholder="manual adjustment"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="w-full h-11 px-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm transition-all"
+            />
+          </div>
+
+          {/* Preview */}
+          {amount && !isNaN(numAmount) && numAmount !== 0 && (
+            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-neutral-50 dark:bg-neutral-900/50 border border-neutral-100 dark:border-neutral-800">
+              <span className="text-xs font-bold text-neutral-500 uppercase tracking-widest">Preview</span>
+              <span className="text-sm font-black">
+                <span className="text-neutral-400">{user.credits.toFixed(1)}</span>
+                <span className="text-neutral-300 mx-1">→</span>
+                <span className={isNegative ? 'text-rose-600' : 'text-emerald-600'}>
+                  {newBalance.toFixed(1)}
+                </span>
+                <span className={cn("ml-2 text-xs", isNegative ? "text-rose-400" : "text-emerald-400")}>
+                  ({isNegative ? '' : '+'}{numAmount.toFixed(1)})
+                </span>
+              </span>
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/50">
+              <AlertCircle className="size-4 text-rose-500 shrink-0" />
+              <span className="text-xs font-bold text-rose-600 dark:text-rose-400">{error}</span>
+            </div>
+          )}
+
+          {/* Success */}
+          {success && (
+            <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50">
+              <Check className="size-4 text-emerald-500 shrink-0" />
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">{success}</span>
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t border-neutral-100 dark:border-neutral-800 flex gap-2 justify-end">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={submitting} className="text-xs font-bold uppercase tracking-widest">
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={submitting || !amount || isNaN(numAmount) || numAmount === 0}
+            className={cn(
+              "text-xs font-black uppercase tracking-widest shadow-sm",
+              isNegative
+                ? "bg-rose-600 hover:bg-rose-700 text-white"
+                : "bg-emerald-600 hover:bg-emerald-700 text-white"
+            )}
+          >
+            {submitting ? <Loader2 className="size-4 animate-spin" /> : isNegative ? <Minus className="size-4" /> : <Plus className="size-4" />}
+            {submitting ? 'Applying...' : isNegative ? 'Remove Credits' : 'Add Credits'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OperatorUsersPage() {
   const router = useRouter();
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [users, setUsers] = useState<OperatorUser[]>([]);
   const [search, setSearch] = useState('');
   const [historyUser, setHistoryUser] = useState<OperatorUser | null>(null);
+  const [creditUser, setCreditUser] = useState<OperatorUser | null>(null);
 
-  useEffect(() => {
-    const fetchUsers = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch('/api/operator/users', { cache: 'no-store' });
-        if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
-        if (!res.ok) throw new Error('Failed to fetch users');
-        const data = await res.json();
-        if (data.success && data.users) {
-          setUsers(data.users);
-        } else {
-          throw new Error('Invalid response format');
-        }
-      } catch (err) {
-        log.error('Failed to fetch users', err);
-        setError(err instanceof Error ? err.message : 'Unknown error');
-      } finally {
-        setLoading(false);
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/operator/users', { cache: 'no-store' });
+      if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
+      if (!res.ok) throw new Error('Failed to fetch users');
+      const data = await res.json();
+      if (data.success && data.users) {
+        setUsers(data.users);
+      } else {
+        throw new Error('Invalid response format');
       }
-    };
-    fetchUsers();
+    } catch (err) {
+      log.error('Failed to fetch users', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
   }, [router]);
 
-  const filteredUsers = users.filter(user => 
-    search === '' || 
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  const filteredUsers = users.filter(user =>
+    search === '' ||
     user.email?.toLowerCase().includes(search.toLowerCase()) ||
     user.account_id.toLowerCase().includes(search.toLowerCase()) ||
     (user.plan || '').toLowerCase().includes(search.toLowerCase()) ||
@@ -214,7 +386,7 @@ export default function OperatorUsersPage() {
     >
       <div className="flex-1 overflow-y-auto p-8 pt-12">
         <div className="max-w-6xl mx-auto">
-          
+
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
             <div>
               <h1 className="text-3xl font-black tracking-tight text-[#0F172A] dark:text-white uppercase flex items-center gap-3">
@@ -231,9 +403,9 @@ export default function OperatorUsersPage() {
             <div className="p-6 border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-900/50 flex items-center gap-4">
               <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-neutral-400" />
-                <input 
-                  type="text" 
-                  placeholder="Search by email, ID, or plan..." 
+                <input
+                  type="text"
+                  placeholder="Search by email, ID, or plan..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full h-11 pl-10 pr-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#10B981] text-sm transition-all"
@@ -248,7 +420,7 @@ export default function OperatorUsersPage() {
               <table className="w-full text-sm text-left">
                 <thead className="bg-[#F8FAFC] dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800">
                   <tr>
-                    {['Account / Email','Phone','Billing Plan','Credit Balance','Joined Date','Enterprise','History'].map(h => (
+                    {['Account / Email', 'Phone', 'Billing Plan', 'Credit Balance', 'Joined Date', 'Enterprise', 'Actions'].map(h => (
                       <th key={h} className="px-6 py-4 font-black text-neutral-400 uppercase text-[10px] tracking-widest">{h}</th>
                     ))}
                   </tr>
@@ -292,7 +464,7 @@ export default function OperatorUsersPage() {
                               {user.plan || 'Free'}
                             </Badge>
                             {user.promo_codes_used > 0 && (
-                              <div 
+                              <div
                                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-[9px] font-black uppercase border border-emerald-100 cursor-help"
                                 title={`Redeemed ${user.promo_codes_used} promo codes`}
                               >
@@ -321,13 +493,22 @@ export default function OperatorUsersPage() {
                           )}
                         </td>
                         <td className="px-6 py-5">
-                          <button
-                            onClick={() => setHistoryUser(user)}
-                            className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-neutral-400 hover:text-[#10B981]"
-                            title="View credit history"
-                          >
-                            <History className="size-4" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setCreditUser(user)}
+                              className="p-2 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors text-neutral-400 hover:text-blue-600"
+                              title="Adjust credits"
+                            >
+                              <Coins className="size-4" />
+                            </button>
+                            <button
+                              onClick={() => setHistoryUser(user)}
+                              className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-neutral-400 hover:text-[#10B981]"
+                              title="View credit history"
+                            >
+                              <History className="size-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -335,7 +516,7 @@ export default function OperatorUsersPage() {
                 </tbody>
               </table>
             </div>
-            
+
             <div className="p-5 border-t border-neutral-100 dark:border-neutral-800 bg-[#F8FAFC] dark:bg-neutral-900/50 text-[10px] font-bold text-neutral-400 uppercase tracking-widest flex justify-between items-center">
               <span>Showing directory index · {filteredUsers.length} of {users.length} active users</span>
               <div className="flex items-center gap-2">
@@ -352,6 +533,14 @@ export default function OperatorUsersPage() {
           accountId={historyUser.account_id}
           email={historyUser.email}
           onClose={() => setHistoryUser(null)}
+        />
+      )}
+
+      {creditUser && (
+        <CreditModal
+          user={creditUser}
+          onClose={() => setCreditUser(null)}
+          onSuccess={fetchUsers}
         />
       )}
     </DashboardShell>

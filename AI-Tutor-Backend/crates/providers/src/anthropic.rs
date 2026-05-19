@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use ai_tutor_domain::provider::ModelConfig;
 
+use crate::request_params::{GenerationParams, ResponseFormat};
 use crate::traits::{
     LlmProvider, ProviderCapabilities, ProviderStreamEvent, ProviderToolCall, ProviderUsage,
     ProviderUsageSource, StreamingPath,
@@ -146,6 +147,88 @@ impl LlmProvider for AnthropicProvider {
             ("user".to_string(), user_prompt.to_string()),
         ])
         .await
+    }
+
+    async fn generate_text_with_params(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        let messages = vec![
+            AnthropicMessage {
+                role: "user",
+                content: user_prompt,
+            },
+        ];
+
+        let system = match params.response_format {
+            Some(ResponseFormat::JsonObject) => {
+                format!("{}\n\nYou must respond with valid JSON only. No markdown, no explanation, no code fences — only raw JSON.", system_prompt)
+            }
+            Some(ResponseFormat::JsonSchema { .. }) => {
+                format!("{}\n\nYou must respond with valid JSON matching the specified schema. No markdown, no explanation, no code fences — only raw JSON.", system_prompt)
+            }
+            Some(ResponseFormat::Text) | None => system_prompt.to_string(),
+        };
+
+        let request = AnthropicRequest {
+            model: &self.model_config.model_id,
+            max_tokens: params.max_tokens.unwrap_or(4096),
+            temperature: params.temperature.unwrap_or(0.2),
+            system: Some(&system),
+            messages,
+            stream: None,
+        };
+
+        let response = self
+            .client
+            .post(self.endpoint())
+            .header("x-api-key", &self.model_config.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "anthropic request failed with status {}: {}",
+                status,
+                body
+            ));
+        }
+
+        let body: AnthropicResponse = response.json().await?;
+        let usage = body.usage.and_then(|u| {
+            let input = u.input_tokens.unwrap_or(0);
+            let output = u.output_tokens.unwrap_or(0);
+            if input == 0 && output == 0 {
+                None
+            } else {
+                Some(ProviderUsage {
+                    input_tokens: input,
+                    output_tokens: output,
+                    total_tokens: Some(input.saturating_add(output)),
+                    source: ProviderUsageSource::ProviderReported,
+                })
+            }
+        });
+        let text = body
+            .content
+            .into_iter()
+            .filter(|block| block.kind == "text")
+            .filter_map(|block| block.text)
+            .collect::<Vec<_>>()
+            .join("");
+
+        if text.is_empty() {
+            return Err(anyhow!("anthropic provider returned no text content"));
+        }
+
+        Ok((text, usage))
     }
 
     async fn generate_text_with_usage(

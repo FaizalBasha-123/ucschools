@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use ai_tutor_domain::provider::ModelConfig;
 
+use crate::request_params::{GenerationParams, ResponseFormat};
 use crate::traits::{
     LlmProvider, ProviderCapabilities, ProviderStreamEvent, ProviderToolCall, ProviderUsage,
     ProviderUsageSource, StreamingPath,
@@ -67,14 +68,27 @@ impl GoogleProvider {
         system_prompt: Option<&'a str>,
         contents: Vec<GoogleContent<'a>>,
     ) -> GoogleRequest<'a> {
+        self.build_request_body_with_params(system_prompt, contents, &GenerationParams::default())
+    }
+
+    fn build_request_body_with_params<'a>(
+        &'a self,
+        system_prompt: Option<&'a str>,
+        contents: Vec<GoogleContent<'a>>,
+        params: &GenerationParams,
+    ) -> GoogleRequest<'a> {
         GoogleRequest {
             system_instruction: system_prompt.map(|content| GoogleInstruction {
                 parts: vec![GooglePart { text: content }],
             }),
             contents,
             generation_config: GoogleGenerationConfig {
-                temperature: 0.2,
-                response_mime_type: "text/plain",
+                temperature: params.temperature.unwrap_or(0.2),
+                response_mime_type: params
+                    .response_format
+                    .as_ref()
+                    .map(response_format_to_google_mime)
+                    .unwrap_or("text/plain"),
             },
         }
     }
@@ -177,6 +191,66 @@ impl LlmProvider for GoogleProvider {
             ("user".to_string(), user_prompt.to_string()),
         ])
         .await
+    }
+
+    async fn generate_text_with_params(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        let system = if system_prompt.is_empty() {
+            None
+        } else {
+            Some(system_prompt)
+        };
+
+        let contents = vec![GoogleContent {
+            role: "user",
+            parts: vec![GooglePart {
+                text: user_prompt,
+            }],
+        }];
+
+        let request = self.build_request_body_with_params(system, contents, params);
+
+        let response = self
+            .client
+            .post(self.endpoint())
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(anyhow!(
+                "google request failed with status {}: {}",
+                status,
+                body
+            ));
+        }
+
+        let body: GoogleResponse = response.json().await?;
+        let usage = body
+            .usage_metadata
+            .clone()
+            .and_then(google_usage_to_provider_usage);
+        let text = body
+            .candidates
+            .into_iter()
+            .flat_map(|candidate| candidate.content.into_iter())
+            .flat_map(|content| content.parts.into_iter())
+            .filter_map(|part| part.text)
+            .collect::<Vec<_>>()
+            .join("");
+
+        if text.is_empty() {
+            return Err(anyhow!("google provider returned no text content"));
+        }
+
+        Ok((text, usage))
     }
 
     async fn generate_text_with_history(&self, messages: &[(String, String)]) -> Result<String> {
@@ -569,6 +643,14 @@ fn google_usage_to_provider_usage(usage: GoogleUsageMetadata) -> Option<Provider
         total_tokens,
         source: ProviderUsageSource::ProviderReported,
     })
+}
+
+fn response_format_to_google_mime(format: &ResponseFormat) -> &'static str {
+    match format {
+        ResponseFormat::Text => "text/plain",
+        ResponseFormat::JsonObject => "application/json",
+        ResponseFormat::JsonSchema { .. } => "application/json",
+    }
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ use async_trait::async_trait;
 
 use ai_tutor_domain::provider::ProviderStrategy;
 
+use crate::request_params::GenerationParams;
 use crate::traits::{LlmProvider, ProviderUsage};
 
 const OPENROUTER_REFERER: &str = "https://ai-tutor.app";
@@ -31,6 +32,15 @@ struct NoOpLlmProvider;
 #[async_trait]
 impl LlmProvider for NoOpLlmProvider {
     async fn generate_text(&self, _system_prompt: &str, _user_prompt: &str) -> Result<String> {
+        Err(anyhow::anyhow!("no-op provider"))
+    }
+
+    async fn generate_text_with_params(
+        &self,
+        _system_prompt: &str,
+        _user_prompt: &str,
+        _params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
         Err(anyhow::anyhow!("no-op provider"))
     }
 }
@@ -67,6 +77,16 @@ impl LlmProvider for OpenRouterLlmProvider {
     ) -> Result<(String, Option<ProviderUsage>)> {
         let augmented = self.augment_messages(messages);
         self.inner.generate_text_with_history_and_usage(&augmented).await
+    }
+
+    async fn generate_text_with_params(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        let (system, user) = self.augment_prompts(system_prompt, user_prompt);
+        self.inner.generate_text_with_params(&system, &user, params).await
     }
 }
 
@@ -150,6 +170,25 @@ impl LlmProvider for FallbackLlmProvider {
             Err(_) => self
                 .secondary
                 .generate_text_with_history_and_usage(messages)
+                .await,
+        }
+    }
+
+    async fn generate_text_with_params(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        match self
+            .primary
+            .generate_text_with_params(system_prompt, user_prompt, params)
+            .await
+        {
+            Ok(result) => Ok(result),
+            Err(_) => self
+                .secondary
+                .generate_text_with_params(system_prompt, user_prompt, params)
                 .await,
         }
     }

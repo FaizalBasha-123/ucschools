@@ -12,11 +12,14 @@ pub enum LessonAdaptiveStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LessonAdaptiveState {
     pub lesson_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub topic: Option<String>,
     pub diagnostic_count: i32,
     pub max_diagnostics: i32,
     pub current_strategy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub misconception_id: Option<String>,
     pub confidence_score: f32,
     pub status: LessonAdaptiveStatus,

@@ -285,6 +285,18 @@ pub trait ApiUsageRepository: Send + Sync {
         record: &ai_tutor_domain::billing::ApiUsageRecord,
     ) -> Result<(), String>;
 
+    /// Insert multiple usage records in a single batch operation.
+    /// Default implementation falls back to sequential inserts.
+    async fn insert_api_usage_records_batch(
+        &self,
+        records: &[ai_tutor_domain::billing::ApiUsageRecord],
+    ) -> Result<(), String> {
+        for record in records {
+            self.insert_api_usage_record(record).await?;
+        }
+        Ok(())
+    }
+
     /// Fetch all usage records created after `since` for cost aggregation.
     /// Returns an empty Vec if the table doesn't exist yet.
     async fn list_api_usage_records_since(

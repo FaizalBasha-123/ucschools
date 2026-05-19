@@ -18,6 +18,7 @@ use std::{
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use crate::request_params::GenerationParams;
 use crate::traits::{
     LlmProvider, ProviderRuntimeStatus, ProviderStreamEvent, ProviderUsage, ProviderUsageSource,
 };
@@ -243,8 +244,10 @@ pub fn is_context_window_exceeded(err: &anyhow::Error) -> bool {
 /// Check if an error is a rate-limit (429) error.
 fn is_rate_limited(err: &anyhow::Error) -> bool {
     let msg = err.to_string();
+    let lower = msg.to_lowercase();
     msg.contains("429")
         && (msg.contains("Too Many") || msg.contains("rate") || msg.contains("limit"))
+    || lower.contains("rate_limit_exceeded")
 }
 
 /// Check if a 429 is a business/quota error that retries cannot fix.
@@ -660,6 +663,201 @@ impl LlmProvider for ResilientLlmProvider {
                     Err(e) => {
                         // Context window exceeded with no history to truncate
                         // in generate_text (only system+user) — bail immediately
+                        if is_context_window_exceeded(&e) {
+                            let error_detail = e.to_string();
+                            push_failure(
+                                &mut failures,
+                                idx,
+                                "default",
+                                attempt + 1,
+                                self.max_retries + 1,
+                                "context_window_exceeded",
+                                &error_detail,
+                            );
+                            anyhow::bail!(
+                                "Request exceeds model context window and cannot be reduced further. \
+                                 Try using a model with a larger context window. Attempts:\n{}",
+                                failures.join("\n")
+                            );
+                        }
+
+                        let non_retryable_rl = is_non_retryable_rate_limit(&e);
+                        let non_retryable = is_non_retryable(&e) || non_retryable_rl;
+                        let rate_limited = is_rate_limited(&e);
+                        let reason = failure_reason(rate_limited, non_retryable);
+                        let error_detail = e.to_string();
+
+                        push_failure(
+                            &mut failures,
+                            idx,
+                            "default",
+                            attempt + 1,
+                            self.max_retries + 1,
+                            reason,
+                            &error_detail,
+                        );
+
+                        if non_retryable {
+                            self.mark_provider_failure(
+                                &provider.label,
+                                true,
+                                &error_detail,
+                                elapsed_ms(started_at),
+                                input_tokens,
+                                provider.pricing,
+                            );
+                            warn!(
+                                provider_idx = idx,
+                                provider = %provider.label,
+                                error = %error_detail,
+                                "Non-retryable error, moving to next provider"
+                            );
+                            break;
+                        }
+
+                        if attempt < self.max_retries {
+                            self.mark_provider_failure(
+                                &provider.label,
+                                false,
+                                &error_detail,
+                                elapsed_ms(started_at),
+                                input_tokens,
+                                provider.pricing,
+                            );
+                            let wait = self.compute_backoff(backoff_ms, &e);
+                            warn!(
+                                provider_idx = idx,
+                                provider = %provider.label,
+                                attempt = attempt + 1,
+                                backoff_ms = wait,
+                                reason,
+                                error = %error_detail,
+                                "Provider call failed, retrying"
+                            );
+                            tokio::time::sleep(Duration::from_millis(wait)).await;
+                            backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
+                        } else {
+                            self.mark_provider_failure(
+                                &provider.label,
+                                false,
+                                &error_detail,
+                                elapsed_ms(started_at),
+                                input_tokens,
+                                provider.pricing,
+                            );
+                        }
+                    }
+                }
+            }
+
+            warn!(
+                provider_idx = idx,
+                "Exhausted retries, trying next provider if available"
+            );
+        }
+
+        anyhow::bail!(
+            "All providers/models failed. Attempts:\n{}",
+            failures.join("\n")
+        )
+    }
+
+    async fn generate_text_with_params(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+        params: &GenerationParams,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        let mut failures = Vec::new();
+        let input_tokens =
+            estimate_tokens(system_prompt).saturating_add(estimate_tokens(user_prompt));
+
+        for (idx, provider) in self.providers.iter().enumerate() {
+            if !self.can_attempt_provider(&provider.label) {
+                push_failure(
+                    &mut failures,
+                    idx,
+                    "default",
+                    0,
+                    self.max_retries + 1,
+                    "circuit_open",
+                    &format!("provider {} is cooling down", provider.label),
+                );
+                continue;
+            }
+
+            let mut backoff_ms = self.base_backoff_ms;
+
+            for attempt in 0..=self.max_retries {
+                let started_at = Instant::now();
+                match provider
+                    .provider
+                    .generate_text_with_params(system_prompt, user_prompt, params)
+                    .await
+                {
+                    Ok((resp, usage)) => {
+                        if !validate_response(&resp) {
+                            let mut valid_resp = None;
+                            let mut last_usage = usage;
+                            for v_attempt in 1..=self.validation_retries {
+                                warn!(
+                                    provider = %provider.label,
+                                    v_attempt,
+                                    max = self.validation_retries,
+                                    "Response failed validation (empty/whitespace), retrying with params"
+                                );
+                                match provider
+                                    .provider
+                                    .generate_text_with_params(system_prompt, user_prompt, params)
+                                    .await
+                                {
+                                    Ok((retry_resp, retry_usage)) if validate_response(&retry_resp) => {
+                                        valid_resp = Some(retry_resp);
+                                        last_usage = retry_usage;
+                                        break;
+                                    }
+                                    Ok(_) => continue,
+                                    Err(_) => break,
+                                }
+                            }
+                            if let Some(good) = valid_resp {
+                                self.mark_provider_success(
+                                    &provider.label,
+                                    elapsed_ms(started_at),
+                                    token_accounting(input_tokens, estimate_tokens(&good), last_usage.as_ref()),
+                                    provider.pricing,
+                                );
+                                return Ok((good, last_usage));
+                            }
+                            push_failure(
+                                &mut failures,
+                                idx,
+                                "default",
+                                attempt + 1,
+                                self.max_retries + 1,
+                                "validation_failed",
+                                "LLM returned empty/whitespace text after validation retries",
+                            );
+                            continue;
+                        }
+
+                        self.mark_provider_success(
+                            &provider.label,
+                            elapsed_ms(started_at),
+                            token_accounting(input_tokens, estimate_tokens(&resp), usage.as_ref()),
+                            provider.pricing,
+                        );
+                        if attempt > 0 || idx > 0 {
+                            info!(
+                                attempt,
+                                provider_idx = idx,
+                                provider = %provider.label,
+                                "Provider recovered (failover/retry)"
+                            );
+                        }
+                        return Ok((resp, usage));
+                    }
+                    Err(e) => {
                         if is_context_window_exceeded(&e) {
                             let error_detail = e.to_string();
                             push_failure(

@@ -6,7 +6,9 @@ use crate::generation::LessonGenerationRequest;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LessonGenerationJob {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub school_id: Option<String>,
     pub status: LessonGenerationJobStatus,
     pub step: LessonGenerationStep,
@@ -14,12 +16,17 @@ pub struct LessonGenerationJob {
     pub message: String,
     pub input_summary: LessonGenerationJobInputSummary,
     pub scenes_generated: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total_scenes: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<LessonGenerationJobResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<DateTime<Utc>>,
 }
 
@@ -70,6 +77,7 @@ pub struct LessonGenerationJobResult {
 pub struct QueuedLessonJobSnapshot {
     pub lesson_id: String,
     pub request: LessonGenerationRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_string: Option<String>,
     pub max_attempts: u32,
 }

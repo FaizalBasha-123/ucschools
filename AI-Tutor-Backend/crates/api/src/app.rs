@@ -724,6 +724,20 @@ pub struct ToggleMaintenanceResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdjustCreditsRequest {
+    pub amount: f64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdjustCreditsResponse {
+    pub account_id: String,
+    pub new_balance: f64,
+    pub amount: f64,
+    pub kind: CreditEntryKind,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchoolResponse {
     pub id: String,
     pub name: String,
@@ -1622,6 +1636,7 @@ pub trait LessonAppService: Send + Sync {
     async fn add_operator_email(&self, email: &str) -> Result<bool>;
     async fn remove_operator_email(&self, email: &str) -> Result<bool>;
     async fn get_operator_user_ledger(&self, account_id: &str) -> Result<CreditLedgerResponse>;
+    async fn adjust_user_credits(&self, account_id: &str, amount: f64, reason: &str) -> Result<AdjustCreditsResponse>;
     async fn create_promo_code(&self, payload: CreatePromoCodeRequest) -> Result<()>;
     async fn list_all_promo_codes(&self, limit: usize) -> Result<OperatorPromoCodeListResponse>;
     /// Returns aggregated API cost data for the operator console.
@@ -5361,6 +5376,30 @@ impl LessonAppService for LiveLessonAppService {
         self.storage.remove_operator_email(email).await.map_err(|e| anyhow!(e))
     }
 
+    async fn adjust_user_credits(&self, account_id: &str, amount: f64, reason: &str) -> Result<AdjustCreditsResponse> {
+        let now = chrono::Utc::now();
+        let (kind, abs_amount, reason_str) = if amount > 0.0 {
+            (CreditEntryKind::Grant, amount, format!("operator_grant: {}", reason))
+        } else {
+            (CreditEntryKind::Debit, -amount, format!("operator_debit: {}", reason))
+        };
+        let entry = CreditLedgerEntry {
+            id: format!("operator-{}-{}", account_id, Uuid::new_v4()),
+            account_id: account_id.to_string(),
+            kind,
+            amount: abs_amount,
+            reason: reason_str,
+            created_at: now,
+        };
+        let balance = self.storage.apply_credit_entry(&entry).await.map_err(|e| anyhow!(e))?;
+        Ok(AdjustCreditsResponse {
+            account_id: account_id.to_string(),
+            new_balance: balance.balance,
+            amount: abs_amount,
+            kind: entry.kind,
+        })
+    }
+
     async fn run_worker_loop(&self) -> Result<()> {
         let worker_id = format!("worker-{}", Uuid::new_v4());
         
@@ -7316,6 +7355,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/operator/promo-codes", get(get_operator_promo_codes).post(create_operator_promo_code))
         .route("/api/operator/users", get(get_operator_users))
         .route("/api/operator/users/{account_id}/ledger", get(get_operator_user_ledger))
+        .route("/api/operator/users/{account_id}/credits", post(adjust_user_credits))
         .route("/api/operator/settings", get(get_operator_settings))
         .route("/api/operator/jobs", get(get_operator_jobs))
         .route("/api/operator/audit-logs", get(get_operator_audit_logs))
@@ -8112,6 +8152,26 @@ async fn get_operator_user_ledger(
     state
         .service
         .get_operator_user_ledger(&account_id)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn adjust_user_credits(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Path(account_id): Path<String>,
+    Json(payload): Json<AdjustCreditsRequest>,
+) -> Result<Json<AdjustCreditsResponse>, ApiError> {
+    if (payload.amount - 0.0).abs() < f64::EPSILON {
+        return Err(ApiError {
+            status: axum::http::StatusCode::BAD_REQUEST,
+            message: "amount must be non-zero".to_string(),
+        });
+    }
+    state
+        .service
+        .adjust_user_credits(&account_id, payload.amount, &payload.reason)
         .await
         .map(Json)
         .map_err(ApiError::internal)
@@ -11706,6 +11766,16 @@ mod tests {
 
             async fn remove_operator_email(&self, _email: &str) -> Result<bool> {
                 Ok(true)
+            }
+
+            async fn adjust_user_credits(&self, account_id: &str, amount: f64, reason: &str) -> Result<AdjustCreditsResponse> {
+                let kind = if amount > 0.0 { CreditEntryKind::Grant } else { CreditEntryKind::Debit };
+                Ok(AdjustCreditsResponse {
+                    account_id: account_id.to_string(),
+                    new_balance: 0.0,
+                    amount: amount.abs(),
+                    kind,
+                })
             }
 
             async fn get_api_usage_costs(&self, _days: Option<i64>) -> Result<OperatorApiCostsResponse> {
