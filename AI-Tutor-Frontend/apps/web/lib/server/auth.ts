@@ -84,24 +84,15 @@ export function authHeadersFrom(request: NextRequest): HeadersInit {
 
   // Determine which backend auth path this request hits
   const pathname = request.nextUrl.pathname;
-  // Strip the /api prefix used by Next.js to get the backend path
-  // e.g. /api/lesson-shelf → /api/lesson-shelf (same, since backend also uses /api/ prefix)
   const backendPath = pathname;
 
   if (isSessionAuthRequired(backendPath)) {
-    // PATH A: Session-authenticated route.
-    // Backend skips role check; only checks for user JWT in Authorization: Bearer.
-    // Forward the user JWT directly — this is the ONLY thing that works here.
     if (userJwt) {
       headers['Authorization'] = `Bearer ${userJwt}`;
     }
-    // Also forward existing cookies in case the backend session cookie was set server-side
     const cookie = request.headers.get('cookie');
     if (cookie) headers['Cookie'] = cookie;
   } else if (apiToken) {
-    // PATH B: Role-required route with static token for role grant.
-    // Static token → Authorization for role check.
-    // User JWT → session cookie for account identity resolution.
     headers['Authorization'] = `Bearer ${apiToken}`;
 
     if (userJwt) {
@@ -114,8 +105,15 @@ export function authHeadersFrom(request: NextRequest): HeadersInit {
       const cookie = request.headers.get('cookie');
       if (cookie) headers['Cookie'] = cookie;
     }
+
+    // Operator CSRF protection: backend requires X-Operator-Header on state-changing
+    // requests when operator OTP auth is enabled. Forward or set a default value.
+    const method = request.method.toUpperCase();
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      const existingHeader = request.headers.get('x-operator-header');
+      headers['X-Operator-Header'] = existingHeader || '1';
+    }
   } else {
-    // Dev / auth disabled: forward everything as-is
     const authorization = request.headers.get('authorization');
     const cookie = request.headers.get('cookie');
     if (authorization) headers['Authorization'] = authorization;

@@ -201,7 +201,7 @@ fn parse_api_role(value: &str) -> Option<ApiRole> {
     match value.trim().to_ascii_lowercase().as_str() {
         "reader" | "read" => Some(ApiRole::Reader),
         "writer" | "write" => Some(ApiRole::Writer),
-        "operator" => Some(ApiRole::Operator),
+        "operator" | "admin" => Some(ApiRole::Operator),
         _ => None,
     }
 }

@@ -231,7 +231,7 @@ mod tests {
         let result = truncate(text, 20);
         assert!(result.len() <= 23); // 20 + "..."
         assert!(result.ends_with("..."));
-        assert!(!result.contains("in")); // Should break before "in"
+        assert_eq!(result, "Explain Newton's..."); // breaks at word boundary before "laws"
     }
 
     #[test]
