@@ -108,9 +108,13 @@ function GenerationPreviewContent() {
         quality_mode: session.qualityMode || settings.qualityMode || 'standard',
         learning_mode: session.learningMode || settings.learningMode || 'explain',
       };
+      const token = getSessionToken();
       const resp = await fetch('/api/lessons/preview', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(payload),
       });
       if (resp.ok) {
@@ -134,13 +138,11 @@ function GenerationPreviewContent() {
 
   const handleConsent = (allow: boolean) => {
     setShowConsentModal(false);
-    if (allow) {
-      setConsented(true);
-    }
-    startGeneration();
+    setConsented(allow);
+    startGeneration(allow);
   };
 
-  const startGeneration = async () => {
+  const startGeneration = async (useExtraScenes?: boolean) => {
     if (!session) return;
     setError(null);
     setCurrentStepIndex(0);
@@ -157,7 +159,7 @@ function GenerationPreviewContent() {
         enable_video_generation: settings.videoGenerationEnabled ?? false,
         enable_tts: settings.ttsEnabled ?? false,
         user_nickname: session.requirements.userNickname,
-        extra_scenes_consented: consented,
+        extra_scenes_consented: useExtraScenes ?? consented,
       };
 
       // Attach raw PDF as base64 if available
