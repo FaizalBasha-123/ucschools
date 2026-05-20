@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
     const res = await fetch(`${apiBaseUrl}/api/operator/promo-codes`, {
       method: 'POST',
       headers: {
+        'X-Operator-Header': '1',
         'Cookie': `ai_tutor_ops_session=${sessionId.value}`,
         'Content-Type': 'application/json',
       },

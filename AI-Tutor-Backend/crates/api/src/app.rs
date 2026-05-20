@@ -407,6 +407,24 @@ async fn auth_middleware(
         });
     }
 
+    // Fallback: try operator session cookie for operators accessing user-facing routes
+    // (e.g. operator panel pages that call /api/billing/* or /api/lesson-shelf/*).
+    if req.extensions().get::<AuthenticatedAccountContext>().is_none()
+        && auth.operator_otp_enabled
+    {
+        let ops_cookie_name = &auth.operator_session_cookie_name;
+        if let Some(cookie_header) = req.headers().get(header::COOKIE).and_then(|v| v.to_str().ok()) {
+            if let Some(session_id) = parse_cookie(cookie_header, ops_cookie_name) {
+                if let Ok(Some(session)) = load_operator_session(&session_id).await {
+                    req.extensions_mut().insert(AuthenticatedAccountContext {
+                        account_id: format!("operator:{}", session.operator_email),
+                        billing_context: None,
+                    });
+                }
+            }
+        }
+    }
+
     if auth.require_https
         && required_role_for_request(&method, &path).is_some()
         && !request_is_https(&req)

@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const res = await fetch(`${apiBaseUrl}/api/operator/schools/assign-user`, {
       method: 'POST',
-      headers: { 'Cookie': `ai_tutor_ops_session=${sessionId.value}`, 'Content-Type': 'application/json' },
+      headers: { 'X-Operator-Header': '1', 'Cookie': `ai_tutor_ops_session=${sessionId.value}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!res.ok) return NextResponse.json({ success: false, error: `Backend: ${res.status}` }, { status: res.status });
