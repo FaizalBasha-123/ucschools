@@ -27,6 +27,7 @@ use ai_tutor_providers::resilient::is_non_retryable;
 use ai_tutor_providers::traits::{ImageProvider, TtsProvider, VideoProvider};
 use ai_tutor_storage::repositories::{LessonJobRepository, LessonRepository};
 
+use crate::complexity;
 use crate::context::{self, detect_complexity};
 use crate::cost_guard::{self, CostDecision};
 use crate::state::{GenerationOutput, GenerationState};
@@ -286,20 +287,30 @@ where
             .await?;
         telemetry.record_outlines_timing(outlines_start.elapsed());
 
-        // ── Outline count validation: priority-aware scene cap ───────────
+        // ── Scene budget: deterministic from tier + complexity ──────────
         let tier = resolve_quality_tier(&state.request);
         let complexity = detect_complexity(&state.request.requirements.requirement);
+        let scene_budget = complexity::compute_scene_budget(tier, complexity);
+
+        // When user has consented to extra scenes, effective target includes them.
+        let effective_target = if state.request.extra_scenes_consented {
+            (scene_budget.target_scenes + scene_budget.extra_scene_allowance)
+                .min(scene_budget.hard_max_scenes)
+        } else {
+            scene_budget.target_scenes
+        };
+        let hard_max = scene_budget.hard_max_scenes;
         let original_count = state.outlines.len();
-        let max_slides = ai_tutor_domain::routing::effective_max_slides(tier, complexity);
-        if state.outlines.len() > max_slides {
+
+        // Phase 1: Priority-aware truncation to hard_max (absolute cap)
+        if state.outlines.len() > hard_max {
             info!(
-                "Trimming outlines from {} to {} (tier={:?}, complexity={:?})",
+                "Trimming outlines from {} to hard_max={} (tier={:?}, complexity={:?})",
                 state.outlines.len(),
-                max_slides,
+                hard_max,
                 tier,
                 complexity
             );
-            // Priority-aware truncation: preserve educational flow
             let mut with_priority: Vec<(usize, &SceneOutline, u8)> = state
                 .outlines
                 .iter()
@@ -309,11 +320,10 @@ where
                     (i, o, priority)
                 })
                 .collect();
-            // Sort by priority descending, then by original position
             with_priority.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
             let kept: std::collections::HashSet<usize> = with_priority
                 .into_iter()
-                .take(max_slides)
+                .take(hard_max)
                 .map(|(i, _, _)| i)
                 .collect();
             let mut trimmed: Vec<SceneOutline> = state
@@ -323,15 +333,27 @@ where
                 .filter(|(i, _)| kept.contains(i))
                 .map(|(_, o)| o)
                 .collect();
-            // Re-assign order after truncation
             for (idx, outline) in trimmed.iter_mut().enumerate() {
                 outline.order = (idx + 1) as i32;
             }
             state.outlines = trimmed;
             telemetry.record_outline_truncation(original_count, state.outlines.len());
-        } else {
-            telemetry.record_outlines(state.outlines.len());
         }
+
+        // Phase 2: Merge similar scenes when count > effective target
+        if state.outlines.len() > effective_target {
+            let before = state.outlines.len();
+            merge_similar_outlines(&mut state.outlines, effective_target);
+            info!(
+                "Merged outlines from {} to {} (target={}, consented={})",
+                before,
+                state.outlines.len(),
+                effective_target,
+                state.request.extra_scenes_consented
+            );
+        }
+
+        telemetry.record_outlines(state.outlines.len());
 
         // Ensure budget constraints against outlines
         let budget = compute_generation_budget(tier, complexity);
@@ -353,6 +375,34 @@ where
             return Err(anyhow!("No scene outlines were generated"));
         }
 
+        let tier = resolve_quality_tier(&state.request);
+
+        // ── Pre-generation cost guard: check all outlines fit within tier budget ──
+        let outline_texts: Vec<String> = state
+            .outlines
+            .iter()
+            .map(|o| {
+                format!(
+                    "{} {} {}",
+                    state.request.requirements.requirement,
+                    o.title,
+                    o.key_points.join(" ")
+                )
+            })
+            .collect();
+        let outline_refs: Vec<&str> = outline_texts.iter().map(|s| s.as_str()).collect();
+        let budget_tracker = cost_guard::BudgetTracker::new();
+        if matches!(budget_tracker.check_outlines(&outline_refs, tier), CostDecision::Deny) {
+            warn!(
+                "CostGuard OUTLINE DENY: total estimated cost exceeds tier budget (tier={:?})",
+                tier
+            );
+            telemetry.record_cost_decision("Deny");
+            return Err(anyhow!(
+                "Estimated generation cost exceeds the maximum allowed for this plan tier"
+            ));
+        }
+
         update_job(
             &self.jobs,
             &mut state.job,
@@ -363,7 +413,7 @@ where
         )
         .await?;
 
-        let tier = resolve_quality_tier(&state.request);
+        let mut budget_tracker = cost_guard::BudgetTracker::new();
 
         for (index, outline) in state.outlines.iter().enumerate() {
             // ── Step 1: Cost Guard — estimate and check budget ────────
@@ -374,13 +424,14 @@ where
                 outline.key_points.join(" ")
             );
             let cost_estimate = cost_guard::estimate_cost_from_text(&prompt_estimate, &tier);
-            match cost_guard::enforce_budget(&tier, &cost_estimate) {
+            match budget_tracker.record_scene(&cost_estimate, tier) {
                 CostDecision::Deny => {
                     warn!(
-                        "CostGuard DENIED scene {}: est_tokens={} est_cost=${}",
+                        "CostGuard DENIED scene {}: est_tokens={} est_cost=${:.6} total=${:.6}",
                         outline.title,
                         cost_estimate.estimated_tokens,
-                        cost_estimate.estimated_cost_usd
+                        cost_estimate.estimated_cost_usd,
+                        budget_tracker.total_estimated_cost_usd
                     );
                     telemetry.record_cost_decision("Deny");
                     continue;
@@ -391,8 +442,9 @@ where
                 }
                 CostDecision::Warn => {
                     info!(
-                        "CostGuard WARN: scene {} approaching budget limit",
-                        outline.title
+                        "CostGuard WARN: scene {} approaching budget limit (total=${:.6})",
+                        outline.title,
+                        budget_tracker.total_estimated_cost_usd
                     );
                     telemetry.record_cost_decision("Warn");
                 }
@@ -925,6 +977,65 @@ fn scene_priority(outline: &SceneOutline, index: usize, total: usize) -> u8 {
     }
 }
 
+/// Merge similar consecutive outlines until count <= target.
+///
+/// Strategy: walk through outlines in order, merging consecutive slide-type
+/// outlines with overlapping key points into a single outline. Low-priority
+/// scenes (Interactive, Slide with no distinct key points) are merged first.
+fn merge_similar_outlines(outlines: &mut Vec<SceneOutline>, target: usize) {
+    while outlines.len() > target {
+        let before = outlines.len();
+
+        // Pass 1: merge consecutive slide outlines with overlapping content
+        let mut i = 1;
+        while i < outlines.len() && outlines.len() > target {
+            let prev = &outlines[i - 1];
+            let curr = &outlines[i];
+
+            let both_slides = matches!(prev.scene_type, ai_tutor_domain::scene::SceneType::Slide)
+                && matches!(curr.scene_type, ai_tutor_domain::scene::SceneType::Slide);
+
+            let has_overlap = prev.key_points.iter().any(|kp| {
+                curr.key_points.iter().any(|ckp| {
+                    let words: Vec<&str> = kp.split_whitespace().collect();
+                    words.iter().any(|w| w.len() > 3 && ckp.contains(w))
+                })
+            });
+
+            if both_slides && has_overlap {
+                let curr = outlines.remove(i);
+                let prev = &mut outlines[i - 1];
+                prev.key_points.extend(curr.key_points);
+                prev.description.push_str("; ");
+                prev.description.push_str(&curr.description);
+                // Don't increment i — check the new current against previous
+            } else {
+                i += 1;
+            }
+        }
+
+        if outlines.len() == before {
+            // Pass 2: merge lowest-priority consecutive scenes
+            let mut worst_idx = 1;
+            let mut worst_score = u8::MAX;
+            for i in 1..outlines.len() - 1 {
+                let score = scene_priority(&outlines[i], i, outlines.len());
+                if score < worst_score {
+                    worst_score = score;
+                    worst_idx = i;
+                }
+            }
+            if worst_idx < outlines.len() - 1 {
+                // Merge worst into the next scene
+                let removed = outlines.remove(worst_idx);
+                if worst_idx < outlines.len() {
+                    outlines[worst_idx].key_points.extend(removed.key_points);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1408,6 +1519,7 @@ mod tests {
                 user_bio: None,
             },
             pdf_content: None,
+            pdf_images: vec![],
             enable_web_search: false,
             enable_image_generation: false,
             enable_video_generation: false,
@@ -1418,6 +1530,7 @@ mod tests {
             quality_mode: None,
             learning_mode: None,
             precharged_credits: None,
+            extra_scenes_consented: false,
         }
     }
 

@@ -1,5 +1,6 @@
 use ai_tutor_domain::generation::LessonGenerationRequest;
 use ai_tutor_domain::routing::{GenerationBudget, QualityTier};
+use crate::context::detect_complexity;
 use std::fmt;
 
 pub struct LearningProfile {
@@ -74,8 +75,18 @@ pub fn compute_generation_budget(request: &LessonGenerationRequest) -> Generatio
         Some("premium") => QualityTier::Premium,
         _ => QualityTier::Standard,
     };
-    let complexity = ai_tutor_domain::routing::TopicComplexity::Normal;
+    let complexity = detect_complexity(&request.requirements.requirement);
     ai_tutor_domain::routing::compute_generation_budget(tier, complexity)
+}
+
+pub fn compute_scene_budget(request: &LessonGenerationRequest) -> crate::complexity::SceneBudget {
+    let tier = match request.quality_mode.as_deref() {
+        Some("basic") => QualityTier::Basic,
+        Some("premium") => QualityTier::Premium,
+        _ => QualityTier::Standard,
+    };
+    let complexity = detect_complexity(&request.requirements.requirement);
+    crate::complexity::compute_scene_budget(tier, complexity)
 }
 
 impl fmt::Display for LearningProfile {
@@ -133,8 +144,7 @@ No paragraphs. No fluff. Concise only.",
 
     pub fn to_scene_cap_prompt(&self) -> String {
         format!(
-            "Max {max_scenes} scenes. Include 1 quiz. No interactive/PBL unless concept requires.",
-            max_scenes = self.max_scenes,
+            "Include 1 quiz. No interactive/PBL unless concept requires."
         )
     }
 }

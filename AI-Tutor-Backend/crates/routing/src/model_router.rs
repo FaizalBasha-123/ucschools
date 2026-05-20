@@ -21,10 +21,7 @@ pub fn resolve_generation_route(
 ) -> GenerationRoute {
     let cap = resolve_capability(task, learning_mode);
     let model = resolve_model(cap, quality_mode);
-    let mut budget = routing_rules::compute_generation_budget(quality_mode, complexity);
-    if complexity == TopicComplexity::High {
-        budget.max_scenes = budget.max_scenes.saturating_add(2);
-    }
+    let budget = routing_rules::compute_generation_budget(quality_mode, complexity);
     GenerationRoute { model, capability: cap, budget }
 }
 
@@ -56,13 +53,14 @@ mod tests {
     }
 
     #[test]
-    fn high_complexity_adds_extra_scenes() {
+    fn high_complexity_scales_scenes() {
         let route = resolve_generation_route(
             GenerationTask::Outlines,
             LearningMode::Explain,
             QualityTier::Standard,
             TopicComplexity::High,
         );
+        // hard_max_scenes(Standard, High) = ceil(8 * 1.4) = 12
         assert_eq!(route.budget.max_scenes, 12);
     }
 

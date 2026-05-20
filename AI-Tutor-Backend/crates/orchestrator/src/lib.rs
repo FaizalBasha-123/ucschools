@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod complexity;
 pub mod context;
 pub mod cost_guard;
 pub mod generation;

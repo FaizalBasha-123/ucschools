@@ -418,17 +418,61 @@ impl BillingContext {
 
 // ── Credit Calculators ────────────────────────────────────────────────────────
 
-/// Calculate credits for a lesson generation.
+/// Calculate credits for a lesson generation (duration-based, kept for reference).
 /// Formula: (duration_secs / 60) * quality_rate * learning_multiplier
 pub fn lesson_credits(quality: QualityMode, learning: LearningMode, duration_secs: f64) -> f64 {
     let base = (duration_secs / 60.0) * quality.credits_per_minute();
     base * learning.credit_multiplier()
 }
 
+/// Fixed lesson credit matrix. Cost is deterministic per (quality, learning) pair.
+/// This is the primary pricing surface — NOT duration-based.
+pub fn lesson_credits_fixed(quality: QualityMode, learning: LearningMode) -> f64 {
+    match (quality, learning) {
+        (QualityMode::Basic,    LearningMode::Revision)      => 1.2,
+        (QualityMode::Basic,    LearningMode::Explain)       => 2.0,
+        (QualityMode::Basic,    LearningMode::Exam)          => 3.0,
+        (QualityMode::Basic,    LearningMode::PlacementPrep) => 4.0,
+        (QualityMode::Standard, LearningMode::Revision)      => 2.0,
+        (QualityMode::Standard, LearningMode::Explain)       => 4.0,
+        (QualityMode::Standard, LearningMode::Exam)          => 5.0,
+        (QualityMode::Standard, LearningMode::PlacementPrep) => 6.0,
+        (QualityMode::Premium,  LearningMode::Revision)      => 3.5,
+        (QualityMode::Premium,  LearningMode::Explain)       => 6.0,
+        (QualityMode::Premium,  LearningMode::Exam)          => 7.0,
+        (QualityMode::Premium,  LearningMode::PlacementPrep) => 9.0,
+    }
+}
+
+/// Calculate credits for extra scenes beyond the target scene count.
+///
+/// Extra scenes are priced at reduced margin (~55% vs 65% base) to provide
+/// generous overage without surprise costs. The per-scene cost is ~78% of
+/// the base per-scene rate (ratio of 0.35/0.45 margin conversion).
+///
+/// Formula: (base_credits / target_scenes) * extra_count * 0.78
+/// Minimum: extra_count * 0.1 credits (floor to avoid zero-cost extras).
+pub fn extra_scene_credits(
+    quality: QualityMode,
+    learning: LearningMode,
+    target_scenes: usize,
+    extra_count: usize,
+) -> f64 {
+    if extra_count == 0 || target_scenes == 0 {
+        return 0.0;
+    }
+    let base = lesson_credits_fixed(quality, learning);
+    let per_scene = base / target_scenes as f64;
+    let raw = per_scene * extra_count as f64 * 0.78;
+    // Floor: minimum 0.1 credits per extra scene
+    let min_floor = extra_count as f64 * 0.1;
+    raw.max(min_floor)
+}
+
 /// Calculate credits for PDF analysis.
-/// Formula: 1.0 + (page_count * 0.20)
+/// Formula: page_count * 0.05 — no minimum floor.
 pub fn pdf_credits(page_count: u32) -> f64 {
-    1.0 + (page_count as f64 * 0.20)
+    page_count as f64 * 0.05
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

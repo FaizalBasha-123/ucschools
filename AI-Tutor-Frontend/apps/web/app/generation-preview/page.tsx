@@ -9,6 +9,7 @@ import {
   ArrowLeft,
   XCircle,
   Loader2,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -22,6 +23,19 @@ import { loadPdfBlob } from '@/lib/utils/image-storage';
 import { type GenerationSessionState } from './types';
 
 const log = createLogger('GenerationPreview');
+
+interface LessonPreviewData {
+  quality_mode: string;
+  learning_mode: string;
+  complexity_level: string;
+  target_scenes: number;
+  hard_max_scenes: number;
+  extra_scenes_available: number;
+  base_credits: number;
+  extra_credits: number;
+  total_credits_if_extra: number;
+  requires_consent: boolean;
+}
 
 const STEPS = [
   { id: 'submit', title: 'Submitting request', description: 'Sending to AI tutor backend' },
@@ -52,6 +66,10 @@ function GenerationPreviewContent() {
   const [error, setError] = useState<string | null>(null);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [statusMessage, setStatusMessage] = useState('');
+  const [previewData, setPreviewData] = useState<LessonPreviewData | null>(null);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [consented, setConsented] = useState(false);
 
   // Load session from sessionStorage
   useEffect(() => {
@@ -73,11 +91,54 @@ function GenerationPreviewContent() {
       router.replace('/auth?next=/');
       return;
     }
-    if (session) {
-      startGeneration();
+    if (session && !previewData && !previewLoading && !consented) {
+      fetchPreview();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionLoaded, session]);
+  }, [sessionLoaded, session, previewData, previewLoading, consented]);
+
+  const fetchPreview = async () => {
+    if (!session) return;
+    setPreviewLoading(true);
+    try {
+      const settings = useSettingsStore.getState();
+      const payload: Record<string, unknown> = {
+        requirement: session.requirements.requirement,
+        language: session.requirements.language || 'en-US',
+        quality_mode: session.qualityMode || settings.qualityMode || 'standard',
+        learning_mode: session.learningMode || settings.learningMode || 'explain',
+      };
+      const resp = await fetch('/api/lessons/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (resp.ok) {
+        const data: LessonPreviewData = await resp.json();
+        setPreviewData(data);
+        if (data.requires_consent) {
+          setShowConsentModal(true);
+        } else {
+          startGeneration();
+        }
+      } else {
+        // Preview failed — fall through to direct generation
+        startGeneration();
+      }
+    } catch {
+      startGeneration();
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const handleConsent = (allow: boolean) => {
+    setShowConsentModal(false);
+    if (allow) {
+      setConsented(true);
+    }
+    startGeneration();
+  };
 
   const startGeneration = async () => {
     if (!session) return;
@@ -96,6 +157,7 @@ function GenerationPreviewContent() {
         enable_video_generation: settings.videoGenerationEnabled ?? false,
         enable_tts: settings.ttsEnabled ?? false,
         user_nickname: session.requirements.userNickname,
+        extra_scenes_consented: consented,
       };
 
       // Attach raw PDF as base64 if available
@@ -300,6 +362,83 @@ function GenerationPreviewContent() {
               );
             })}
           </div>
+
+          {previewLoading && !previewData && !error && (
+            <div className="mt-6 text-center">
+              <Loader2 className="size-5 text-neutral-500 animate-spin mx-auto mb-2" />
+              <p className="text-xs text-neutral-600">Estimating lesson scope...</p>
+            </div>
+          )}
+
+          {showConsentModal && previewData && (
+            <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+              <Card className="max-w-md w-full bg-neutral-900 border-neutral-700 p-6 space-y-4">
+                <div className="flex items-start gap-3">
+                  <Sparkles className="size-6 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="text-base font-semibold text-neutral-100">
+                      Complex topic detected
+                    </h3>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      This topic ({previewData.complexity_level}) may need up to{' '}
+                      <strong className="text-neutral-200">{previewData.hard_max_scenes}</strong>{' '}
+                      scenes for a thorough explanation.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-neutral-800/50 rounded-lg p-3 space-y-2 text-sm">
+                  <div className="flex justify-between text-neutral-400">
+                    <span>Base scenes</span>
+                    <span className="text-neutral-200">{previewData.target_scenes}</span>
+                  </div>
+                  {previewData.extra_scenes_available > 0 && (
+                    <div className="flex justify-between text-neutral-400">
+                      <span>Extra scenes available</span>
+                      <span className="text-amber-400">+{previewData.extra_scenes_available}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-neutral-400">
+                    <span>Base credits</span>
+                    <span className="text-neutral-200">{previewData.base_credits}</span>
+                  </div>
+                  {previewData.extra_credits > 0 && (
+                    <div className="flex justify-between text-neutral-400">
+                      <span>Extra credits (if used)</span>
+                      <span className="text-amber-400">+{previewData.extra_credits.toFixed(1)}</span>
+                    </div>
+                  )}
+                  <div className="border-t border-neutral-700 pt-2 flex justify-between font-medium">
+                    <span className="text-neutral-200">Maximum total</span>
+                    <span className="text-neutral-100">
+                      {previewData.total_credits_if_extra.toFixed(1)} credits
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-xs text-neutral-500">
+                  Extra scenes are billed at reduced cost. You can also proceed without extra scenes
+                  — the lesson will focus on the core material.
+                </p>
+
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    onClick={() => handleConsent(false)}
+                    variant="outline"
+                    className="flex-1 border-neutral-700 text-neutral-300 hover:bg-neutral-800"
+                  >
+                    No, keep it concise
+                  </Button>
+                  <Button
+                    onClick={() => handleConsent(true)}
+                    className="flex-1 bg-amber-600 hover:bg-amber-500 text-white"
+                  >
+                    Yes, include extras
+                  </Button>
+                </div>
+              </Card>
+            </div>
+          )}
 
           {error && (
             <div className="mt-6 flex gap-3">

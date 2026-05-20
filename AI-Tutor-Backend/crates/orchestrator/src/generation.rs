@@ -3076,6 +3076,7 @@ mod tests {
                 user_bio: None,
             },
             pdf_content: None,
+            pdf_images: vec![],
             enable_web_search: false,
             enable_image_generation: false,
             enable_video_generation: false,
@@ -3086,6 +3087,7 @@ mod tests {
             quality_mode: None,
             learning_mode: None,
             precharged_credits: None,
+            extra_scenes_consented: false,
         }
     }
 

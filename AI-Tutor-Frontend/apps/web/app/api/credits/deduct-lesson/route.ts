@@ -5,13 +5,12 @@
  * generation-preview pipeline (PATH A). Called fire-and-forget after
  * the first scene is generated and the lesson is saved to IndexedDB.
  *
- * Credit calculation mirrors the Rust backend's `calculate_credit_usage`:
- *   - Base cost determined by quality tier
- *   - Multiplied by learning mode factor
- *   - Estimated from scene count (proxy for content volume)
+ * Credit calculation mirrors the Rust backend's `lesson_credits_fixed`:
+ *   - Fixed matrix lookup by quality + learning mode
+ *   - NOT duration-based
  *
  * Body:
- *   { lessonId, qualityMode, learningMode, sceneCount, speechCharCount? }
+ *   { lessonId, qualityMode, learningMode }
  */
 
 import { NextRequest } from 'next/server';
@@ -22,47 +21,33 @@ import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('CreditDeductLesson');
 
-// ─── Credit tables (mirror ai_tutor_domain::billing) ─────────────────────────
+// ─── Fixed lesson credit matrix (mirror ai_tutor_domain::billing) ─────────────
 
-/** Base credits per minute of estimated speech content */
-const CREDITS_PER_MINUTE: Record<string, number> = {
-  basic: 0.5,
-  standard: 1.0,
-  premium: 2.0,
+const LESSON_CREDITS_FIXED: Record<string, Record<string, number>> = {
+  basic: {
+    revision: 1.2,
+    explain: 2.0,
+    exam: 3.0,
+    placement_prep: 4.0,
+  },
+  standard: {
+    revision: 2.0,
+    explain: 4.0,
+    exam: 5.0,
+    placement_prep: 6.0,
+  },
+  premium: {
+    revision: 3.5,
+    explain: 6.0,
+    exam: 7.0,
+    placement_prep: 9.0,
+  },
 };
 
-/** Learning mode multipliers */
-const LEARNING_MULTIPLIER: Record<string, number> = {
-  explain: 1.0,
-  revision: 1.2,
-  exam: 1.5,
-  placement_prep: 1.8,
-};
-
-/**
- * Estimate lesson duration in seconds.
- * Uses speechCharCount when available (accurate), falls back to scene count
- * as a proxy (15 chars/sec speaking rate × 200 chars/scene average).
- */
-function estimateDurationSecs(sceneCount: number, speechCharCount?: number): number {
-  if (speechCharCount && speechCharCount > 0) {
-    return speechCharCount / 15.0;
-  }
-  // Rough estimate: ~200 spoken chars per scene at 15 chars/sec
-  return (sceneCount * 200) / 15.0;
-}
-
-function calculateCredits(
-  qualityMode: string,
-  learningMode: string,
-  sceneCount: number,
-  speechCharCount?: number,
-): number {
-  const cpMin = CREDITS_PER_MINUTE[qualityMode] ?? CREDITS_PER_MINUTE.standard;
-  const multiplier = LEARNING_MULTIPLIER[learningMode] ?? LEARNING_MULTIPLIER.explain;
-  const durationSecs = estimateDurationSecs(sceneCount, speechCharCount);
-  const durationMins = durationSecs / 60.0;
-  return parseFloat((durationMins * cpMin * multiplier).toFixed(4));
+function calculateCredits(qualityMode: string, learningMode: string): number {
+  const byQuality = LESSON_CREDITS_FIXED[qualityMode];
+  if (!byQuality) return 4.0; // fallback: Standard Explain
+  return byQuality[learningMode] ?? 4.0;
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
@@ -74,21 +59,17 @@ export async function POST(req: NextRequest) {
       lessonId,
       qualityMode = 'standard',
       learningMode = 'explain',
-      sceneCount = 1,
-      speechCharCount,
     } = body as {
       lessonId?: string;
       qualityMode?: string;
       learningMode?: string;
-      sceneCount?: number;
-      speechCharCount?: number;
     };
 
     if (!lessonId) {
       return apiError('MISSING_REQUIRED_FIELD', 400, 'lessonId is required');
     }
 
-    const credits = calculateCredits(qualityMode, learningMode, sceneCount, speechCharCount);
+    const credits = calculateCredits(qualityMode, learningMode);
 
     if (credits <= 0) {
       // Nothing to deduct
@@ -97,7 +78,7 @@ export async function POST(req: NextRequest) {
 
     log.info(
       `Deducting ${credits.toFixed(4)} credits for lesson "${lessonId}" ` +
-        `[quality=${qualityMode}, learning=${learningMode}, scenes=${sceneCount}]`,
+        `[quality=${qualityMode}, learning=${learningMode}]`,
     );
 
     // Call the Rust backend's credit debit endpoint
@@ -109,7 +90,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         amount: credits,
-        reason: `lesson:${lessonId} quality=${qualityMode} learning=${learningMode} scenes=${sceneCount}`,
+        reason: `lesson:${lessonId} quality=${qualityMode} learning=${learningMode}`,
         idempotency_key: `lesson-debit-${lessonId}`,
       }),
     });

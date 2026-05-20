@@ -556,6 +556,10 @@ pub struct GenerateLessonPayload {
     pub quality_mode: Option<String>,
     /// Pedagogy style: "explain" | "revision" | "exam" | "placement_prep"
     pub learning_mode: Option<String>,
+    /// Whether the user has consented to extra scenes beyond the target count.
+    /// Extra scenes are billed at reduced margin.
+    #[serde(default)]
+    pub extra_scenes_consented: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -564,6 +568,33 @@ pub struct GenerateLessonResponse {
     pub job_id: String,
     pub url: String,
     pub scenes_count: usize,
+}
+
+/// Response from the lesson preview endpoint (no LLM call).
+/// Returns deterministic budget information so the frontend can show
+/// extra scene costs before the user commits to generation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LessonPreviewResponse {
+    /// AI model tier resolved from the request.
+    pub quality_mode: String,
+    /// Pedagogy style resolved from the request.
+    pub learning_mode: String,
+    /// Topic complexity level detected from the requirement text.
+    pub complexity_level: String,
+    /// Ideal scene count the LLM should target.
+    pub target_scenes: usize,
+    /// Hard upper bound never exceeded.
+    pub hard_max_scenes: usize,
+    /// Extra scenes available at reduced margin (user consent required).
+    pub extra_scenes_available: usize,
+    /// Base credit cost for the lesson at target scene count.
+    pub base_credits: f64,
+    /// Additional credits if all extra scenes are used.
+    pub extra_credits: f64,
+    /// Total credits if all extra scenes are used.
+    pub total_credits_if_extra: f64,
+    /// Whether user consent is required to proceed.
+    pub requires_consent: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -952,12 +983,6 @@ pub struct BillingCatalogItemResponse {
 pub struct BillingCatalogResponse {
     pub gateway: String,
     pub items: Vec<BillingCatalogItemResponse>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateCheckoutRequest {
-    pub product_code: String,
-    pub gateway: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -7377,6 +7402,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/system/ops-gate", get(get_ops_gate))
         .route("/api/lessons/generate", post(generate_lesson))
         .route("/api/lessons/generate-async", post(generate_lesson_async))
+        .route("/api/lessons/preview", post(preview_lesson))
         .route("/api/lesson-shelf", get(list_lesson_shelf))
         .route("/api/lesson-shelf/{id}", patch(patch_lesson_shelf_item))
         .route("/api/lesson-shelf/{id}/archive", post(archive_lesson_shelf_item))
@@ -8407,6 +8433,40 @@ async fn generate_lesson_async(
         .map_err(ApiError::internal)
 }
 
+async fn preview_lesson(
+    Json(payload): Json<GenerateLessonPayload>,
+) -> Json<LessonPreviewResponse> {
+    use ai_tutor_domain::billing::{extra_scene_credits, lesson_credits_fixed, LearningMode, QualityMode};
+    use ai_tutor_domain::routing::QualityTier;
+    use ai_tutor_orchestrator::complexity;
+
+    let quality_mode_str = payload.quality_mode.as_deref().unwrap_or("standard");
+    let learning_mode_str = payload.learning_mode.as_deref().unwrap_or("explain");
+
+    let quality = QualityMode::from_str(quality_mode_str).unwrap_or_default();
+    let learning = LearningMode::from_str(learning_mode_str).unwrap_or_default();
+    let tier = QualityTier::from_str_loose(quality_mode_str);
+
+    let complexity = ai_tutor_orchestrator::context::detect_complexity(&payload.requirement);
+    let budget = complexity::compute_scene_budget(tier, complexity);
+    let base_credits = lesson_credits_fixed(quality, learning);
+    let extra_credits = extra_scene_credits(quality, learning, budget.target_scenes, budget.extra_scene_allowance);
+    let total_credits_if_extra = base_credits + extra_credits;
+
+    Json(LessonPreviewResponse {
+        quality_mode: quality_mode_str.to_string(),
+        learning_mode: learning_mode_str.to_string(),
+        complexity_level: format!("{:?}", complexity),
+        target_scenes: budget.target_scenes,
+        hard_max_scenes: budget.hard_max_scenes,
+        extra_scenes_available: budget.extra_scene_allowance,
+        base_credits,
+        extra_credits,
+        total_credits_if_extra,
+        requires_consent: budget.extra_scene_allowance > 0,
+    })
+}
+
 fn resolve_account_id_or_unauthorized(
     account: Option<Extension<AuthenticatedAccountContext>>,
 ) -> Result<String, ApiError> {
@@ -8854,6 +8914,7 @@ fn build_generation_request(payload: GenerateLessonPayload) -> Result<LessonGene
         quality_mode: payload.quality_mode,
         learning_mode: payload.learning_mode,
         precharged_credits: None,
+        extra_scenes_consented: payload.extra_scenes_consented,
     })
 }
 
@@ -9703,14 +9764,14 @@ fn highest_allowed_quality_mode(
 
 fn billing_product_usd_amount_minor(product_code: &str) -> i64 {
     match product_code {
-        "starter" => 500,        // $5
-        "pro" => 1000,           // $10
-        "power" => 3000,         // $30
-        "starter_yearly" => 4800, // $48
-        "pro_yearly" => 9600,     // $96
-        "power_yearly" => 28800,  // $288
-        "pack_150" => 200,        // $2
-        "pack_500" => 500,        // $5
+        "starter" => 599,        // $5.99
+        "pro" => 1199,           // $11.99
+        "power" => 3499,         // $34.99
+        "starter_yearly" => 5750, // $57.50 (~20% off monthly)
+        "pro_yearly" => 11510,    // $115.10
+        "power_yearly" => 33590,  // $335.90
+        "pack_150" => 200,        // $2 (unchanged)
+        "pack_500" => 500,        // $5 (unchanged)
         _ => 0,
     }
 }
@@ -10773,7 +10834,7 @@ fn estimate_generation_credits_for_modes(
     quality_mode: Option<&str>,
     learning_mode: Option<&str>,
 ) -> f64 {
-    use ai_tutor_domain::billing::{lesson_credits, LearningMode, QualityMode};
+    use ai_tutor_domain::billing::{lesson_credits_fixed, LearningMode, QualityMode};
 
     let quality = quality_mode
         .and_then(QualityMode::from_str)
@@ -10782,7 +10843,7 @@ fn estimate_generation_credits_for_modes(
         .and_then(LearningMode::from_str)
         .unwrap_or_default();
 
-    lesson_credits(quality, learning, estimated_generation_duration_secs())
+    lesson_credits_fixed(quality, learning)
 }
 
 fn estimate_generation_credits_for_request(request: &LessonGenerationRequest) -> f64 {
@@ -10803,7 +10864,7 @@ fn calculate_credit_usage(
     lesson: &Lesson,
     request: &ai_tutor_domain::generation::LessonGenerationRequest,
 ) -> CreditUsage {
-    use ai_tutor_domain::billing::{QualityMode, LearningMode, lesson_credits};
+    use ai_tutor_domain::billing::{lesson_credits_fixed, LearningMode, QualityMode};
 
     let quality = request
         .quality_mode
@@ -10817,7 +10878,7 @@ fn calculate_credit_usage(
         .and_then(LearningMode::from_str)
         .unwrap_or_default();
 
-    // Estimate duration: ~15 chars per second speaking rate
+    // Estimate voice duration: ~15 chars per second speaking rate
     let total_chars: usize = lesson
         .scenes
         .iter()
@@ -10830,12 +10891,13 @@ fn calculate_credit_usage(
 
     let duration_secs = total_chars as f64 / 15.0;
     
-    // We only charge for voice right now
-    let total = lesson_credits(quality, learning, duration_secs);
+    // Fixed lesson credit cost + voice credit cost
+    let lesson_portion = lesson_credits_fixed(quality, learning);
+    let voice_portion = (duration_secs / 60.0) * quality.credits_per_minute();
 
     CreditUsage {
-        total,
-        voice: (duration_secs / 60.0) * quality.credits_per_minute(),
+        total: lesson_portion + voice_portion,
+        voice: voice_portion,
         multiplier: learning.credit_multiplier(),
     }
 }

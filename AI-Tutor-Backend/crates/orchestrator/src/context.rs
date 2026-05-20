@@ -4,49 +4,75 @@ use ai_tutor_domain::routing::{
 };
 use ai_tutor_domain::scene::SceneOutline;
 
-/// Detect whether a topic is high-complexity, which unlocks the +2 slide bonus.
+/// Detect topic complexity on a 5-level ladder using deterministic heuristics.
 ///
-/// Heuristics (no LLM call — we want this to be deterministic and free):
-/// - Topic length > 80 chars (long requirement implies multiple concepts)
-/// - Contains complexity signals: "and", "vs", "relationship", "compare",
-///   "multiple", "system", "mechanism", "process", "theory"
-/// - Contains technical jargon markers: uppercase abbreviations (e.g. DNA, ATP)
+/// No LLM call — purely keyword + length based for deterministic budgeting.
+/// Scores range from Low (simple, single-concept topics) to Extreme
+/// (multi-system, multi-requirement topics).
 pub fn detect_complexity(topic: &str) -> TopicComplexity {
     let lower = topic.to_ascii_lowercase();
     let word_count = lower.split_whitespace().count();
 
-    let complexity_signals = [
-        " and ",
-        " vs ",
-        " versus ",
-        "relationship",
-        "compare",
-        "multiple",
-        "system",
-        "mechanism",
-        "process",
-        "theory",
-        "between",
-        "interaction",
-        "integration",
-        "architecture",
-        "pipeline",
+    // Level 1 signals: connective/multi-concept indicators (moderate weight)
+    let connective_signals = [
+        " and ", " vs ", " versus ", "between", "relationship",
+        "compare", "interaction", "integration",
     ];
 
-    let signal_count = complexity_signals
+    // Level 2 signals: deep/complex topic indicators (higher weight)
+    let depth_signals = [
+        "system", "mechanism", "process", "theory", "architecture",
+        "pipeline", "framework", "protocol", "algorithm", "infrastructure",
+    ];
+
+    // Level 3 signals: multi-component / cross-domain (highest weight)
+    let cross_domain_signals = [
+        "multiple", "comprehensive", "end-to-end", "full stack",
+        "distributed", "concurrent", "parallel", "hierarchical",
+        "multivariate", "multidimensional",
+    ];
+
+    let connective_count = connective_signals
         .iter()
         .filter(|&&sig| lower.contains(sig))
         .count();
 
-    // Has uppercase abbreviations (like DNA, ATP, HTTP, REST)?
+    let depth_count = depth_signals
+        .iter()
+        .filter(|&&sig| lower.contains(sig))
+        .count();
+
+    let cross_count = cross_domain_signals
+        .iter()
+        .filter(|&&sig| lower.contains(sig))
+        .count();
+
     let has_abbreviation = topic
         .split_whitespace()
         .any(|w| w.len() >= 2 && w.chars().all(|c| c.is_uppercase() || c.is_numeric()));
 
-    if word_count > 15 || signal_count >= 2 || has_abbreviation {
-        TopicComplexity::High
-    } else {
-        TopicComplexity::Normal
+    // Weighted score: abbreviations count as 1 depth signal
+    let total_score = connective_count + depth_count * 2 + cross_count * 3
+        + if has_abbreviation { 2 } else { 0 };
+
+    // Multi-requirement detection: semicolons, numbered lists, bullet markers
+    let has_multi_requirement = lower.contains(';')
+        || lower.contains("1.") || lower.contains("2.")
+        || lower.contains('\n');
+
+    match (word_count, total_score, has_multi_requirement) {
+        // Extreme: very long + high signal count + multi-requirement
+        (wc, ts, true) if wc > 40 && ts >= 8 => TopicComplexity::Extreme,
+        // VeryHigh: long + moderate signals, or high signal count alone
+        (wc, ts, _) if wc > 30 && ts >= 5 => TopicComplexity::VeryHigh,
+        (_, ts, _) if ts >= 8 => TopicComplexity::VeryHigh,
+        // High: moderate length + signals, or multi-requirement + some signals
+        (wc, ts, true) if wc > 15 && ts >= 3 => TopicComplexity::High,
+        (_, ts, _) if ts >= 4 => TopicComplexity::High,
+        // Normal: short topic with few signals
+        (wc, ts, _) if wc > 8 || ts >= 1 => TopicComplexity::Normal,
+        // Low: very short, no signals
+        _ => TopicComplexity::Low,
     }
 }
 

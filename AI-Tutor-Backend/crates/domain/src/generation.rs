@@ -55,6 +55,11 @@ pub struct LessonGenerationRequest {
     /// Credits precharged before generation starts (used to reconcile final usage).
     #[serde(default)]
     pub precharged_credits: Option<f64>,
+    /// Whether the user has consented to extra scenes beyond the target count.
+    /// Extra scenes are billed at reduced margin and only available when topic
+    /// complexity is VeryHigh or Extreme.
+    #[serde(default)]
+    pub extra_scenes_consented: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

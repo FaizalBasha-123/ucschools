@@ -281,14 +281,9 @@ pub fn tier_limits(tier: QualityTier) -> TierLimits {
     }
 }
 
-/// Effective slide count with topic complexity bonus (2 extra slides for high complexity).
+/// Deterministic base scene count derived from tier and complexity.
 pub fn effective_max_slides(tier: QualityTier, complexity: TopicComplexity) -> usize {
-    let base = tier_limits(tier).max_slides;
-    if complexity == TopicComplexity::High {
-        (base + 2).min(tier_limits(QualityTier::Premium).max_slides)
-    } else {
-        base
-    }
+    complexity.base_scene_count(tier).min(complexity.hard_max_scenes(tier))
 }
 
 /// Retry policy with fixed defaults (no env dependency).
@@ -299,11 +294,12 @@ pub fn default_retry_policy() -> RetryPolicy {
     }
 }
 
-/// Generation budget per quality tier.
-pub fn compute_generation_budget(tier: QualityTier, _complexity: TopicComplexity) -> GenerationBudget {
+/// Generation budget per quality tier, with deterministic max_scenes from complexity.
+pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity) -> GenerationBudget {
+    let max_scenes = complexity.hard_max_scenes(tier);
     match tier {
         QualityTier::Basic => GenerationBudget {
-            max_scenes: 5,
+            max_scenes,
             max_interactions: 2,
             max_visuals: 1,
             max_tokens_per_scene: 512,
@@ -312,7 +308,7 @@ pub fn compute_generation_budget(tier: QualityTier, _complexity: TopicComplexity
             require_quiz_scene: false,
         },
         QualityTier::Standard => GenerationBudget {
-            max_scenes: 10,
+            max_scenes,
             max_interactions: 5,
             max_visuals: 3,
             max_tokens_per_scene: 1024,
@@ -321,7 +317,7 @@ pub fn compute_generation_budget(tier: QualityTier, _complexity: TopicComplexity
             require_quiz_scene: false,
         },
         QualityTier::Premium => GenerationBudget {
-            max_scenes: 15,
+            max_scenes,
             max_interactions: 8,
             max_visuals: 5,
             max_tokens_per_scene: 2048,

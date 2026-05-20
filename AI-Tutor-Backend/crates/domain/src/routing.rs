@@ -108,13 +108,66 @@ impl Default for LearningState {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Topic Complexity — drives dynamic slide count override
+// Topic Complexity — drives deterministic scene count and budget
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 5-level complexity ladder mapped from keyword heuristics.
+/// Each level determines base scene count, hard cap, and extra scene allowance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TopicComplexity {
+    Low,
     Normal,
     High,
+    VeryHigh,
+    Extreme,
+}
+
+impl TopicComplexity {
+    /// Order-preserving numeric index for budget calculations.
+    pub fn level_index(self) -> usize {
+        match self {
+            TopicComplexity::Low => 0,
+            TopicComplexity::Normal => 1,
+            TopicComplexity::High => 2,
+            TopicComplexity::VeryHigh => 3,
+            TopicComplexity::Extreme => 4,
+        }
+    }
+
+    /// Maximum allowed scenes for this complexity level at a given tier.
+    pub fn hard_max_scenes(self, tier: QualityTier) -> usize {
+        let base = tier_limits(tier).max_slides;
+        match self {
+            TopicComplexity::Low => base,
+            TopicComplexity::Normal => base,
+            TopicComplexity::High => (base as f64 * 1.4).ceil() as usize,
+            TopicComplexity::VeryHigh => (base as f64 * 1.7).ceil() as usize,
+            TopicComplexity::Extreme => (base as f64 * 2.0).ceil() as usize,
+        }
+    }
+
+    /// Deterministic base scene count (no LLM input).
+    pub fn base_scene_count(self, tier: QualityTier) -> usize {
+        let base = tier_limits(tier).max_slides;
+        match self {
+            TopicComplexity::Low => base.saturating_sub(2).max(2),
+            TopicComplexity::Normal => base,
+            TopicComplexity::High => base + 1,
+            TopicComplexity::VeryHigh => base + 2,
+            TopicComplexity::Extreme => base + 3,
+        }
+    }
+
+    /// Number of extra scenes available at reduced margin (optional).
+    pub fn extra_scene_allowance(self) -> usize {
+        match self {
+            TopicComplexity::Low => 0,
+            TopicComplexity::Normal => 0,
+            TopicComplexity::High => 1,
+            TopicComplexity::VeryHigh => 2,
+            TopicComplexity::Extreme => 3,
+        }
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -160,18 +213,10 @@ pub fn tier_limits(tier: QualityTier) -> TierLimits {
     }
 }
 
-/// Effective slide limit applying a complexity bonus when the topic is High
-/// complexity. The bonus is configurable via `TOPIC_COMPLEXITY_EXTRA_SLIDES`
-/// (default: 2) and is capped so we never exceed `MAX_SLIDES_PREMIUM`.
+/// Effective slide limit applying a deterministic complexity bonus.
+/// Delegates to `TopicComplexity::base_scene_count` which uses the 5-level ladder.
 pub fn effective_max_slides(tier: QualityTier, complexity: TopicComplexity) -> usize {
-    let base = tier_limits(tier).max_slides;
-    if complexity == TopicComplexity::High {
-        let extra = 2usize;
-        let premium_cap = tier_limits(QualityTier::Premium).max_slides;
-        (base + extra).min(premium_cap)
-    } else {
-        base
-    }
+    complexity.base_scene_count(tier).min(complexity.hard_max_scenes(tier))
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -307,10 +352,11 @@ impl GenerationBudget {
     }
 }
 
-pub fn compute_generation_budget(tier: QualityTier, _complexity: TopicComplexity) -> GenerationBudget {
+pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity) -> GenerationBudget {
+    let max_scenes = complexity.hard_max_scenes(tier);
     match tier {
         QualityTier::Basic => GenerationBudget {
-            max_scenes: 5,
+            max_scenes,
             max_interactions: 2,
             max_visuals: 1,
             max_tokens_per_scene: 512,
@@ -319,7 +365,7 @@ pub fn compute_generation_budget(tier: QualityTier, _complexity: TopicComplexity
             require_quiz_scene: false,
         },
         QualityTier::Standard => GenerationBudget {
-            max_scenes: 10,
+            max_scenes,
             max_interactions: 5,
             max_visuals: 3,
             max_tokens_per_scene: 1024,
@@ -328,7 +374,7 @@ pub fn compute_generation_budget(tier: QualityTier, _complexity: TopicComplexity
             require_quiz_scene: false,
         },
         QualityTier::Premium => GenerationBudget {
-            max_scenes: 15,
+            max_scenes,
             max_interactions: 8,
             max_visuals: 5,
             max_tokens_per_scene: 2048,
@@ -465,13 +511,14 @@ mod tests {
     }
 
     #[test]
-    fn effective_slides_adds_bonus_for_high_complexity() {
-        // Basic without env override is 5 base.
-        // High complexity adds 2 (default) → 7, but capped at premium (15).
+    fn effective_slides_scales_with_complexity() {
+        // Basic: Normal → base_scene_count=5, High → min(6, 7) = 6
         let normal = effective_max_slides(QualityTier::Basic, TopicComplexity::Normal);
         let high = effective_max_slides(QualityTier::Basic, TopicComplexity::High);
+        let low = effective_max_slides(QualityTier::Basic, TopicComplexity::Low);
+        assert_eq!(low, 3);   // 5 - 2, clamped to min 2
         assert_eq!(normal, 5);
-        assert_eq!(high, 7);
+        assert_eq!(high, 6);  // min(5+1=6, ceil(5*1.4)=7) = 6
     }
 
     #[test]
