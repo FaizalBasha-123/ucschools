@@ -85,10 +85,11 @@ fn get_pg_client(url: &str) -> AnyResult<PooledPgConnection> {
             );
             PgPool::Tls(
                 r2d2::Pool::builder()
-                    .max_size(15)
-                    .max_lifetime(Some(Duration::from_secs(30 * 60)))
-                    .idle_timeout(Some(Duration::from_secs(10 * 60)))
-                    .connection_timeout(Duration::from_secs(10))
+                    .max_size(5)
+                    .max_lifetime(Some(Duration::from_secs(5 * 60)))
+                    .idle_timeout(Some(Duration::from_secs(3 * 60)))
+                    .connection_timeout(Duration::from_secs(5))
+                    .test_on_check_out(true)
                     .build(manager)
                     .unwrap()
             )
@@ -99,10 +100,11 @@ fn get_pg_client(url: &str) -> AnyResult<PooledPgConnection> {
             );
             PgPool::NoTls(
                 r2d2::Pool::builder()
-                    .max_size(15)
-                    .max_lifetime(Some(Duration::from_secs(30 * 60)))
-                    .idle_timeout(Some(Duration::from_secs(10 * 60)))
-                    .connection_timeout(Duration::from_secs(10))
+                    .max_size(5)
+                    .max_lifetime(Some(Duration::from_secs(5 * 60)))
+                    .idle_timeout(Some(Duration::from_secs(3 * 60)))
+                    .connection_timeout(Duration::from_secs(5))
+                    .test_on_check_out(true)
                     .build(manager)
                     .unwrap()
             )

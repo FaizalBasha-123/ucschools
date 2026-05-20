@@ -17,7 +17,7 @@ import { useStageStore } from '@/lib/store/stage';
 import { useSettingsStore } from '@/lib/store/settings';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { createLogger } from '@/lib/logger';
-import { hasAuthSessionHint } from '@/lib/auth/session';
+import { hasAuthSessionHint, getSessionToken } from '@/lib/auth/session';
 import { loadPdfBlob } from '@/lib/utils/image-storage';
 import { type GenerationSessionState } from './types';
 
@@ -116,9 +116,13 @@ function GenerationPreviewContent() {
       setCurrentStepIndex(1);
       setStatusMessage('Generating outlines, scenes, actions & media...');
 
+      const token = getSessionToken();
       const resp = await fetch('/api/lessons/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(payload),
       });
 

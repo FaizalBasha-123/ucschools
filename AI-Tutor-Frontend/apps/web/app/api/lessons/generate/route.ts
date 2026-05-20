@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLogger } from '@/lib/logger';
-import { getSessionToken } from '@/lib/auth/session';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('LessonsGenerateProxy');
 
@@ -19,13 +19,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const token = getSessionToken();
 
     const response = await fetch(`${proxyUrl.replace(/\/$/, '')}/api/lessons/generate`, {
       method: 'POST',
       headers: {
+        ...authHeadersFrom(req),
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(body),
     });

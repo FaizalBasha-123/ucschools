@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLogger } from '@/lib/logger';
-import { getSessionToken } from '@/lib/auth/session';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('LessonsJobProxy');
 
@@ -9,7 +9,7 @@ function getProxyUrl(): string | undefined {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const proxyUrl = getProxyUrl();
@@ -22,14 +22,13 @@ export async function GET(
 
   try {
     const { id } = await params;
-    const token = getSessionToken();
 
     const response = await fetch(
       `${proxyUrl.replace(/\/$/, '')}/api/lessons/jobs/${encodeURIComponent(id)}`,
       {
         method: 'GET',
         headers: {
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...authHeadersFrom(req),
         },
       }
     );
