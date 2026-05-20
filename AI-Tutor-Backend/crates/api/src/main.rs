@@ -312,18 +312,27 @@ async fn main() -> Result<()> {
         storage.root_dir(),
         &base_url,
     ));
-    let redis_url = std::env::var("AI_TUTOR_REDIS_URL")
+    let redis_url = std::env::var("AI_TUTOR_AIVEN_REDIS_URL")
         .ok()
-        .or_else(|| std::env::var("REDIS_URL").ok())
-        .expect("AI_TUTOR_REDIS_URL is required for production queue and sessions");
+        .or_else(|| {
+            std::env::var("AI_TUTOR_REDIS_URL")
+                .ok()
+                .or_else(|| std::env::var("REDIS_URL").ok())
+        })
+        .expect("AI_TUTOR_AIVEN_REDIS_URL, AI_TUTOR_REDIS_URL, or REDIS_URL is required for production queue and sessions");
 
+    let redis_provider = if std::env::var("AI_TUTOR_AIVEN_REDIS_URL").is_ok() {
+        "Aiven Valkey"
+    } else {
+        "Render KV"
+    };
+    info!(provider = %redis_provider, "Initializing Redis-backed lesson queue");
     let queue: Arc<dyn LessonQueue> = {
-        info!("Initializing Redis-backed lesson queue");
         Arc::new(RedisLessonQueue::new(&redis_url)?)
     };
 
+    info!(provider = %redis_provider, "Initializing Redis-backed runtime session storage");
     let runtime_sessions: Arc<dyn RuntimeSessionRepository> = {
-        info!("Initializing Redis-backed runtime session storage");
         let client = redis::Client::open(redis_url.as_str())?;
         Arc::new(RedisRuntimeSessionRepository::new(client))
     };
