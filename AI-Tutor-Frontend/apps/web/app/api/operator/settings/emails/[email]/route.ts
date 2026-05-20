@@ -15,7 +15,7 @@ export async function DELETE(
     if (!sessionId) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     const res = await fetch(`${apiBaseUrl}/api/operator/settings/emails/${encodeURIComponent(decodedEmail)}`, {
       method: 'DELETE',
-      headers: { 'Cookie': `ai_tutor_ops_session=${sessionId.value}` },
+      headers: { 'X-Operator-Header': '1', 'Cookie': `ai_tutor_ops_session=${sessionId.value}` },
     });
     if (!res.ok) {
       const text = await res.text();

@@ -18,6 +18,7 @@ export async function POST(
       headers: {
         'Cookie': `ai_tutor_ops_session=${sessionId.value}`,
         'Content-Type': 'application/json',
+        'X-Operator-Header': '1',
       },
       body: JSON.stringify(body),
     });
