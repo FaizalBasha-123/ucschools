@@ -9518,12 +9518,10 @@ fn derive_runtime_alerts(
             );
         }
         if env_flag("AI_TUTOR_OPERATOR_OTP_ENABLED") {
-            if read_optional_env("AI_TUTOR_REDIS_URL")
-                .or_else(|| read_optional_env("REDIS_URL"))
-                .is_none()
+            if redis_url_from_env().is_none()
             {
                 alerts.push(
-                    "operator_otp_enabled_but_redis_missing: set AI_TUTOR_REDIS_URL or REDIS_URL"
+                    "operator_otp_enabled_but_redis_missing: set AI_TUTOR_AIVEN_REDIS_URL, AI_TUTOR_REDIS_URL, or REDIS_URL"
                         .to_string(),
                 );
             }
@@ -9627,6 +9625,12 @@ fn read_optional_env(key: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn redis_url_from_env() -> Option<String> {
+    read_optional_env("AI_TUTOR_AIVEN_REDIS_URL")
+        .or_else(|| read_optional_env("AI_TUTOR_REDIS_URL"))
+        .or_else(|| read_optional_env("REDIS_URL"))
 }
 
 fn env_flag(key: &str) -> bool {
@@ -10286,8 +10290,7 @@ static REDIS_CLIENT: tokio::sync::OnceCell<redis::Client> = tokio::sync::OnceCel
 async fn operator_redis_conn() -> Result<redis::aio::MultiplexedConnection, ApiError> {
     let client = REDIS_CLIENT
         .get_or_try_init(|| async {
-            let url = read_optional_env("AI_TUTOR_REDIS_URL")
-                .or_else(|| read_optional_env("REDIS_URL"))
+            let url = redis_url_from_env()
                 .unwrap_or_else(|| "redis://127.0.0.1:6379".to_string());
             redis::Client::open(url).map_err(|e| ApiError::internal(format!("invalid redis url: {}", e)))
         })
