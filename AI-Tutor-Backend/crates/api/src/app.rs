@@ -1086,6 +1086,12 @@ pub struct CreateSubscriptionRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCheckoutRequest {
+    pub product_code: String,
+    pub gateway: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionResponse {
     pub id: String,
     pub account_id: String,
