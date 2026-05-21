@@ -6181,6 +6181,24 @@ impl LessonAppService for LiveLessonAppService {
         let model_string = payload.model.clone();
         let request = build_generation_request(payload)?;
         let request_for_generation = request.clone();
+
+        if let Some(account_id) = request.account_id.as_deref() {
+            let in_progress = self
+                .storage
+                .list_lesson_shelf_items_for_account(
+                    account_id,
+                    Some(LessonShelfStatus::Generating),
+                    1,
+                )
+                .await
+                .map_err(|err| anyhow!(err))?;
+            if !in_progress.is_empty() {
+                anyhow::bail!(
+                    "A lesson is already being generated. \
+                     Please wait for it to complete before starting a new one."
+                );
+            }
+        }
         let orchestrator = self
             .build_orchestrator(&request, model_string.as_deref())
             .await?;
@@ -6231,6 +6249,24 @@ impl LessonAppService for LiveLessonAppService {
         let account_id = request.account_id.clone();
         let lesson_id = Uuid::new_v4().to_string();
         let max_attempts = 3;
+
+        if let Some(account_id) = account_id.as_deref() {
+            let in_progress = self
+                .storage
+                .list_lesson_shelf_items_for_account(
+                    account_id,
+                    Some(LessonShelfStatus::Generating),
+                    1,
+                )
+                .await
+                .map_err(|err| anyhow!(err))?;
+            if !in_progress.is_empty() {
+                anyhow::bail!(
+                    "A lesson is already being generated. \
+                     Please wait for it to complete before starting a new one."
+                );
+            }
+        }
 
         let estimated_credits = estimate_generation_credits_for_request(&request);
         if let Some(account_id) = account_id.as_deref() {
@@ -10570,7 +10606,7 @@ fn operator_otp_lockout_window_seconds() -> i64 {
 }
 
 fn operator_session_ttl_seconds() -> i64 {
-    env_i64("AI_TUTOR_OPERATOR_SESSION_TTL_SECONDS", 2592000).max(3600)
+    env_i64("AI_TUTOR_OPERATOR_SESSION_TTL_SECONDS", 3456000).max(3600)
 }
 
 fn operator_otp_max_attempts() -> i32 {

@@ -91,6 +91,14 @@ export default function OperatorPage() {
     { id: 'schools', label: 'Enterprise', icon: <School className="size-4" /> },
   ];
 
+  if (loading && !overview) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
+        <Loader2 className="size-8 animate-spin text-[#10B981]" />
+      </div>
+    );
+  }
+
   return (
     <DashboardShell
       variant="operator"
