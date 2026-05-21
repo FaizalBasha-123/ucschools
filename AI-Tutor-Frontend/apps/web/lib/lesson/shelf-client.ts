@@ -114,6 +114,19 @@ export async function archiveShelfItem(itemId: string) {
   return parseJson<LessonShelfItemResponse>(response);
 }
 
+export async function deleteShelfItem(itemId: string) {
+  const response = await fetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = (await response.json().catch(() => null)) as LessonShelfMutationResponse | null;
+    throw new Error(error?.error || 'Failed to delete lesson');
+  }
+}
+
 export async function reopenShelfItem(itemId: string) {
   const response = await fetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}/reopen`, {
     method: 'POST',

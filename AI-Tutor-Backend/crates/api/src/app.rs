@@ -1768,6 +1768,11 @@ pub trait LessonAppService: Send + Sync {
         account_id: &str,
         item_id: &str,
     ) -> Result<LessonShelfItemResponse>;
+    async fn delete_lesson_shelf_item(
+        &self,
+        account_id: &str,
+        item_id: &str,
+    ) -> Result<()>;
     async fn retry_lesson_shelf_item(
         &self,
         account_id: &str,
@@ -6452,6 +6457,51 @@ impl LessonAppService for LiveLessonAppService {
         Ok(Self::map_lesson_shelf_response(&updated))
     }
 
+    async fn delete_lesson_shelf_item(
+        &self,
+        account_id: &str,
+        item_id: &str,
+    ) -> Result<()> {
+        let item = self
+            .storage
+            .get_lesson_shelf_item(item_id)
+            .await
+            .map_err(|err| anyhow!(err))?
+            .ok_or_else(|| anyhow!("lesson shelf item not found"))?;
+        if item.account_id != account_id {
+            return Err(anyhow!("lesson shelf item does not belong to account"));
+        }
+
+        let lesson_id = &item.lesson_id;
+
+        self.storage
+            .delete_lesson_shelf_item(item_id)
+            .await
+            .map_err(|err| anyhow!(err))?;
+
+        self.storage
+            .delete_lesson_adaptive_state(lesson_id)
+            .await
+            .map_err(|err| anyhow!(err))?;
+
+        self.storage
+            .delete_jobs_by_lesson(lesson_id)
+            .await
+            .map_err(|err| anyhow!(err))?;
+
+        self.storage
+            .delete_lesson(lesson_id)
+            .await
+            .map_err(|err| anyhow!(err))?;
+
+        self.asset_store
+            .delete_lesson_assets(lesson_id)
+            .await
+            .map_err(|err| anyhow!(err))?;
+
+        Ok(())
+    }
+
     async fn retry_lesson_shelf_item(
         &self,
         account_id: &str,
@@ -7573,7 +7623,10 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/lessons/generate-async", post(generate_lesson_async))
         .route("/api/lessons/preview", post(preview_lesson))
         .route("/api/lesson-shelf", get(list_lesson_shelf))
-        .route("/api/lesson-shelf/{id}", patch(patch_lesson_shelf_item))
+        .route(
+            "/api/lesson-shelf/{id}",
+            patch(patch_lesson_shelf_item).delete(delete_lesson_shelf_item_handler),
+        )
         .route("/api/lesson-shelf/{id}/archive", post(archive_lesson_shelf_item))
         .route("/api/lesson-shelf/{id}/reopen", post(reopen_lesson_shelf_item))
         .route("/api/lesson-shelf/{id}/retry", post(retry_lesson_shelf_item))
@@ -8719,6 +8772,20 @@ async fn reopen_lesson_shelf_item(
         .reopen_lesson_shelf_item(&account_id, &id)
         .await
         .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn delete_lesson_shelf_item_handler(
+    State(state): State<AppState>,
+    account: Option<Extension<AuthenticatedAccountContext>>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let account_id = resolve_account_id_or_unauthorized(account)?;
+    state
+        .service
+        .delete_lesson_shelf_item(&account_id, &id)
+        .await
+        .map(|_| StatusCode::NO_CONTENT)
         .map_err(ApiError::internal)
 }
 

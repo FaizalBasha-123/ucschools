@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { verifyAuthSession, clearAuthSession, authHeaders } from '@/lib/auth/session';
-import { fetchShelf, archiveShelfItem, type LessonShelfItem } from '@/lib/lesson/shelf-client';
+import { fetchShelf, deleteShelfItem, type LessonShelfItem } from '@/lib/lesson/shelf-client';
 import { toast } from 'sonner';
 import { nanoid } from 'nanoid';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -328,11 +328,11 @@ export default function ClassroomDashboard() {
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
-                        await archiveShelfItem(lesson.id);
+                        await deleteShelfItem(lesson.id);
                         setLessons((prev) => prev.filter((l) => l.id !== lesson.id));
-                        toast.success('Lesson archived');
+                        toast.success('Lesson deleted');
                       } catch (err) {
-                        toast.error(err instanceof Error ? err.message : 'Failed to archive');
+                        toast.error(err instanceof Error ? err.message : 'Failed to delete');
                       }
                     }}
                   >

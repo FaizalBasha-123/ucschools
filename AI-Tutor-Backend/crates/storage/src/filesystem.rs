@@ -1408,6 +1408,12 @@ impl FileStorage {
             .map_err(|err| err.to_string())
     }
 
+    pub async fn delete_queued_job_snapshot(&self, job_id: &str) -> Result<(), String> {
+        let path = self.queued_job_snapshot_path(job_id);
+        let _ = tokio::fs::remove_file(path).await;
+        Ok(())
+    }
+
 }
 
 #[async_trait]
@@ -1466,6 +1472,19 @@ impl LessonRepository for FileStorage {
         }).await.map_err(|err| err.to_string())?
 
     }
+
+    async fn delete_lesson(&self, lesson_id: &str) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        let lesson_id = lesson_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            client.execute(
+                "DELETE FROM lessons WHERE id = $1",
+                &[&lesson_id],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
+        }).await.map_err(|err| err.to_string())?
+    }
 }
 
 #[async_trait]
@@ -1514,6 +1533,19 @@ impl LessonAdaptiveRepository for FileStorage {
             } else {
                 Ok(None)
             }
+        }).await.map_err(|err| err.to_string())?
+    }
+
+    async fn delete_lesson_adaptive_state(&self, lesson_id: &str) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        let lesson_id = lesson_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            client.execute(
+                "DELETE FROM lesson_adaptive_states WHERE lesson_id = $1",
+                &[&lesson_id],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
         }).await.map_err(|err| err.to_string())?
     }
 }
@@ -1651,6 +1683,19 @@ impl LessonShelfRepository for FileStorage {
         item.last_opened_at = Some(Utc::now());
         item.updated_at = Utc::now();
         self.upsert_lesson_shelf_item(&item).await
+    }
+
+    async fn delete_lesson_shelf_item(&self, item_id: &str) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        let item_id = item_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            client.execute(
+                "DELETE FROM lesson_shelf_items WHERE id = $1",
+                &[&item_id],
+            ).map_err(|err| err.to_string())?;
+            Ok(())
+        }).await.map_err(|err| err.to_string())?
     }
 }
 
@@ -1866,6 +1911,34 @@ impl LessonJobRepository for FileStorage {
                 });
             }
             Ok(jobs)
+        }).await.map_err(|err| err.to_string())?
+
+    }
+
+    async fn delete_jobs_by_lesson(&self, lesson_id: &str) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        let lesson_id = lesson_id.to_string();
+        let root = self.root.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+
+            let rows = client.query(
+                "SELECT id FROM lesson_jobs WHERE lesson_id = $1",
+                &[&lesson_id],
+            ).map_err(|err| err.to_string())?;
+
+            for row in &rows {
+                let job_id: String = row.get(0);
+                let snapshot_path = root.join("lesson-jobs").join(format!("{job_id}.json"));
+                let _ = std::fs::remove_file(&snapshot_path);
+            }
+
+            client.execute(
+                "DELETE FROM lesson_jobs WHERE lesson_id = $1",
+                &[&lesson_id],
+            ).map_err(|err| err.to_string())?;
+
+            Ok(())
         }).await.map_err(|err| err.to_string())?
 
     }

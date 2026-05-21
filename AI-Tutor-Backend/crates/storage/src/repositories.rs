@@ -19,6 +19,7 @@ use ai_tutor_domain::{
 pub trait LessonRepository: Send + Sync {
     async fn save_lesson(&self, lesson: &Lesson) -> Result<(), String>;
     async fn get_lesson(&self, lesson_id: &str) -> Result<Option<Lesson>, String>;
+    async fn delete_lesson(&self, lesson_id: &str) -> Result<(), String>;
 }
 
 #[async_trait]
@@ -28,6 +29,7 @@ pub trait LessonAdaptiveRepository: Send + Sync {
         &self,
         lesson_id: &str,
     ) -> Result<Option<LessonAdaptiveState>, String>;
+    async fn delete_lesson_adaptive_state(&self, lesson_id: &str) -> Result<(), String>;
 }
 
 #[async_trait]
@@ -44,6 +46,7 @@ pub trait LessonShelfRepository: Send + Sync {
     async fn rename_lesson_shelf_item(&self, item_id: &str, title: &str) -> Result<(), String>;
     async fn archive_lesson_shelf_item(&self, item_id: &str) -> Result<(), String>;
     async fn reopen_lesson_shelf_item(&self, item_id: &str) -> Result<(), String>;
+    async fn delete_lesson_shelf_item(&self, item_id: &str) -> Result<(), String>;
 }
 
 #[async_trait]
@@ -52,6 +55,7 @@ pub trait LessonJobRepository: Send + Sync {
     async fn update_job(&self, job: &LessonGenerationJob) -> Result<(), String>;
     async fn get_job(&self, job_id: &str) -> Result<Option<LessonGenerationJob>, String>;
     async fn list_all_jobs(&self, limit: usize) -> Result<Vec<LessonGenerationJob>, String>;
+    async fn delete_jobs_by_lesson(&self, lesson_id: &str) -> Result<(), String>;
 }
 
 #[async_trait]

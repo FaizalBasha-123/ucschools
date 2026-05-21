@@ -38,6 +38,9 @@ pub trait AssetStore: Send + Sync {
         lesson_id: &str,
         file_name: &str,
     ) -> Result<Option<Vec<u8>>>;
+
+    /// Delete all assets for a given lesson (audio + media directories).
+    async fn delete_lesson_assets(&self, lesson_id: &str) -> Result<()>;
 }
 
 pub type DynAssetStore = Arc<dyn AssetStore>;
@@ -101,6 +104,14 @@ impl AssetStore for LocalFileAssetStore {
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(err.into()),
         }
+    }
+
+    async fn delete_lesson_assets(&self, lesson_id: &str) -> Result<()> {
+        for kind in [AssetKind::Audio, AssetKind::Media] {
+            let dir = self.asset_dir(kind, lesson_id);
+            let _ = tokio::fs::remove_dir_all(dir).await;
+        }
+        Ok(())
     }
 }
 
@@ -205,6 +216,34 @@ impl AssetStore for R2AssetStore {
 
         let bytes = response.error_for_status()?.bytes().await?;
         Ok(Some(bytes.to_vec()))
+    }
+
+    async fn delete_lesson_assets(&self, lesson_id: &str) -> Result<()> {
+        for kind in [AssetKind::Audio, AssetKind::Media] {
+            let prefix = if self.key_prefix.is_empty() {
+                format!("{}/{}/", kind.folder_name(), lesson_id)
+            } else {
+                format!("{}/{}/{}/", self.key_prefix, kind.folder_name(), lesson_id)
+            };
+
+            let mut list = self.bucket.list_objects_v2(Some(&self.credentials));
+            list.with_prefix(prefix);
+            let signed_url = list.sign(Duration::from_secs(60));
+            let resp = self.client.get(signed_url.to_string()).send().await?;
+            if !resp.status().is_success() {
+                continue;
+            }
+            let body = resp.bytes().await?;
+            let parsed = rusty_s3::actions::ListObjectsV2::parse_response(&body)
+                .map_err(|e| anyhow::anyhow!("failed to parse S3 list response: {e}"))?;
+
+            for content in &parsed.contents {
+                let del = self.bucket.delete_object(Some(&self.credentials), &content.key);
+                let url = del.sign(Duration::from_secs(60));
+                let _ = self.client.delete(url.to_string()).send().await;
+            }
+        }
+        Ok(())
     }
 }
 
