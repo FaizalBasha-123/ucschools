@@ -290,8 +290,17 @@ export default function ClassroomDashboard() {
               <h3 className="font-semibold text-base text-neutral-900 dark:text-white line-clamp-1 mb-1">
                 {lesson.title || 'Untitled Lesson'}
               </h3>
-              <p className="text-xs text-neutral-500 line-clamp-1 mb-4">
+              <p className="text-xs text-neutral-500 line-clamp-1 mb-1">
                 {lesson.subject || 'General'} · {lesson.language || 'English'}
+              </p>
+              <p className="text-[10px] text-neutral-400 mb-4">
+                {new Date(lesson.created_at).toLocaleDateString(undefined, {
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
               </p>
 
               <div className="mt-auto flex items-center justify-between">

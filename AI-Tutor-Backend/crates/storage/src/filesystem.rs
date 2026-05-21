@@ -838,13 +838,13 @@ impl FileStorage {
     fn postgres_row_to_credit_entry(row: postgres::Row) -> Result<CreditLedgerEntry, String> {
         let kind = Self::credit_entry_kind_from_db(row.get::<_, String>("kind").as_str())?;
         let created_at = row.get("created_at");
-        let raw_amount: f64 = row.get("amount");
+        let raw_amount: String = row.get("amount");
 
         Ok(CreditLedgerEntry {
             id: row.get("id"),
             account_id: row.get("account_id"),
             kind,
-            amount: (raw_amount * 100.0).round() / 100.0,
+            amount: raw_amount.parse::<f64>().map_err(|e| format!("failed to parse amount: {e}"))?,
             reason: row.get("reason"),
             created_at,
         })
@@ -1164,8 +1164,8 @@ impl FileStorage {
             amount_minor: row.get("amount_minor"),
             currency: row.get("currency"),
             credits_to_grant: {
-                let raw: f64 = row.get("credits_to_grant");
-                (raw * 100.0).round() / 100.0
+                let raw: String = row.get("credits_to_grant");
+                raw.parse::<f64>().map_err(|e| format!("failed to parse credits_to_grant: {e}"))?
             },
             status,
             checkout_url: row.get("checkout_url"),
@@ -2427,10 +2427,10 @@ impl CreditLedgerRepository for FileStorage {
                 .map_err(|err| err.to_string())?;
             transaction.commit().map_err(|err| err.to_string())?;
 
-            let raw_balance: f64 = balance.get("balance");
+            let raw_balance: String = balance.get("balance");
             Ok(CreditBalance {
                 account_id: balance.get("account_id"),
-                balance: (raw_balance * 100.0).round() / 100.0,
+                balance: raw_balance.parse::<f64>().map_err(|e| format!("failed to parse balance: {e}"))?,
                 updated_at: balance.get("updated_at"),
             })
         })
@@ -2466,10 +2466,10 @@ impl CreditLedgerRepository for FileStorage {
 
             let updated_at = row.get("updated_at");
 
-            let raw_balance: f64 = row.get("balance");
+            let raw_balance: String = row.get("balance");
             Ok(CreditBalance {
                 account_id: row.get("account_id"),
-                balance: (raw_balance * 100.0).round() / 100.0,
+                balance: raw_balance.parse::<f64>().map_err(|e| format!("failed to parse balance: {e}"))?,
                 updated_at,
             })
         })
