@@ -876,7 +876,8 @@ impl FileStorage {
     fn postgres_row_to_credit_entry(row: postgres::Row) -> Result<CreditLedgerEntry, String> {
         let kind = Self::credit_entry_kind_from_db(row.get::<_, String>("kind").as_str())?;
         let created_at = row.get("created_at");
-        let amount: f64 = row.get("amount");
+        let raw_amount: String = row.get("amount");
+        let amount = raw_amount.parse::<f64>().map_err(|e| format!("failed to parse amount: {e}"))?;
 
         Ok(CreditLedgerEntry {
             id: row.get("id"),
@@ -1198,7 +1199,10 @@ impl FileStorage {
             gateway_payment_id: row.get("gateway_payment_id"),
             amount_minor: row.get("amount_minor"),
             currency: row.get("currency"),
-            credits_to_grant: row.get("credits_to_grant"),
+            credits_to_grant: {
+                let raw: String = row.get("credits_to_grant");
+                raw.parse::<f64>().map_err(|e| format!("failed to parse credits_to_grant: {e}"))?
+            },
             status,
             checkout_url: row.get("checkout_url"),
             udf1: row.get("udf1"),
@@ -2465,9 +2469,11 @@ impl CreditLedgerRepository for FileStorage {
 
             let updated_at = row.get("updated_at");
 
+            let raw_balance: String = row.get("balance");
+
             Ok(CreditBalance {
                 account_id: row.get("account_id"),
-                balance: row.get("balance"),
+                balance: raw_balance.parse::<f64>().map_err(|e| format!("failed to parse balance: {e}"))?,
                 updated_at,
             })
         })
