@@ -876,13 +876,13 @@ impl FileStorage {
     fn postgres_row_to_credit_entry(row: postgres::Row) -> Result<CreditLedgerEntry, String> {
         let kind = Self::credit_entry_kind_from_db(row.get::<_, String>("kind").as_str())?;
         let created_at = row.get("created_at");
-        let raw_amount: String = row.get("amount");
+        let amount: f64 = row.get("amount");
 
         Ok(CreditLedgerEntry {
             id: row.get("id"),
             account_id: row.get("account_id"),
             kind,
-            amount: raw_amount.parse::<f64>().map_err(|e| format!("failed to parse amount: {e}"))?,
+            amount,
             reason: row.get("reason"),
             created_at,
         })
@@ -1186,10 +1186,7 @@ impl FileStorage {
             Self::payment_order_status_from_db(row.get::<_, String>("status").as_str())?;
         let created_at = row.get("created_at");
         let updated_at = row.get("updated_at");
-        let completed_at = row
-            .get::<_, Option<String>>("completed_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
+        let completed_at: Option<chrono::DateTime<Utc>> = row.get("completed_at");
 
         Ok(PaymentOrder {
             id: row.get("id"),
@@ -1201,10 +1198,7 @@ impl FileStorage {
             gateway_payment_id: row.get("gateway_payment_id"),
             amount_minor: row.get("amount_minor"),
             currency: row.get("currency"),
-            credits_to_grant: {
-                let raw: String = row.get("credits_to_grant");
-                raw.parse::<f64>().map_err(|e| format!("failed to parse credits_to_grant: {e}"))?
-            },
+            credits_to_grant: row.get("credits_to_grant"),
             status,
             checkout_url: row.get("checkout_url"),
             udf1: row.get("udf1"),
@@ -1225,18 +1219,9 @@ impl FileStorage {
             Self::billing_interval_from_db(row.get::<_, String>("billing_interval").as_str())?;
         let current_period_start = row.get("current_period_start");
         let current_period_end = row.get("current_period_end");
-        let next_renewal_at = row
-            .get::<_, Option<String>>("next_renewal_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
-        let grace_period_until = row
-            .get::<_, Option<String>>("grace_period_until")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
-        let cancelled_at = row
-            .get::<_, Option<String>>("cancelled_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
+        let next_renewal_at: Option<chrono::DateTime<Utc>> = row.get("next_renewal_at");
+        let grace_period_until: Option<chrono::DateTime<Utc>> = row.get("grace_period_until");
+        let cancelled_at: Option<chrono::DateTime<Utc>> = row.get("cancelled_at");
         let created_at = row.get("created_at");
         let updated_at = row.get("updated_at");
 
@@ -1271,18 +1256,9 @@ impl FileStorage {
         let billing_cycle_start = row.get("billing_cycle_start");
         let billing_cycle_end = row.get("billing_cycle_end");
         let created_at = row.get("created_at");
-        let finalized_at = row
-            .get::<_, Option<String>>("finalized_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
-        let paid_at = row
-            .get::<_, Option<String>>("paid_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
-        let due_at = row
-            .get::<_, Option<String>>("due_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
+        let finalized_at: Option<chrono::DateTime<Utc>> = row.get("finalized_at");
+        let paid_at: Option<chrono::DateTime<Utc>> = row.get("paid_at");
+        let due_at: Option<chrono::DateTime<Utc>> = row.get("due_at");
         let updated_at = row.get("updated_at");
 
         Ok(Invoice {
@@ -1329,22 +1305,10 @@ impl FileStorage {
     fn postgres_row_to_payment_intent(row: postgres::Row) -> Result<PaymentIntent, String> {
         let status =
             Self::payment_intent_status_from_db(row.get::<_, String>("status").as_str())?;
-        let authorized_at = row
-            .get::<_, Option<String>>("authorized_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
-        let captured_at = row
-            .get::<_, Option<String>>("captured_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
-        let canceled_at = row
-            .get::<_, Option<String>>("canceled_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
-        let next_retry_at = row
-            .get::<_, Option<String>>("next_retry_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
+        let authorized_at: Option<chrono::DateTime<Utc>> = row.get("authorized_at");
+        let captured_at: Option<chrono::DateTime<Utc>> = row.get("captured_at");
+        let canceled_at: Option<chrono::DateTime<Utc>> = row.get("canceled_at");
+        let next_retry_at: Option<chrono::DateTime<Utc>> = row.get("next_retry_at");
         let created_at = row.get("created_at");
         let updated_at = row.get("updated_at");
 
@@ -1371,10 +1335,7 @@ impl FileStorage {
     fn postgres_row_to_dunning_case(row: postgres::Row) -> Result<DunningCase, String> {
         let status = Self::dunning_status_from_db(row.get::<_, String>("status").as_str())?;
         let grace_period_end = row.get("grace_period_end");
-        let final_attempt_at = row
-            .get::<_, Option<String>>("final_attempt_at")
-            .map(|value| value.parse::<chrono::DateTime<Utc>>().map_err(|err| err.to_string()))
-            .transpose()?;
+        let final_attempt_at: Option<chrono::DateTime<Utc>> = row.get("final_attempt_at");
         let created_at = row.get("created_at");
         let updated_at = row.get("updated_at");
         let attempt_schedule = serde_json::from_str::<Vec<RetryAttempt>>(
@@ -2504,10 +2465,9 @@ impl CreditLedgerRepository for FileStorage {
 
             let updated_at = row.get("updated_at");
 
-            let raw_balance: String = row.get("balance");
             Ok(CreditBalance {
                 account_id: row.get("account_id"),
-                balance: raw_balance.parse::<f64>().map_err(|e| format!("failed to parse balance: {e}"))?,
+                balance: row.get("balance"),
                 updated_at,
             })
         })
