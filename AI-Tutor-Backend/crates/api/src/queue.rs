@@ -372,7 +372,11 @@ impl FileBackedLessonQueue {
             Self::spawn_file_claim_heartbeat(path.to_path_buf(), queued.clone());
 
         let processing_result = match service
-            .build_orchestrator(&queued.request, queued.model_string.as_deref())
+            .build_orchestrator(
+                &queued.request,
+                queued.model_string.as_deref(),
+                Some(queued.lesson_id.clone()),
+            )
             .await
         {
             Ok(orchestrator) => {
@@ -599,7 +603,11 @@ impl FileBackedLessonQueue {
                 self.worker_id.clone(),
             );
             let processing_result = match service
-                .build_orchestrator(&queued.request, queued.model_string.as_deref())
+                .build_orchestrator(
+                    &queued.request,
+                    queued.model_string.as_deref(),
+                    Some(queued.lesson_id.clone()),
+                )
                 .await
             {
                 Ok(orchestrator) => {

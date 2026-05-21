@@ -347,6 +347,8 @@ pub struct ApiUsageRecord {
     pub provider: String,
     /// Functional component: "orchestrator" | "content" | "scene_actions" | "image" | "tts" | "pdf"
     pub component: String,
+    /// Lesson this usage event belongs to, if known.
+    pub lesson_id: Option<String>,
     pub input_tokens: i64,
     pub output_tokens: i64,
     /// Cost in USD millicents (1/1000 of a cent) to avoid floats in storage.

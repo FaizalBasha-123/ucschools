@@ -9,6 +9,7 @@ use chrono::Utc;
 use anyhow::Result as AnyResult;
 use async_trait::async_trait;
 use postgres::Client;
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use ai_tutor_domain::{
@@ -655,7 +656,44 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
                 ALTER COLUMN credits_to_grant TYPE NUMERIC(12,2) USING credits_to_grant::numeric(12,2);
         "#,
     },
+    PostgresMigration {
+        version: 21,
+        name: "usage_records_lesson_id",
+        sql: r#"
+            ALTER TABLE api_usage_records ADD COLUMN IF NOT EXISTS lesson_id TEXT;
+            CREATE INDEX IF NOT EXISTS idx_api_usage_lesson_id ON api_usage_records (lesson_id);
+        "#,
+    },
 ];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemMetricsResponse {
+    pub database: DatabaseMetrics,
+    pub tables: Vec<TableMetrics>,
+    pub connections: ConnectionMetrics,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatabaseMetrics {
+    pub size_bytes: i64,
+    pub size_human: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableMetrics {
+    pub table_name: String,
+    pub row_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionMetrics {
+    pub total: i64,
+    pub active: i64,
+    pub idle: i64,
+    pub idle_in_transaction: i64,
+    pub waiting: i64,
+    pub max_connections: i64,
+}
 
 impl FileStorage {
     pub fn with_databases(
@@ -4245,6 +4283,83 @@ impl FileStorage {
             Ok(result > 0)
         }).await.map_err(|e| e.to_string())?
     }
+
+    pub async fn get_system_metrics(&self) -> Result<SystemMetricsResponse, String> {
+        let postgres_url = self.postgres_url.clone();
+        tokio::task::spawn_blocking(move || -> Result<SystemMetricsResponse, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+
+            let db_name: String = client.query_opt(
+                "SELECT current_database()",
+                &[],
+            ).map_err(|e| e.to_string())?
+            .map(|row| row.get(0))
+            .unwrap_or_default();
+
+            let size_bytes: i64 = client.query_one(
+                "SELECT pg_database_size(current_database())",
+                &[],
+            ).map_err(|e| e.to_string())?
+            .get(0);
+
+            let size_human = if size_bytes >= 1_073_741_824 {
+                format!("{:.1} GB", size_bytes as f64 / 1_073_741_824.0)
+            } else if size_bytes >= 1_048_576 {
+                format!("{:.1} MB", size_bytes as f64 / 1_048_576.0)
+            } else if size_bytes >= 1_024 {
+                format!("{:.1} KB", size_bytes as f64 / 1_024.0)
+            } else {
+                format!("{} B", size_bytes)
+            };
+
+            let table_rows = client.query(
+                "SELECT relname, n_live_tup
+                 FROM pg_stat_user_tables
+                 WHERE schemaname = 'public'
+                 ORDER BY n_live_tup DESC",
+                &[],
+            ).map_err(|e| e.to_string())?;
+            let tables: Vec<TableMetrics> = table_rows.iter().map(|row| {
+                TableMetrics {
+                    table_name: row.get(0),
+                    row_count: row.get(1),
+                }
+            }).collect();
+
+            let conn_row = client.query_one(
+                "SELECT
+                    COUNT(*)::int8 AS total,
+                    COUNT(*) FILTER (WHERE state = 'active')::int8 AS active,
+                    COUNT(*) FILTER (WHERE state = 'idle')::int8 AS idle,
+                    COUNT(*) FILTER (WHERE state = 'idle in transaction')::int8 AS idle_in_transaction,
+                    COUNT(*) FILTER (WHERE wait_event_type IS NOT NULL)::int8 AS waiting
+                 FROM pg_stat_activity
+                 WHERE datname = $1",
+                &[&db_name],
+            ).map_err(|e| e.to_string())?;
+
+            let max_connections: i64 = client.query_one(
+                "SELECT setting::int8 FROM pg_settings WHERE name = 'max_connections'",
+                &[],
+            ).map_err(|e| e.to_string())?.get(0);
+
+            Ok(SystemMetricsResponse {
+                database: DatabaseMetrics {
+                    size_bytes,
+                    size_human,
+                },
+                tables,
+                connections: ConnectionMetrics {
+                    total: conn_row.get(0),
+                    active: conn_row.get(1),
+                    idle: conn_row.get(2),
+                    idle_in_transaction: conn_row.get(3),
+                    waiting: conn_row.get(4),
+                    max_connections,
+                },
+            })
+        }).await.map_err(|e| e.to_string())?
+    }
 }
 
 #[async_trait]
@@ -4274,9 +4389,8 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
             ).map_err(|e| e.to_string())?;
             client.execute(
                 "INSERT INTO api_usage_records
-                    (id, account_id, component, provider, model_id, input_tokens, output_tokens, cost_usd_millicents, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                 ON CONFLICT (id) DO NOTHING",
+                    (id, account_id, component, provider, model_id, input_tokens, output_tokens, cost_usd_millicents, created_at, lesson_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
                 &[
                     &record.id,
                     &record.account_id,
@@ -4287,13 +4401,12 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
                     &record.output_tokens,
                     &record.cost_usd_millicents,
                     &record.created_at,
+                    &record.lesson_id,
                 ],
             ).map_err(|e| e.to_string())?;
             Ok(())
-        })
-        .await
-        .map_err(|e| e.to_string())?
 
+        }).await.map_err(|e| e.to_string())?
     }
 
     async fn insert_api_usage_records_batch(
@@ -4353,7 +4466,8 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
 
             let rows = client.query(
                 "SELECT id, account_id, component, provider, model_id,
-                        input_tokens, output_tokens, cost_usd_millicents, created_at
+                        input_tokens, output_tokens, cost_usd_millicents, created_at,
+                        lesson_id
                  FROM api_usage_records
                  WHERE created_at >= $1
                  ORDER BY created_at DESC
@@ -4372,6 +4486,7 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
                     output_tokens:       row.get(6),
                     cost_usd_millicents: row.get(7),
                     created_at:          row.get(8),
+                    lesson_id:           row.get(9),
                 })
             }).collect()
         })

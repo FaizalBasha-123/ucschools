@@ -53,6 +53,16 @@ pub struct OperatorOtpNotification {
 }
 
 #[derive(Debug, Clone)]
+pub struct CostAlertNotification {
+    pub to_email: String,
+    pub daily_cost_usd: f64,
+    pub hourly_cost_usd: f64,
+    pub daily_threshold_usd: f64,
+    pub hourly_threshold_usd: f64,
+    pub reasons: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct EnterpriseContactNotification {
     pub school_name: String,
     pub contact_name: String,
@@ -63,6 +73,8 @@ pub struct EnterpriseContactNotification {
 
 #[async_trait]
 pub trait NotificationService: Send + Sync {
+    async fn send_cost_alert(&self, payload: CostAlertNotification) -> Result<()>;
+
     async fn send_payment_success_notification(
         &self,
         payload: PaymentSuccessNotification,
@@ -91,6 +103,16 @@ pub struct NoopNotificationService;
 
 #[async_trait]
 impl NotificationService for NoopNotificationService {
+    async fn send_cost_alert(&self, payload: CostAlertNotification) -> Result<()> {
+        info!(
+            daily_cost = %payload.daily_cost_usd,
+            hourly_cost = %payload.hourly_cost_usd,
+            reasons = ?payload.reasons,
+            "Skipping cost alert (noop service)"
+        );
+        Ok(())
+    }
+
     async fn send_payment_success_notification(
         &self,
         payload: PaymentSuccessNotification,
@@ -345,6 +367,31 @@ impl NotificationService for SmtpNotificationService {
         .await
     }
 
+    async fn send_cost_alert(&self, payload: CostAlertNotification) -> Result<()> {
+        let daily_cost = format!("{:.2}", payload.daily_cost_usd);
+        let daily_threshold = format!("{:.2}", payload.daily_threshold_usd);
+        let hourly_cost = format!("{:.2}", payload.hourly_cost_usd);
+        let hourly_threshold = format!("{:.2}", payload.hourly_threshold_usd);
+        let reasons = payload.reasons.join("<br>");
+        let html = render_template(
+            include_str!("../templates/cost_alert.html"),
+            &[
+                ("daily_cost", &daily_cost),
+                ("daily_threshold", &daily_threshold),
+                ("hourly_cost", &hourly_cost),
+                ("hourly_threshold", &hourly_threshold),
+                ("reasons", &reasons),
+            ],
+        );
+        let text = format!(
+            "Cost Alert\n\nDaily Cost: ${:.2} (threshold: ${:.2})\nHourly Burn: ${:.2} (threshold: ${:.2})\n\nReasons:\n{}",
+            payload.daily_cost_usd, payload.daily_threshold_usd,
+            payload.hourly_cost_usd, payload.hourly_threshold_usd,
+            payload.reasons.join("\n"),
+        );
+        self.send_html_email(&payload.to_email, "Cost Alert - AI Tutor", html, text).await
+    }
+
     async fn send_operator_otp(&self, payload: OperatorOtpNotification) -> Result<()> {
         let expires = payload.expires_in_minutes.max(1);
         let expires_str = expires.to_string();
@@ -583,6 +630,31 @@ impl NotificationService for WebhookNotificationService {
         );
         let dst_email = std::env::var("AI_TUTOR_SMTP_USER").ok().unwrap_or_else(|| "faizalbashafaizalbasha07@gmail.com".to_string());
         self.send_webhook(&dst_email, "New Enterprise Lead - AI Tutor", html, text).await
+    }
+
+    async fn send_cost_alert(&self, payload: CostAlertNotification) -> Result<()> {
+        let daily_cost = format!("{:.2}", payload.daily_cost_usd);
+        let daily_threshold = format!("{:.2}", payload.daily_threshold_usd);
+        let hourly_cost = format!("{:.2}", payload.hourly_cost_usd);
+        let hourly_threshold = format!("{:.2}", payload.hourly_threshold_usd);
+        let reasons = payload.reasons.join("<br>");
+        let html = render_template(
+            include_str!("../templates/cost_alert.html"),
+            &[
+                ("daily_cost", &daily_cost),
+                ("daily_threshold", &daily_threshold),
+                ("hourly_cost", &hourly_cost),
+                ("hourly_threshold", &hourly_threshold),
+                ("reasons", &reasons),
+            ],
+        );
+        let text = format!(
+            "Cost Alert\n\nDaily Cost: ${:.2} (threshold: ${:.2})\nHourly Burn: ${:.2} (threshold: ${:.2})\n\nReasons:\n{}",
+            payload.daily_cost_usd, payload.daily_threshold_usd,
+            payload.hourly_cost_usd, payload.hourly_threshold_usd,
+            payload.reasons.join("\n"),
+        );
+        self.send_webhook(&payload.to_email, "Cost Alert - AI Tutor", html, text).await
     }
 }
 

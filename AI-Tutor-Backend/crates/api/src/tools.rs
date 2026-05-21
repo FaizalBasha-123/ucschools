@@ -175,6 +175,7 @@ pub async fn web_search(
         model_id: "tavily-search".into(),
         input_tokens: 0,
         output_tokens: 0,
+        lesson_id: None,
     };
     let _ = state.service.record_api_usage(event).await;
 

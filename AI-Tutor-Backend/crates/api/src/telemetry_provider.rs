@@ -47,6 +47,7 @@ pub struct TelemetryLlmProvider {
     component: String,
     provider_id: String,
     model_id: String,
+    lesson_id: Option<String>,
 }
 
 impl TelemetryLlmProvider {
@@ -57,6 +58,7 @@ impl TelemetryLlmProvider {
         component: impl Into<String>,
         provider_id: String,
         model_id: String,
+        lesson_id: Option<String>,
     ) -> Self {
         Self {
             inner,
@@ -65,6 +67,7 @@ impl TelemetryLlmProvider {
             component: component.into(),
             provider_id,
             model_id,
+            lesson_id,
         }
     }
 
@@ -85,6 +88,7 @@ impl TelemetryLlmProvider {
             component: self.component.clone(),
             provider_id: self.provider_id.clone(),
             model_id: self.model_id.clone(),
+            lesson_id: self.lesson_id.clone(),
             input_tokens: input_tokens.max(0),
             output_tokens: output_tokens.max(0),
         };
@@ -169,6 +173,7 @@ pub struct TelemetryImageProvider {
     component: String,
     provider_id: String,
     model_id: String,
+    lesson_id: Option<String>,
 }
 
 impl TelemetryImageProvider {
@@ -179,6 +184,7 @@ impl TelemetryImageProvider {
         component: impl Into<String>,
         provider_id: String,
         model_id: String,
+        lesson_id: Option<String>,
     ) -> Self {
         Self {
             inner,
@@ -187,6 +193,7 @@ impl TelemetryImageProvider {
             component: component.into(),
             provider_id,
             model_id,
+            lesson_id,
         }
     }
 
@@ -207,6 +214,7 @@ impl TelemetryImageProvider {
             component: self.component.clone(),
             provider_id: self.provider_id.clone(),
             model_id: self.model_id.clone(),
+            lesson_id: self.lesson_id.clone(),
             input_tokens: input_tokens.max(0),
             output_tokens: output_tokens.max(0),
         };
@@ -240,6 +248,7 @@ pub struct TelemetryTtsProvider {
     component: String,
     provider_id: String,
     model_id: String,
+    lesson_id: Option<String>,
 }
 
 impl TelemetryTtsProvider {
@@ -250,6 +259,7 @@ impl TelemetryTtsProvider {
         component: impl Into<String>,
         provider_id: String,
         model_id: String,
+        lesson_id: Option<String>,
     ) -> Self {
         Self {
             inner,
@@ -258,6 +268,7 @@ impl TelemetryTtsProvider {
             component: component.into(),
             provider_id,
             model_id,
+            lesson_id,
         }
     }
 
@@ -278,6 +289,7 @@ impl TelemetryTtsProvider {
             component: self.component.clone(),
             provider_id: self.provider_id.clone(),
             model_id: self.model_id.clone(),
+            lesson_id: self.lesson_id.clone(),
             input_tokens: input_tokens.max(0),
             output_tokens: output_tokens.max(0),
         };
@@ -316,6 +328,7 @@ pub struct TelemetryVideoProvider {
     component: String,
     provider_id: String,
     model_id: String,
+    lesson_id: Option<String>,
 }
 
 impl TelemetryVideoProvider {
@@ -326,6 +339,7 @@ impl TelemetryVideoProvider {
         component: impl Into<String>,
         provider_id: String,
         model_id: String,
+        lesson_id: Option<String>,
     ) -> Self {
         Self {
             inner,
@@ -334,6 +348,7 @@ impl TelemetryVideoProvider {
             component: component.into(),
             provider_id,
             model_id,
+            lesson_id,
         }
     }
 
@@ -354,6 +369,7 @@ impl TelemetryVideoProvider {
             component: self.component.clone(),
             provider_id: self.provider_id.clone(),
             model_id: self.model_id.clone(),
+            lesson_id: self.lesson_id.clone(),
             input_tokens: input_tokens.max(0),
             output_tokens: output_tokens.max(0),
         };

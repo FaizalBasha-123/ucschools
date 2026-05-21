@@ -1192,6 +1192,8 @@ pub struct OperatorOverviewResponse {
     pub promo_codes: OperatorPromoCodeStatsResponse,
 }
 
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreatePromoCodeRequest {
     pub code: String,
@@ -1714,6 +1716,7 @@ pub trait LessonAppService: Send + Sync {
     async fn get_operator_subscription_stats(&self) -> Result<OperatorSubscriptionStatsResponse>;
     async fn get_operator_payment_stats(&self) -> Result<OperatorPaymentStatsResponse>;
     async fn get_operator_promo_code_stats(&self) -> Result<OperatorPromoCodeStatsResponse>;
+    async fn get_system_metrics(&self) -> Result<ai_tutor_storage::filesystem::SystemMetricsResponse>;
     async fn get_operator_users(&self) -> Result<OperatorUsersListResponse>;
     async fn get_operator_settings(&self) -> Result<OperatorSettingsResponse>;
     async fn get_operator_jobs(&self) -> Result<OperatorJobsListResponse>;
@@ -4101,6 +4104,7 @@ impl LiveLessonAppService {
         model_config: &ModelConfig,
         account_id: Option<&str>,
         component: &str,
+        lesson_id: Option<String>,
     ) -> Box<dyn LlmProvider> {
         let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) else {
             return llm;
@@ -4113,6 +4117,7 @@ impl LiveLessonAppService {
             component.to_string(),
             model_config.provider_id.clone(),
             model_config.model_id.clone(),
+            lesson_id,
         ))
     }
 
@@ -4122,6 +4127,7 @@ impl LiveLessonAppService {
         model_config: &ModelConfig,
         account_id: Option<&str>,
         component: &str,
+        lesson_id: Option<String>,
     ) -> Box<dyn ImageProvider> {
         let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) else {
             return provider;
@@ -4134,6 +4140,7 @@ impl LiveLessonAppService {
             component.to_string(),
             model_config.provider_id.clone(),
             model_config.model_id.clone(),
+            lesson_id,
         ))
     }
 
@@ -4143,6 +4150,7 @@ impl LiveLessonAppService {
         model_config: &ModelConfig,
         account_id: Option<&str>,
         component: &str,
+        lesson_id: Option<String>,
     ) -> Box<dyn TtsProvider> {
         let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) else {
             return provider;
@@ -4155,6 +4163,7 @@ impl LiveLessonAppService {
             component.to_string(),
             model_config.provider_id.clone(),
             model_config.model_id.clone(),
+            lesson_id,
         ))
     }
 
@@ -4164,6 +4173,7 @@ impl LiveLessonAppService {
         model_config: &ModelConfig,
         account_id: Option<&str>,
         component: &str,
+        lesson_id: Option<String>,
     ) -> Box<dyn VideoProvider> {
         let Some(account_id) = account_id.filter(|value| !value.trim().is_empty()) else {
             return provider;
@@ -4176,6 +4186,7 @@ impl LiveLessonAppService {
             component.to_string(),
             model_config.provider_id.clone(),
             model_config.model_id.clone(),
+            lesson_id,
         ))
     }
 
@@ -4183,6 +4194,7 @@ impl LiveLessonAppService {
         &self,
         request: &LessonGenerationRequest,
         _model_string: Option<&str>,
+        lesson_id: Option<String>,
     ) -> Result<LessonGenerationOrchestrator<LlmGenerationPipeline, FileStorage, FileStorage>> {
         let quality = request.quality_mode.as_deref().unwrap_or("standard");
         let learning = request.learning_mode.as_deref().unwrap_or("explain");
@@ -4198,6 +4210,7 @@ impl LiveLessonAppService {
                 &config,
                 account_id,
                 tag,
+                lesson_id.clone(),
             );
             Ok(llm)
         };
@@ -4223,6 +4236,7 @@ impl LiveLessonAppService {
                 let acc_id = account_id.unwrap_or("system").to_string();
                 let telemetry_clone = Arc::clone(&telemetry);
                 let acc_id_clone = acc_id.clone();
+                let lesson_id_clone = lesson_id.clone();
                 pipeline = pipeline.with_tavily_web_search_and_callback(
                     tavily_key,
                     tavily_base,
@@ -4230,6 +4244,7 @@ impl LiveLessonAppService {
                     Box::new(move |_query: &str| {
                         let t = Arc::clone(&telemetry_clone);
                         let a = acc_id_clone.clone();
+                        let lid = lesson_id_clone.clone();
                         let _q = _query.to_string();
                         tokio::spawn(async move {
                             let event = UsageEvent {
@@ -4238,6 +4253,7 @@ impl LiveLessonAppService {
                                 component: "web_search_pipeline".into(),
                                 provider_id: "tavily".into(),
                                 model_id: "tavily-search".into(),
+                                lesson_id: lid,
                                 input_tokens: 0,
                                 output_tokens: 0,
                             };
@@ -4273,6 +4289,7 @@ impl LiveLessonAppService {
                 &image_config,
                 account_id,
                 "image",
+                lesson_id.clone(),
             );
             orchestrator = orchestrator.with_image_provider(Arc::from(image));
         }
@@ -4294,6 +4311,7 @@ impl LiveLessonAppService {
                 &video_config,
                 account_id,
                 "video",
+                lesson_id.clone(),
             );
             orchestrator = orchestrator.with_video_provider(Arc::from(video));
         }
@@ -4314,6 +4332,7 @@ impl LiveLessonAppService {
                 &tts_config,
                 account_id,
                 "tts",
+                lesson_id.clone(),
             );
             orchestrator = orchestrator.with_tts(Arc::from(tts));
         }
@@ -5557,7 +5576,11 @@ impl LessonAppService for LiveLessonAppService {
     async fn process_queued_job(&self, request: QueuedLessonRequest) -> Result<()> {
         println!("DEBUG: process_queued_job started for {}", request.job.id);
         let orchestrator = self
-            .build_orchestrator(&request.request, request.model_string.as_deref())
+            .build_orchestrator(
+                &request.request,
+                request.model_string.as_deref(),
+                Some(request.lesson_id.clone()),
+            )
             .await?;
 
         println!("DEBUG: process_queued_job built orchestrator for {}", request.job.id);
@@ -6174,6 +6197,13 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
+    async fn get_system_metrics(&self) -> Result<ai_tutor_storage::filesystem::SystemMetricsResponse> {
+        self.storage
+            .get_system_metrics()
+            .await
+            .map_err(|err| anyhow!(err))
+    }
+
     async fn generate_lesson(
         &self,
         payload: GenerateLessonPayload,
@@ -6200,7 +6230,7 @@ impl LessonAppService for LiveLessonAppService {
             }
         }
         let orchestrator = self
-            .build_orchestrator(&request, model_string.as_deref())
+            .build_orchestrator(&request, model_string.as_deref(), None)
             .await?;
 
         let output = orchestrator
@@ -6953,6 +6983,7 @@ impl LessonAppService for LiveLessonAppService {
             &model_config,
             account_id.as_deref(),
             "pbl_runtime",
+            None,
         );
 
         let resolved_agent = resolve_pbl_runtime_agent(&payload.message, &payload.project_config, &workspace);
@@ -7627,6 +7658,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/credits/redeem", post(redeem_promo_code))
         .route("/api/credits/debit", post(debit_lesson_credits))
         .route("/api/operator/overview", get(get_operator_overview))
+        .route("/api/operator/system-metrics", get(get_system_metrics))
         .route("/api/operator/stats/users", get(get_operator_user_stats))
         .route("/api/operator/stats/subscriptions", get(get_operator_subscription_stats))
         .route("/api/operator/stats/payments", get(get_operator_payment_stats))
@@ -8345,6 +8377,18 @@ async fn get_operator_overview(
     }))
 }
 
+async fn get_system_metrics(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+) -> Result<Json<ai_tutor_storage::filesystem::SystemMetricsResponse>, ApiError> {
+    state
+        .service
+        .get_system_metrics()
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
 async fn get_operator_subscription_stats(
     State(state): State<AppState>,
     Extension(_account): Extension<AuthenticatedAccountContext>,
@@ -8423,6 +8467,7 @@ async fn post_internal_usage(
         model_id,
         input_tokens: body.input_tokens,
         output_tokens: body.output_tokens,
+        lesson_id: None,
     };
 
     state.service.record_api_usage(event).await.map_err(ApiError::internal)?;
@@ -12587,6 +12632,25 @@ mod tests {
 
         async fn process_queued_job(&self, _request: QueuedLessonRequest) -> Result<()> {
             Ok(())
+        }
+
+        async fn get_system_metrics(&self) -> Result<ai_tutor_storage::filesystem::SystemMetricsResponse> {
+            use ai_tutor_storage::filesystem::*;
+            Ok(SystemMetricsResponse {
+                database: DatabaseMetrics {
+                    size_bytes: 0,
+                    size_human: "0 B".to_string(),
+                },
+                tables: vec![],
+                connections: ConnectionMetrics {
+                    total: 0,
+                    active: 0,
+                    idle: 0,
+                    idle_in_transaction: 0,
+                    waiting: 0,
+                    max_connections: 100,
+                },
+            })
         }
     }
 

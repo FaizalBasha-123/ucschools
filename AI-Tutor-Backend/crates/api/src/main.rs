@@ -4,6 +4,7 @@ use anyhow::{anyhow, Result};
 use reqwest::Url;
 use tracing::{error, info};
 
+use ai_tutor_api::alerting;
 use ai_tutor_api::app::{build_router, LessonAppService, LiveLessonAppService};
 use ai_tutor_routing::{operator_emails, overrides};
 use ai_tutor_api::llm_proxy::{llm_proxy_router, LlmProxyState};
@@ -371,6 +372,8 @@ async fn main() -> Result<()> {
             tokio::time::sleep(billing_maintenance_interval).await;
         }
     });
+
+    alerting::run_alert_loop(Arc::clone(&storage));
 
     let app = build_router(service.clone());
 

@@ -15,6 +15,7 @@ pub struct UsageEvent {
     pub component: String,
     pub provider_id: String,
     pub model_id: String,
+    pub lesson_id: Option<String>,
     pub input_tokens: i64,
     pub output_tokens: i64,
 }
@@ -77,6 +78,7 @@ async fn flush_batch(repo: &Arc<dyn ApiUsageRepository>, events: Vec<UsageEvent>
                 model_id: event.model_id,
                 provider: event.provider_id,
                 component: event.component,
+                lesson_id: event.lesson_id,
                 input_tokens: event.input_tokens,
                 output_tokens: event.output_tokens,
                 cost_usd_millicents: cost,

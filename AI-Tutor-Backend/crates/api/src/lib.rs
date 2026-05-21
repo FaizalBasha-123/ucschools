@@ -10,6 +10,7 @@ pub mod telemetry_provider;
 pub mod startup_readiness;
 
 pub mod subscription_scheduler;
+pub mod alerting;
 pub mod billing_catalog;
 
 // Re-export for convenience
