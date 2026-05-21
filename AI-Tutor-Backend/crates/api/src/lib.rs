@@ -1,17 +1,17 @@
+pub mod alerting;
 pub mod app;
+pub mod billing_catalog;
+pub mod env_helpers;
 pub mod llm_proxy;
-pub mod tools;
 pub mod notifications;
 pub mod queue;
 pub mod queue_redis;
 pub mod redis_storage;
+pub mod startup_readiness;
+pub mod subscription_scheduler;
 pub mod telemetry;
 pub mod telemetry_provider;
-pub mod startup_readiness;
-
-pub mod subscription_scheduler;
-pub mod alerting;
-pub mod billing_catalog;
+pub mod tools;
 
 // Re-export for convenience
 pub use subscription_scheduler::SubscriptionScheduler;

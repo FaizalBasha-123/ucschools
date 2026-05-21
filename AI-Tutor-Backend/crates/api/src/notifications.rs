@@ -10,6 +10,8 @@ use tokio::net::TcpStream;
 use tokio_native_tls::TlsConnector as TokioTlsConnector;
 use tracing::{info, warn};
 
+use crate::env_helpers::{env_flag, read_optional_env, required_trimmed_env};
+
 #[derive(Debug, Clone)]
 pub struct PaymentSuccessNotification {
     pub account_email: String,
@@ -318,7 +320,7 @@ impl NotificationService for SmtpNotificationService {
         &self,
         payload: GracePeriodWarningNotification,
     ) -> Result<()> {
-        let grace_end = payload.grace_end_at.to_rfc3339();
+        let grace_end = payload.grace_end_at.format("%Y-%m-%d %H:%M UTC").to_string();
         let html = render_template(
             include_str!("../templates/grace_period_warning.html"),
             &[
@@ -368,27 +370,7 @@ impl NotificationService for SmtpNotificationService {
     }
 
     async fn send_cost_alert(&self, payload: CostAlertNotification) -> Result<()> {
-        let daily_cost = format!("{:.2}", payload.daily_cost_usd);
-        let daily_threshold = format!("{:.2}", payload.daily_threshold_usd);
-        let hourly_cost = format!("{:.2}", payload.hourly_cost_usd);
-        let hourly_threshold = format!("{:.2}", payload.hourly_threshold_usd);
-        let reasons = payload.reasons.join("<br>");
-        let html = render_template(
-            include_str!("../templates/cost_alert.html"),
-            &[
-                ("daily_cost", &daily_cost),
-                ("daily_threshold", &daily_threshold),
-                ("hourly_cost", &hourly_cost),
-                ("hourly_threshold", &hourly_threshold),
-                ("reasons", &reasons),
-            ],
-        );
-        let text = format!(
-            "Cost Alert\n\nDaily Cost: ${:.2} (threshold: ${:.2})\nHourly Burn: ${:.2} (threshold: ${:.2})\n\nReasons:\n{}",
-            payload.daily_cost_usd, payload.daily_threshold_usd,
-            payload.hourly_cost_usd, payload.hourly_threshold_usd,
-            payload.reasons.join("\n"),
-        );
+        let (html, text) = build_cost_alert_payload(&payload);
         self.send_html_email(&payload.to_email, "Cost Alert - AI Tutor", html, text).await
     }
 
@@ -418,9 +400,9 @@ impl NotificationService for SmtpNotificationService {
     }
 
     async fn send_enterprise_contact(&self, payload: EnterpriseContactNotification) -> Result<()> {
+        let dst_email = required_trimmed_env("AI_TUTOR_ENTERPRISE_CONTACT_EMAIL")?;
         let phone = payload.contact_phone.unwrap_or_else(|| "Not provided".to_string());
         
-        // We will just construct a simple HTML and Text body without needing a dedicated template file for now
         let html = format!(
             r#"
             <h2>New Enterprise Contact Request</h2>
@@ -443,9 +425,8 @@ impl NotificationService for SmtpNotificationService {
             payload.school_name, payload.contact_name, payload.contact_email, phone, payload.message
         );
 
-        // Hardcode the destination email as per requirement
         self.send_html_email(
-            "upcraft.consulting@gmail.com",
+            &dst_email,
             &format!("Enterprise Lead: {}", payload.school_name),
             html,
             text,
@@ -457,7 +438,7 @@ impl NotificationService for SmtpNotificationService {
 pub fn notification_service_from_env(base_url: String) -> Arc<dyn NotificationService> {
     let webhook_url = std::env::var("AI_TUTOR_WEBHOOK_URL").ok().unwrap_or_default();
     if !webhook_url.trim().is_empty() {
-        let secret = std::env::var("AI_TUTOR_INTERNAL_SECRET").ok().unwrap_or_else(|| "uc-school-internal-fallback-secret-2026".to_string());
+        let secret = std::env::var("AI_TUTOR_INTERNAL_SECRET").expect("AI_TUTOR_INTERNAL_SECRET must be set when AI_TUTOR_WEBHOOK_URL is configured");
         return Arc::new(WebhookNotificationService {
             webhook_url: webhook_url.trim().to_string(),
             secret: secret.trim().to_string(),
@@ -539,20 +520,26 @@ impl NotificationService for WebhookNotificationService {
 
     async fn send_payment_failed_notification(&self, payload: PaymentFailedNotification) -> Result<()> {
         let amount = format_minor_amount(payload.amount_minor, &payload.currency);
+        let next_retry = payload
+            .next_retry_at
+            .map(|dt| dt.format("%Y-%m-%d %H:%M UTC").to_string())
+            .unwrap_or_else(|| "not scheduled".to_string());
         let html = render_template(
             include_str!("../templates/payment_failed.html"),
             &[
                 ("customer_name", payload.account_name.as_str()),
                 ("amount", amount.as_str()),
-                ("reason", payload.reason.as_str()),
+                ("order_id", payload.order_id.as_str()),
+                ("error_message", payload.reason.as_str()),
+                ("next_retry", next_retry.as_str()),
                 ("billing_url", self.billing_base_url.as_str()),
             ],
         );
         let text = format!(
-            "Payment of {} failed: {}. Please update your payment details at {}",
-            amount, payload.reason, self.billing_base_url
+            "Payment failed. Order: {} Amount: {} Reason: {} Next retry: {}",
+            payload.order_id, amount, payload.reason, next_retry
         );
-        self.send_webhook(&payload.account_email, "Payment Action Required", html, text).await
+        self.send_webhook(&payload.account_email, "Payment failed", html, text).await
     }
 
     async fn send_grace_period_warning(&self, payload: GracePeriodWarningNotification) -> Result<()> {
@@ -607,6 +594,7 @@ impl NotificationService for WebhookNotificationService {
     }
 
     async fn send_enterprise_contact(&self, payload: EnterpriseContactNotification) -> Result<()> {
+        let dst_email = required_trimmed_env("AI_TUTOR_ENTERPRISE_CONTACT_EMAIL")?;
         let phone = payload.contact_phone.unwrap_or_else(|| "Not provided".to_string());
         let html = format!(
             r#"
@@ -628,34 +616,38 @@ impl NotificationService for WebhookNotificationService {
             "New Enterprise Contact Request\n\nSchool Name: {}\nContact Name: {}\nEmail: {}\nPhone: {}\n\nMessage:\n{}",
             payload.school_name, payload.contact_name, payload.contact_email, phone, payload.message
         );
-        let dst_email = std::env::var("AI_TUTOR_SMTP_USER").ok().unwrap_or_else(|| "faizalbashafaizalbasha07@gmail.com".to_string());
-        self.send_webhook(&dst_email, "New Enterprise Lead - AI Tutor", html, text).await
+        self.send_webhook(&dst_email, "Enterprise Lead - AI Tutor", html, text).await
     }
 
     async fn send_cost_alert(&self, payload: CostAlertNotification) -> Result<()> {
-        let daily_cost = format!("{:.2}", payload.daily_cost_usd);
-        let daily_threshold = format!("{:.2}", payload.daily_threshold_usd);
-        let hourly_cost = format!("{:.2}", payload.hourly_cost_usd);
-        let hourly_threshold = format!("{:.2}", payload.hourly_threshold_usd);
-        let reasons = payload.reasons.join("<br>");
-        let html = render_template(
-            include_str!("../templates/cost_alert.html"),
-            &[
-                ("daily_cost", &daily_cost),
-                ("daily_threshold", &daily_threshold),
-                ("hourly_cost", &hourly_cost),
-                ("hourly_threshold", &hourly_threshold),
-                ("reasons", &reasons),
-            ],
-        );
-        let text = format!(
-            "Cost Alert\n\nDaily Cost: ${:.2} (threshold: ${:.2})\nHourly Burn: ${:.2} (threshold: ${:.2})\n\nReasons:\n{}",
-            payload.daily_cost_usd, payload.daily_threshold_usd,
-            payload.hourly_cost_usd, payload.hourly_threshold_usd,
-            payload.reasons.join("\n"),
-        );
+        let (html, text) = build_cost_alert_payload(&payload);
         self.send_webhook(&payload.to_email, "Cost Alert - AI Tutor", html, text).await
     }
+}
+
+fn build_cost_alert_payload(payload: &CostAlertNotification) -> (String, String) {
+    let daily_cost = format!("{:.2}", payload.daily_cost_usd);
+    let daily_threshold = format!("{:.2}", payload.daily_threshold_usd);
+    let hourly_cost = format!("{:.2}", payload.hourly_cost_usd);
+    let hourly_threshold = format!("{:.2}", payload.hourly_threshold_usd);
+    let reasons_html = payload.reasons.join("<br>");
+    let html = render_template(
+        include_str!("../templates/cost_alert.html"),
+        &[
+            ("daily_cost", &daily_cost),
+            ("daily_threshold", &daily_threshold),
+            ("hourly_cost", &hourly_cost),
+            ("hourly_threshold", &hourly_threshold),
+            ("reasons", &reasons_html),
+        ],
+    );
+    let text = format!(
+        "Cost Alert\n\nDaily Cost: ${:.2} (threshold: ${:.2})\nHourly Burn: ${:.2} (threshold: ${:.2})\n\nReasons:\n{}",
+        payload.daily_cost_usd, payload.daily_threshold_usd,
+        payload.hourly_cost_usd, payload.hourly_threshold_usd,
+        payload.reasons.join("\n"),
+    );
+    (html, text)
 }
 
 async fn send_via_sendmail(
@@ -666,6 +658,10 @@ async fn send_via_sendmail(
     html: &str,
     text_fallback: &str,
 ) -> Result<()> {
+    validate_email_header("From", from_email)?;
+    validate_email_header("To", to_email)?;
+    validate_email_header("Subject", subject)?;
+
     let boundary = format!("boundary-{}", uuid::Uuid::new_v4());
     let body = format!(
         "From: {from}\nTo: {to}\nSubject: {subject}\nMIME-Version: 1.0\nContent-Type: multipart/alternative; boundary=\"{boundary}\"\n\n--{boundary}\nContent-Type: text/plain; charset=UTF-8\n\n{text}\n\n--{boundary}\nContent-Type: text/html; charset=UTF-8\n\n{html}\n\n--{boundary}--\n",
@@ -900,6 +896,10 @@ where
     send_smtp_command(write_half, "DATA").await?;
     expect_smtp_code(reader, 354).await?;
 
+    validate_email_header("From", from_email)?;
+    validate_email_header("To", to_email)?;
+    validate_email_header("Subject", subject)?;
+
     let boundary = format!("boundary-{}", uuid::Uuid::new_v4());
     let body = format!(
         "From: {from}\r\nTo: {to}\r\nSubject: {subject}\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=\"{boundary}\"\r\n\r\n--{boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n{text}\r\n\r\n--{boundary}\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n{html}\r\n\r\n--{boundary}--\r\n",
@@ -1000,37 +1000,23 @@ where
     }
 }
 
-fn required_trimmed_env(key: &str) -> Result<String> {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!("{key} is required"))
-}
-
-fn env_flag(key: &str) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.to_ascii_lowercase())
-        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
-}
-
 fn env_flag_with_default(key: &str, default: bool) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.to_ascii_lowercase())
-        .map(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+    read_optional_env(key)
+        .map(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(default)
 }
 
 fn required_u16_env(key: &str, default: u16) -> Result<u16> {
-    match std::env::var(key) {
-        Ok(raw) => raw
-            .trim()
-            .parse::<u16>()
-            .map_err(|err| anyhow!("{key} must be a valid u16 port: {err}")),
-        Err(_) => Ok(default),
+    read_optional_env(key)
+        .map(|value| value.parse::<u16>().map_err(|e| anyhow!("invalid {key}: {e}")))
+        .unwrap_or(Ok(default))
+}
+
+fn validate_email_header(name: &str, value: &str) -> Result<()> {
+    if value.contains('\r') || value.contains('\n') {
+        return Err(anyhow!("{name} contains invalid newline characters"));
     }
+    Ok(())
 }
 
 fn format_minor_amount(amount_minor: i64, currency: &str) -> String {

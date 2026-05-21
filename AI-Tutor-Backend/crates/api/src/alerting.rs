@@ -11,6 +11,22 @@ const CHECK_INTERVAL_SECS: u64 = 3600;
 const DAILY_COST_THRESHOLD_MILLICENTS: i64 = 5_000_000;
 const HOURLY_BURN_THRESHOLD_MILLICENTS: i64 = 1_000_000;
 const ALERT_COOLDOWN_SECS: i64 = 21_600;
+const MILLICENTS_PER_DOLLAR: f64 = 100_000.0;
+
+fn millicents_to_usd(mc: i64) -> f64 {
+    mc as f64 / MILLICENTS_PER_DOLLAR
+}
+
+async fn query_cost_sum(storage: &FileStorage, hours: i64, label: &str) -> Option<i64> {
+    let since = Utc::now() - chrono::Duration::hours(hours);
+    match storage.list_api_usage_records_since(since).await {
+        Ok(records) => Some(records.iter().map(|r| r.cost_usd_millicents).sum()),
+        Err(e) => {
+            error!(error = %e, "alert loop: failed to query {label}");
+            None
+        }
+    }
+}
 
 pub fn run_alert_loop(storage: Arc<FileStorage>) {
     let notification_service = notification_service_from_env(
@@ -24,27 +40,15 @@ pub fn run_alert_loop(storage: Arc<FileStorage>) {
         loop {
             ticker.tick().await;
 
-            let now = Utc::now();
-
-            let daily_since = now - chrono::Duration::hours(24);
-            let daily_records = match storage.list_api_usage_records_since(daily_since).await {
-                Ok(records) => records,
-                Err(e) => {
-                    error!(error = %e, "alert loop: failed to query daily usage");
-                    continue;
-                }
+            let daily_cost = match query_cost_sum(&storage, 24, "daily usage").await {
+                Some(c) => c,
+                None => continue,
             };
-            let daily_cost: i64 = daily_records.iter().map(|r| r.cost_usd_millicents).sum();
 
-            let hourly_since = now - chrono::Duration::hours(1);
-            let hourly_records = match storage.list_api_usage_records_since(hourly_since).await {
-                Ok(records) => records,
-                Err(e) => {
-                    error!(error = %e, "alert loop: failed to query hourly usage");
-                    continue;
-                }
+            let hourly_cost = match query_cost_sum(&storage, 1, "hourly burn").await {
+                Some(c) => c,
+                None => continue,
             };
-            let hourly_cost: i64 = hourly_records.iter().map(|r| r.cost_usd_millicents).sum();
 
             let mut should_alert = false;
             let mut reasons = Vec::new();
@@ -52,8 +56,8 @@ pub fn run_alert_loop(storage: Arc<FileStorage>) {
             if daily_cost > DAILY_COST_THRESHOLD_MILLICENTS {
                 reasons.push(format!(
                     "Daily cost ${:.2} exceeds threshold ${:.2}",
-                    daily_cost as f64 / 100_000.0,
-                    DAILY_COST_THRESHOLD_MILLICENTS as f64 / 100_000.0,
+                    millicents_to_usd(daily_cost),
+                    millicents_to_usd(DAILY_COST_THRESHOLD_MILLICENTS),
                 ));
                 should_alert = true;
             }
@@ -61,20 +65,20 @@ pub fn run_alert_loop(storage: Arc<FileStorage>) {
             if hourly_cost > HOURLY_BURN_THRESHOLD_MILLICENTS {
                 reasons.push(format!(
                     "Hourly burn ${:.2} exceeds threshold ${:.2}",
-                    hourly_cost as f64 / 100_000.0,
-                    HOURLY_BURN_THRESHOLD_MILLICENTS as f64 / 100_000.0,
+                    millicents_to_usd(hourly_cost),
+                    millicents_to_usd(HOURLY_BURN_THRESHOLD_MILLICENTS),
                 ));
                 should_alert = true;
             }
 
             if should_alert {
-                let now_unix = now.timestamp();
+                let now_unix = Utc::now().timestamp();
 
                 if let Some(last) = last_alert_at {
                     if now_unix - last < ALERT_COOLDOWN_SECS {
                         info!(
-                            daily_cost = %format!("${:.2}", daily_cost as f64 / 100_000.0),
-                            hourly_cost = %format!("${:.2}", hourly_cost as f64 / 100_000.0),
+                            daily_cost = %format!("${:.2}", millicents_to_usd(daily_cost)),
+                            hourly_cost = %format!("${:.2}", millicents_to_usd(hourly_cost)),
                             "alert suppressed by cooldown"
                         );
                         continue;
@@ -89,10 +93,10 @@ pub fn run_alert_loop(storage: Arc<FileStorage>) {
 
                 for email in &operator_emails {
                     let payload = CostAlertNotification {
-                        daily_cost_usd: daily_cost as f64 / 100_000.0,
-                        hourly_cost_usd: hourly_cost as f64 / 100_000.0,
-                        daily_threshold_usd: DAILY_COST_THRESHOLD_MILLICENTS as f64 / 100_000.0,
-                        hourly_threshold_usd: HOURLY_BURN_THRESHOLD_MILLICENTS as f64 / 100_000.0,
+                        daily_cost_usd: millicents_to_usd(daily_cost),
+                        hourly_cost_usd: millicents_to_usd(hourly_cost),
+                        daily_threshold_usd: millicents_to_usd(DAILY_COST_THRESHOLD_MILLICENTS),
+                        hourly_threshold_usd: millicents_to_usd(HOURLY_BURN_THRESHOLD_MILLICENTS),
                         reasons: reasons.clone(),
                         to_email: email.clone(),
                     };

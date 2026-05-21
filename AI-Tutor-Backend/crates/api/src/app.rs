@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, time::Duration};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 use rand::Rng;
@@ -32,6 +32,7 @@ use rand::Rng;
 use sha2::Digest;
 
 use crate::billing_catalog::{billing_catalog, BillingProductDefinition};
+use crate::env_helpers::{env_f64, env_flag, read_optional_env, required_trimmed_env};
 use crate::notifications::{notification_service_from_env, GracePeriodWarningNotification, NotificationService, OperatorOtpNotification, PaymentFailedNotification, PaymentSuccessNotification, ServiceRestrictedNotification};
 use crate::queue::{LessonQueue, QueuedLessonRequest, QueueCancelResult, claim_heartbeat_interval_ms, spawn_one_shot_queue_kick, stale_working_timeout_ms};
 use crate::telemetry::{TelemetryService, UsageEvent};
@@ -216,7 +217,7 @@ fn build_cors_layer() -> CorsLayer {
         })
         .unwrap_or_default();
 
-    let layer = CorsLayer::new()
+    CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             header::AUTHORIZATION,
@@ -224,13 +225,8 @@ fn build_cors_layer() -> CorsLayer {
             header::HeaderName::from_static("x-account-id"),
             header::HeaderName::from_static("x-auth-token"),
             header::HeaderName::from_static("x-session-token"),
-        ]);
-
-    if allowed_origins.is_empty() {
-        layer.allow_origin(Any)
-    } else {
-        layer.allow_origin(allowed_origins)
-    }
+        ])
+        .allow_origin(allowed_origins)
 }
 
 /// Returns true for routes that require a valid user session (JWT) but NOT
@@ -452,10 +448,6 @@ async fn auth_middleware(
         }
         return next.run(req).await;
     };
-
-    if !auth.enabled {
-        return next.run(req).await;
-    }
 
     let mut granted_role: Option<ApiRole> = parse_bearer_token(req.headers())
         .and_then(|token| auth.tokens.get(&token).cloned());
@@ -2186,9 +2178,9 @@ impl LiveLessonAppService {
     }
 
     async fn exchange_google_code(&self, code: &str) -> Result<GoogleTokenResponse> {
-        let client_id = required_env("AI_TUTOR_GOOGLE_OAUTH_CLIENT_ID")?;
-        let client_secret = required_env("AI_TUTOR_GOOGLE_OAUTH_CLIENT_SECRET")?;
-        let redirect_uri = required_env("AI_TUTOR_GOOGLE_OAUTH_REDIRECT_URI")?;
+        let client_id = required_trimmed_env("AI_TUTOR_GOOGLE_OAUTH_CLIENT_ID")?;
+        let client_secret = required_trimmed_env("AI_TUTOR_GOOGLE_OAUTH_CLIENT_SECRET")?;
+        let redirect_uri = required_trimmed_env("AI_TUTOR_GOOGLE_OAUTH_REDIRECT_URI")?;
 
         let response = reqwest::Client::new()
             .post("https://oauth2.googleapis.com/token")
@@ -2213,13 +2205,13 @@ impl LiveLessonAppService {
             ));
         }
 
-        tracing::info!(status = %status, body = %body, "google token exchange raw response");
+        tracing::info!(status = %status, "google token exchange response received");
         serde_json::from_str::<GoogleTokenResponse>(&body)
-            .map_err(|e| anyhow!("google token response parse error: {} — body was: {}", e, body))
+            .map_err(|e| anyhow!("google token response parse error: {}", e))
     }
 
     async fn verify_google_id_token(&self, id_token: &str) -> Result<GoogleIdTokenClaims> {
-        let client_id = required_env("AI_TUTOR_GOOGLE_OAUTH_CLIENT_ID")?;
+        let client_id = required_trimmed_env("AI_TUTOR_GOOGLE_OAUTH_CLIENT_ID")?;
         let claims = verify_jwt_with_jwks::<GoogleIdTokenClaims>(
             id_token,
             "https://www.googleapis.com/oauth2/v3/certs",
@@ -2237,7 +2229,7 @@ impl LiveLessonAppService {
     }
 
     async fn verify_firebase_id_token(&self, id_token: &str) -> Result<FirebaseTokenClaims> {
-        let project_id = required_env("AI_TUTOR_FIREBASE_PROJECT_ID")?;
+        let project_id = required_trimmed_env("AI_TUTOR_FIREBASE_PROJECT_ID")?;
         let expected_issuer = format!("https://securetoken.google.com/{}", project_id);
         let claims = verify_jwt_with_jwks::<FirebaseTokenClaims>(
             id_token,
@@ -2537,7 +2529,7 @@ impl LiveLessonAppService {
         account: &TutorAccount,
         product: &BillingProductDefinition,
     ) -> Result<CheckoutSessionResponse> {
-        let secret = required_env("AI_TUTOR_STRIPE_SECRET_KEY")?;
+        let secret = required_trimmed_env("AI_TUTOR_STRIPE_SECRET_KEY")?;
         let usd_amount_minor = billing_product_usd_amount_minor(&product.product_code);
         
         let order_id = Uuid::new_v4().to_string();
@@ -2873,7 +2865,7 @@ impl LiveLessonAppService {
         &self,
         session_id: &str,
     ) -> Result<EasebuzzCallbackResponse> {
-        let secret = required_env("AI_TUTOR_STRIPE_SECRET_KEY")?;
+        let secret = required_trimmed_env("AI_TUTOR_STRIPE_SECRET_KEY")?;
 
         let response = reqwest::Client::new()
             .get(format!("https://api.stripe.com/v1/checkout/sessions/{}", session_id))
@@ -7718,9 +7710,37 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
             "/api/assets/audio/{lesson_id}/{file_name}",
             get(get_audio_asset),
         )
+        .layer(middleware::from_fn(add_security_headers))
         .layer(build_cors_layer())
         .layer(middleware::from_fn_with_state(auth, auth_middleware))
         .with_state(AppState { service })
+}
+
+async fn add_security_headers(
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    headers.insert(
+        header::HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' *;",
+        ),
+    );
+    headers.insert(
+        header::HeaderName::from_static("strict-transport-security"),
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
+    response
 }
 
 async fn health(
@@ -9944,35 +9964,10 @@ fn credit_policy() -> CreditPolicyResponse {
     }
 }
 
-fn read_optional_env(key: &str) -> Option<String> {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-}
-
 fn redis_url_from_env() -> Option<String> {
     read_optional_env("AI_TUTOR_AIVEN_REDIS_URL")
         .or_else(|| read_optional_env("AI_TUTOR_REDIS_URL"))
         .or_else(|| read_optional_env("REDIS_URL"))
-}
-
-fn env_flag(key: &str) -> bool {
-    matches!(
-        std::env::var(key)
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "true" | "yes" | "on"
-    )
-}
-
-fn env_f64(key: &str, default: f64) -> f64 {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.trim().parse::<f64>().ok())
-        .unwrap_or(default)
 }
 
 fn read_csv_env(key: &str, default: &[&str]) -> Vec<String> {
@@ -10065,8 +10060,8 @@ fn easebuzz_config() -> Result<EasebuzzConfig> {
         }
     });
     Ok(EasebuzzConfig {
-        key: required_env("AI_TUTOR_EASEBUZZ_KEY")?,
-        salt: required_env("AI_TUTOR_EASEBUZZ_SALT")?,
+        key: required_trimmed_env("AI_TUTOR_EASEBUZZ_KEY")?,
+        salt: required_trimmed_env("AI_TUTOR_EASEBUZZ_SALT")?,
         base_url,
     })
 }
@@ -10196,14 +10191,6 @@ fn required_field(fields: &HashMap<String, String>, key: &str) -> Result<String>
         .ok_or_else(|| anyhow!("missing required easebuzz field {}", key))
 }
 
-fn required_trimmed_env(key: &str) -> Result<String> {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!("{} is required", key))
-}
-
 fn generate_easebuzz_request_hash(fields: &HashMap<String, String>, salt: &str) -> String {
     let values = [
         fields.get("key").map(String::as_str).unwrap_or(""),
@@ -10309,8 +10296,8 @@ fn auth_response_to_http(payload: AuthSessionResponse) -> Response {
 }
 
 fn build_google_oauth_url(state: &str) -> Result<String> {
-    let client_id = required_env("AI_TUTOR_GOOGLE_OAUTH_CLIENT_ID")?;
-    let redirect_uri = required_env("AI_TUTOR_GOOGLE_OAUTH_REDIRECT_URI")?;
+    let client_id = required_trimmed_env("AI_TUTOR_GOOGLE_OAUTH_CLIENT_ID")?;
+    let redirect_uri = required_trimmed_env("AI_TUTOR_GOOGLE_OAUTH_REDIRECT_URI")?;
     let mut url = Url::parse("https://accounts.google.com/o/oauth2/v2/auth")?;
     url.query_pairs_mut()
         .append_pair("client_id", client_id.as_str())
@@ -10330,7 +10317,7 @@ fn issue_state_token() -> Result<String> {
         iat: now as usize,
         exp: (now + state_ttl_seconds()) as usize,
     };
-    let secret = required_env("AI_TUTOR_GOOGLE_OAUTH_STATE_SECRET")?;
+    let secret = required_trimmed_env("AI_TUTOR_GOOGLE_OAUTH_STATE_SECRET")?;
     Ok(encode(
         &Header::new(Algorithm::HS256),
         &claims,
@@ -10339,7 +10326,7 @@ fn issue_state_token() -> Result<String> {
 }
 
 fn validate_state_token(token: &str) -> Result<AuthStateClaims> {
-    let secret = required_env("AI_TUTOR_GOOGLE_OAUTH_STATE_SECRET")?;
+    let secret = required_trimmed_env("AI_TUTOR_GOOGLE_OAUTH_STATE_SECRET")?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     let data = decode::<AuthStateClaims>(
@@ -10359,7 +10346,7 @@ fn issue_partial_auth_token(account: &TutorAccount) -> Result<String> {
         iat: now as usize,
         exp: (now + partial_auth_ttl_seconds()) as usize,
     };
-    let secret = required_env("AI_TUTOR_PARTIAL_AUTH_SECRET")?;
+    let secret = required_trimmed_env("AI_TUTOR_PARTIAL_AUTH_SECRET")?;
     Ok(encode(
         &Header::new(Algorithm::HS256),
         &claims,
@@ -10368,7 +10355,7 @@ fn issue_partial_auth_token(account: &TutorAccount) -> Result<String> {
 }
 
 fn verify_partial_auth_token(token: &str) -> Result<PartialAuthClaims> {
-    let secret = required_env("AI_TUTOR_PARTIAL_AUTH_SECRET")?;
+    let secret = required_trimmed_env("AI_TUTOR_PARTIAL_AUTH_SECRET")?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     let data = decode::<PartialAuthClaims>(
@@ -10388,7 +10375,7 @@ fn issue_session_token(account: &TutorAccount) -> Result<String> {
         iat: now as usize,
         exp: (now + session_ttl_seconds()) as usize,
     };
-    let secret = required_env("AI_TUTOR_SESSION_JWT_SECRET")?;
+    let secret = required_trimmed_env("AI_TUTOR_SESSION_JWT_SECRET")?;
     Ok(encode(
         &Header::new(Algorithm::HS256),
         &claims,
@@ -10444,10 +10431,6 @@ fn ensure_auth_enabled(flag: &str) -> Result<()> {
     } else {
         Err(anyhow!("auth flag {} is not enabled", flag))
     }
-}
-
-fn required_env(key: &str) -> Result<String> {
-    read_optional_env(key).ok_or_else(|| anyhow!("missing required env {}", key))
 }
 
 fn state_ttl_seconds() -> i64 {
@@ -10994,7 +10977,7 @@ fn inject_account_id(
 }
 
 fn verify_session_token(token: &str) -> Result<SessionClaims> {
-    let secret = required_env("AI_TUTOR_SESSION_JWT_SECRET")?;
+    let secret = required_trimmed_env("AI_TUTOR_SESSION_JWT_SECRET")?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     let data = decode::<SessionClaims>(
@@ -11543,7 +11526,7 @@ impl ApiError {
         error!("AI Tutor API error: {}", error);
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: error.to_string(),
+            message: "internal server error".to_string(),
         }
     }
 
