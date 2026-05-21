@@ -68,6 +68,10 @@ services:
       - key: AI_TUTOR_OPS_GATE_STRICT
         value: "0"
 
+      # --- Credit control ---
+      - key: AI_TUTOR_MIN_GENERATION_CREDITS
+        value: "2.0"
+
       # --- Aiven Valkey (primary) / Render KV (fallback) ---
       - key: AI_TUTOR_AIVEN_REDIS_URL
         sync: false  # Set to rediss://default:<password>@valkey-faizalbasha.j.aivencloud.com:23135 in Render dashboard

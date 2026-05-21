@@ -38,6 +38,7 @@ struct WebSearchConfig {
     base_url: String,
     max_results: usize,
     client: reqwest::Client,
+    on_search: Option<Box<dyn Fn(&str) + Send + Sync>>,
 }
 
 #[derive(Deserialize)]
@@ -101,6 +102,24 @@ impl LlmGenerationPipeline {
             base_url: base_url.into(),
             max_results: max_results.max(1),
             client: reqwest::Client::new(),
+            on_search: None,
+        });
+        self
+    }
+
+    pub fn with_tavily_web_search_and_callback(
+        mut self,
+        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+        max_results: usize,
+        on_search: Box<dyn Fn(&str) + Send + Sync>,
+    ) -> Self {
+        self.web_search = Some(WebSearchConfig {
+            api_key: api_key.into(),
+            base_url: base_url.into(),
+            max_results: max_results.max(1),
+            client: reqwest::Client::new(),
+            on_search: Some(on_search),
         });
         self
     }
@@ -220,6 +239,9 @@ You may invoke the tool up to {max_calls} times if you need multiple searches.
         let context = format_search_results_as_context(&result);
         if context.is_empty() {
             return None;
+        }
+        if let Some(ref callback) = config.on_search {
+            callback(&truncated);
         }
         Some(context)
     }

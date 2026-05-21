@@ -472,7 +472,7 @@ pub fn extra_scene_credits(
 /// Calculate credits for PDF analysis.
 /// Formula: page_count * 0.05 — no minimum floor.
 pub fn pdf_credits(page_count: u32) -> f64 {
-    page_count as f64 * 0.05
+    page_count as f64 * 0.1
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

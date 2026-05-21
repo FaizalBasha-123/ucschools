@@ -15,7 +15,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { verifyAuthSession, clearAuthSession, authHeaders } from '@/lib/auth/session';
-import { fetchShelf, type LessonShelfItem } from '@/lib/lesson/shelf-client';
+import { fetchShelf, archiveShelfItem, type LessonShelfItem } from '@/lib/lesson/shelf-client';
 import { toast } from 'sonner';
 import { nanoid } from 'nanoid';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -325,9 +325,15 @@ export default function ClassroomDashboard() {
                     size="icon"
                     variant="ghost"
                     className="h-7 w-7 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
-                    onClick={(e) => {
+                    onClick={async (e) => {
                       e.stopPropagation();
-                      toast.info('Delete feature coming soon!');
+                      try {
+                        await archiveShelfItem(lesson.id);
+                        setLessons((prev) => prev.filter((l) => l.id !== lesson.id));
+                        toast.success('Lesson archived');
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : 'Failed to archive');
+                      }
                     }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />

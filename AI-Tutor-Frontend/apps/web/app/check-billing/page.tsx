@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 import { authHeaders, hasAuthSessionHint } from '@/lib/auth/session';
 
 interface BillingStatus {
@@ -117,15 +118,40 @@ export default function CheckBillingPage() {
   );
 }
 
+interface CatalogItem {
+  product_code: string;
+  kind: string;
+  title: string;
+  credits: number;
+  currency: string;
+  amount_minor: number;
+  is_highlighted: boolean;
+}
+
 /**
  * Modal for purchasing credits when user has plan but no credits
  */
 function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
+  const [bundles, setBundles] = useState<CatalogItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/billing/catalog')
+      .then(r => r.json())
+      .then(json => {
+        const items: CatalogItem[] = (json.items || []).filter(
+          (i: CatalogItem) => i.kind === 'bundle'
+        );
+        setBundles(items);
+      })
+      .catch(() => setBundles([]))
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="relative w-full max-w-md rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 md:p-8 shadow-2xl animate-in fade-in scale-95 duration-300">
-        {/* Close button */}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-2 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
@@ -134,7 +160,6 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
           <X className="w-5 h-5" />
         </button>
 
-        {/* Content */}
         <div className="space-y-6">
           <div>
             <h2 className="text-2xl font-bold text-neutral-900 dark:text-white mb-2">
@@ -145,44 +170,42 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
             </p>
           </div>
 
-          {/* Credit options */}
-          <div className="space-y-3">
-            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-neutral-900 dark:text-white">300 Credits</p>
-                  <p className="text-sm text-neutral-600 dark:text-neutral-400">Standard pack</p>
-                </div>
-                <p className="text-lg font-bold text-primary">₹159</p>
-              </div>
+          {loading ? (
+            <Loader2 className="size-6 animate-spin mx-auto text-primary" />
+          ) : (
+            <div className="space-y-3">
+              {bundles.map((b) => {
+                const inr = Math.round(b.amount_minor / 100);
+                return (
+                  <div
+                    key={b.product_code}
+                    className={cn(
+                      'rounded-lg border p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors',
+                      b.is_highlighted
+                        ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 ring-2 ring-emerald-300 dark:ring-emerald-800'
+                        : 'border-neutral-200 dark:border-neutral-700'
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-neutral-900 dark:text-white">{b.title}</p>
+                        {b.is_highlighted && (
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-200 dark:bg-emerald-800 px-2 py-0.5 rounded">Best value</span>
+                        )}
+                      </div>
+                      <p className="text-lg font-bold text-primary">₹{inr}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+          )}
 
-            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 p-4 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-950/40 transition-colors ring-2 ring-emerald-300 dark:ring-emerald-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-neutral-900 dark:text-white">1000 Credits</p>
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-200 dark:bg-emerald-800 px-2 py-0.5 rounded">Best value</span>
-                </div>
-                <p className="text-lg font-bold text-primary">₹399</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Actions */}
           <div className="flex gap-3 pt-4">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium transition-colors"
-            >
+            <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium transition-colors">
               Close
             </button>
-            <button
-              onClick={() => {
-                // TODO: Redirect to payment/checkout
-                router.replace('/pricing');
-              }}
-              className="flex-1 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 font-medium transition-colors"
-            >
+            <button onClick={() => router.replace('/pricing')} className="flex-1 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 font-medium transition-colors">
               View Add-ons
             </button>
           </div>
@@ -197,10 +220,31 @@ function CreditsPurchaseModal({ onClose }: { onClose: () => void }) {
  */
 function PlanPurchaseModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
+  const [plans, setPlans] = useState<CatalogItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/billing/catalog')
+      .then(r => r.json())
+      .then(json => {
+        const items: CatalogItem[] = (json.items || []).filter(
+          (i: CatalogItem) => i.kind === 'subscription' && !i.product_code.endsWith('_yearly')
+        );
+        const order = ['starter', 'pro', 'power'];
+        items.sort((a, b) => {
+          const ai = order.indexOf(a.product_code);
+          const bi = order.indexOf(b.product_code);
+          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+        });
+        setPlans(items);
+      })
+      .catch(() => setPlans([]))
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="relative w-full max-w-md rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-6 md:p-8 shadow-2xl animate-in fade-in scale-95 duration-300">
-        {/* Close button */}
         <button
           onClick={onClose}
           className="absolute top-4 right-4 p-2 rounded-lg text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
@@ -209,7 +253,6 @@ function PlanPurchaseModal({ onClose }: { onClose: () => void }) {
           <X className="w-5 h-5" />
         </button>
 
-        {/* Content */}
         <div className="space-y-6">
           <div>
             <h2 className="text-2xl font-bold text-neutral-900 dark:text-white mb-2">
@@ -220,51 +263,43 @@ function PlanPurchaseModal({ onClose }: { onClose: () => void }) {
             </p>
           </div>
 
-          {/* Plan options */}
-          <div className="space-y-3">
-            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-              <div className="flex items-center justify-between mb-2">
-                <p className="font-semibold text-neutral-900 dark:text-white">Basic</p>
-                <p className="text-lg font-bold text-primary">₹799/mo</p>
-              </div>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">20 credits/month</p>
+          {loading ? (
+            <Loader2 className="size-6 animate-spin mx-auto text-primary" />
+          ) : (
+            <div className="space-y-3">
+              {plans.map((p) => {
+                const inr = Math.round(p.amount_minor / 100);
+                return (
+                  <div
+                    key={p.product_code}
+                    className={cn(
+                      'rounded-lg border p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors',
+                      p.is_highlighted
+                        ? 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 ring-2 ring-emerald-300 dark:ring-emerald-800'
+                        : 'border-neutral-200 dark:border-neutral-700'
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <p className="font-semibold text-neutral-900 dark:text-white">{p.title}</p>
+                        {p.is_highlighted && (
+                          <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-200 dark:bg-emerald-800 px-2 py-0.5 rounded">Popular</span>
+                        )}
+                      </div>
+                      <p className="text-lg font-bold text-primary">₹{inr}/mo</p>
+                    </div>
+                    <p className="text-sm text-neutral-600 dark:text-neutral-400">{p.credits} credits/month</p>
+                  </div>
+                );
+              })}
             </div>
+          )}
 
-            <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 p-4 cursor-pointer hover:bg-emerald-100 dark:hover:bg-emerald-950/40 transition-colors ring-2 ring-emerald-300 dark:ring-emerald-800">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <p className="font-semibold text-neutral-900 dark:text-white">Standard</p>
-                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-200 dark:bg-emerald-800 px-2 py-0.5 rounded">Popular</span>
-                </div>
-                <p className="text-lg font-bold text-primary">₹1299/mo</p>
-              </div>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">50 credits/month</p>
-            </div>
-
-            <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-4 cursor-pointer hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors">
-              <div className="flex items-center justify-between mb-2">
-                <p className="font-semibold text-neutral-900 dark:text-white">Premium</p>
-                <p className="text-lg font-bold text-primary">₹1999/mo</p>
-              </div>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400">100 credits/month</p>
-            </div>
-          </div>
-
-          {/* Actions */}
           <div className="flex gap-3 pt-4">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium transition-colors"
-            >
+            <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 font-medium transition-colors">
               Close
             </button>
-            <button
-              onClick={() => {
-                // TODO: Redirect to payment/checkout
-                toast.info('Redirecting to checkout...');
-              }}
-              className="flex-1 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 font-medium transition-colors"
-            >
+            <button onClick={() => { toast.info('Redirecting to checkout...'); }} className="flex-1 px-4 py-2 rounded-lg bg-primary text-white hover:bg-primary/90 font-medium transition-colors">
               Subscribe
             </button>
           </div>

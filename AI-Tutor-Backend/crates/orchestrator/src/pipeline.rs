@@ -16,7 +16,7 @@ use ai_tutor_domain::{
         LessonGenerationJobStatus, LessonGenerationStep,
     },
     lesson::Lesson,
-    routing::{compute_generation_budget, tier_limits, QualityTier},
+    routing::{compute_generation_budget, tier_limits, QualityTier, TopicComplexity},
     scene::{Scene, SceneContent, SceneOutline, Stage},
 };
 use ai_tutor_media::{
@@ -301,6 +301,24 @@ where
         };
         let hard_max = scene_budget.hard_max_scenes;
         let original_count = state.outlines.len();
+
+        // Consent gate: if outlines exceed target without consent, bail with details
+        // so the frontend can surface the budget to the user before we proceed.
+        if !state.request.extra_scenes_consented
+            && state.outlines.len() > scene_budget.target_scenes
+        {
+            let quality_label = tier_label(tier);
+            let extra_cost = (state.outlines.len() - scene_budget.target_scenes) as f64
+                * scene_budget_extra_credit_cost(complexity);
+            anyhow::bail!(
+                "BUDGET_EXCEEDED: scene_count={}, target={}, hard_cap={}, quality={}, extra_cost={:.2}",
+                state.outlines.len(),
+                scene_budget.target_scenes,
+                hard_max,
+                quality_label,
+                extra_cost,
+            );
+        }
 
         // Phase 1: Priority-aware truncation to hard_max (absolute cap)
         if state.outlines.len() > hard_max {
@@ -945,11 +963,30 @@ fn language_code(language: &Language) -> &'static str {
 
 /// Map the request's `quality_mode` string to the routing engine's `QualityTier`.
 fn resolve_quality_tier(request: &LessonGenerationRequest) -> QualityTier {
-    request
-        .quality_mode
-        .as_deref()
-        .map(QualityTier::from_str_loose)
-        .unwrap_or_default()
+    match request.quality_mode.as_deref() {
+        Some("basic") => QualityTier::Basic,
+        Some("premium") => QualityTier::Premium,
+        _ => QualityTier::Standard,
+    }
+}
+
+fn tier_label(tier: QualityTier) -> &'static str {
+    match tier {
+        QualityTier::Basic => "basic",
+        QualityTier::Standard => "standard",
+        QualityTier::Premium => "premium",
+    }
+}
+
+fn scene_budget_extra_credit_cost(complexity: TopicComplexity) -> f64 {
+    // Rough per-scene cost estimate for the consent dialog (varies by learning mode,
+    // but this gives a ballpark for user visibility).
+    match complexity {
+        TopicComplexity::Low | TopicComplexity::Normal => 0.5,
+        TopicComplexity::High => 0.6,
+        TopicComplexity::VeryHigh => 0.7,
+        TopicComplexity::Extreme => 0.8,
+    }
 }
 
 /// Priority-aware scene truncation: assign a priority score to each outline.

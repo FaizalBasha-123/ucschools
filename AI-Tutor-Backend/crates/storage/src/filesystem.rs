@@ -643,6 +643,18 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             DROP INDEX IF EXISTS idx_api_usage_created;
         "#,
     },
+    PostgresMigration {
+        version: 20,
+        name: "exact_numeric_credits",
+        sql: r#"
+            ALTER TABLE credit_ledger
+                ALTER COLUMN amount TYPE NUMERIC(12,2) USING amount::numeric(12,2);
+            ALTER TABLE credit_balances
+                ALTER COLUMN balance TYPE NUMERIC(12,2) USING balance::numeric(12,2);
+            ALTER TABLE payment_orders
+                ALTER COLUMN credits_to_grant TYPE NUMERIC(12,2) USING credits_to_grant::numeric(12,2);
+        "#,
+    },
 ];
 
 impl FileStorage {
@@ -826,12 +838,13 @@ impl FileStorage {
     fn postgres_row_to_credit_entry(row: postgres::Row) -> Result<CreditLedgerEntry, String> {
         let kind = Self::credit_entry_kind_from_db(row.get::<_, String>("kind").as_str())?;
         let created_at = row.get("created_at");
+        let raw_amount: f64 = row.get("amount");
 
         Ok(CreditLedgerEntry {
             id: row.get("id"),
             account_id: row.get("account_id"),
             kind,
-            amount: row.get("amount"),
+            amount: (raw_amount * 100.0).round() / 100.0,
             reason: row.get("reason"),
             created_at,
         })
@@ -1150,7 +1163,10 @@ impl FileStorage {
             gateway_payment_id: row.get("gateway_payment_id"),
             amount_minor: row.get("amount_minor"),
             currency: row.get("currency"),
-            credits_to_grant: row.get("credits_to_grant"),
+            credits_to_grant: {
+                let raw: f64 = row.get("credits_to_grant");
+                (raw * 100.0).round() / 100.0
+            },
             status,
             checkout_url: row.get("checkout_url"),
             udf1: row.get("udf1"),
@@ -2293,17 +2309,18 @@ impl CreditLedgerRepository for FileStorage {
                 get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
 
             let mut transaction = client.transaction().map_err(|err| err.to_string())?;
+            let rounded_amount = (entry.amount * 100.0).round() / 100.0;
             transaction
                 .execute(
                     "
                     INSERT INTO credit_ledger (id, account_id, kind, amount, reason, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6)
+                    VALUES ($1, $2, $3, ROUND($4::numeric, 2), $5, $6)
                     ",
                     &[
                         &entry.id,
                         &entry.account_id,
                         &Self::credit_entry_kind_to_db(&entry.kind),
-                        &entry.amount,
+                        &rounded_amount,
                         &entry.reason,
                         &entry.created_at,
                     ],
@@ -2319,16 +2336,16 @@ impl CreditLedgerRepository for FileStorage {
                 })?;
 
             let delta = match entry.kind {
-                CreditEntryKind::Debit => -entry.amount.abs(),
-                CreditEntryKind::Grant | CreditEntryKind::Refund => entry.amount.abs(),
+                CreditEntryKind::Debit => -rounded_amount,
+                CreditEntryKind::Grant | CreditEntryKind::Refund => rounded_amount,
             };
             let balance = transaction
                 .query_one(
                     "
                     INSERT INTO credit_balances (account_id, balance, updated_at)
-                    VALUES ($1, $2, $3)
+                    VALUES ($1, ROUND($2::numeric, 2), $3)
                     ON CONFLICT (account_id) DO UPDATE SET
-                        balance = credit_balances.balance + EXCLUDED.balance,
+                        balance = ROUND((credit_balances.balance + EXCLUDED.balance)::numeric, 2),
                         updated_at = EXCLUDED.updated_at
                     RETURNING account_id, balance, updated_at
                     ",
@@ -2337,9 +2354,10 @@ impl CreditLedgerRepository for FileStorage {
                 .map_err(|err| err.to_string())?;
             transaction.commit().map_err(|err| err.to_string())?;
 
+            let raw_balance: f64 = balance.get("balance");
             Ok(CreditBalance {
                 account_id: balance.get("account_id"),
-                balance: balance.get("balance"),
+                balance: (raw_balance * 100.0).round() / 100.0,
                 updated_at: balance.get("updated_at"),
             })
         })
@@ -2375,9 +2393,10 @@ impl CreditLedgerRepository for FileStorage {
 
             let updated_at = row.get("updated_at");
 
+            let raw_balance: f64 = row.get("balance");
             Ok(CreditBalance {
                 account_id: row.get("account_id"),
-                balance: row.get("balance"),
+                balance: (raw_balance * 100.0).round() / 100.0,
                 updated_at,
             })
         })

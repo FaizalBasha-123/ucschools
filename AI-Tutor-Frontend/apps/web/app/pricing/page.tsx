@@ -83,6 +83,12 @@ const CALC_LEARNING = [
   { id: 'placement', label: 'Placement', mul: 2.0 },
 ];
 
+const LESSON_CREDITS_FIXED: Record<string, Record<string, number>> = {
+  basic:    { revision: 1.2, explain: 2.0, exam: 3.0, placement: 4.0 },
+  standard: { revision: 2.0, explain: 4.0, exam: 5.0, placement: 6.0 },
+  premium:  { revision: 3.5, explain: 6.0, exam: 7.0, placement: 9.0 },
+};
+
 function CreditBreakdownCalculator() {
   const [quality, setQuality] = useState(CALC_QUALITY[1]);
   const [learning, setLearning] = useState(CALC_LEARNING[0]);
@@ -91,18 +97,16 @@ function CreditBreakdownCalculator() {
   const [usePdf, setUsePdf] = useState(false);
   const [pdfPages, setPdfPages] = useState(10);
 
-  // Generation always costs a base of 4 credits (core slide + structure build)
-  const baseCost = 4.0;
-  const modeCost = +(quality.rate * learning.mul * duration).toFixed(2);
-  const voiceCost = useVoice ? +(quality.rate * duration * 0.5).toFixed(2) : 0;
-  const pdfCost = usePdf ? +(pdfPages * 0.15).toFixed(2) : 0;
-  const totalCost = +(baseCost + modeCost + voiceCost + pdfCost).toFixed(2);
+  // Actual backend formula: lesson_credits_fixed(quality, learning) + voice + pdf
+  const lessonCost = LESSON_CREDITS_FIXED[quality.id]?.[learning.id] ?? 4.0;
+  const voiceCost = useVoice ? +(quality.rate * duration).toFixed(2) : 0;
+  const pdfCost = usePdf ? +(pdfPages * 0.1).toFixed(2) : 0;
+  const totalCost = +(lessonCost + voiceCost + pdfCost).toFixed(2);
 
   const lineItems = [
-    { label: 'Lesson Generation', desc: 'Core slides & structure', cost: baseCost },
-    { label: `${learning.label} Mode`, desc: `${duration} min × ${quality.label}`, cost: modeCost },
-    ...(useVoice ? [{ label: 'Voice Interaction', desc: `${duration} min TTS + ASR`, cost: voiceCost }] : []),
-    ...(usePdf ? [{ label: 'PDF Context', desc: `${pdfPages} pages processed`, cost: pdfCost }] : []),
+    { label: `${learning.label} Lesson`, desc: `${quality.label} quality — fixed credit cost`, cost: lessonCost },
+    ...(useVoice ? [{ label: 'Voice (TTS)', desc: `${duration} min × ${quality.rate}/min`, cost: voiceCost }] : []),
+    ...(usePdf ? [{ label: 'PDF Context', desc: `${pdfPages} pages × 0.1`, cost: pdfCost }] : []),
   ];
 
   return (
@@ -324,21 +328,21 @@ function PricingContent() {
           const code = p.product_code.toLowerCase();
 
           if (code.includes('free')) {
-            features = ['20 Credits included', 'Revision mode (Limited)', 'Explain mode access', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
+            features = ['20 Credits', 'Revision mode', 'Standard quality', 'Voice pay-per-use'];
             pdf_limit = 0;
             modes = ['Revision'];
           } else if (code.includes('starter')) {
-            features = ['180 Credits / month', 'Revision + Explain modes', 'Exam mode access', 'Placement mode (Limited)', 'PDF uploads: 5 files', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
+            features = ['180 Credits/mo', 'Revision + Explain', 'Standard quality', 'PDF uploads (5)', 'Voice pay-per-use'];
             pdf_limit = 5;
             modes = ['Revision', 'Explain'];
           } else if (code.includes('pro')) {
-            features = ['650 Credits / month', 'All learning modes', 'PDF uploads: 25 files', 'Priority Support', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
+            features = ['650 Credits/mo', 'Revision + Explain + Exam', 'Standard + Premium quality', 'PDF uploads (25)', 'Voice pay-per-use'];
             pdf_limit = 25;
-            modes = ['Revision', 'Explain', 'Exam', 'Placement (Ltd)'];
+            modes = ['Revision', 'Explain', 'Exam'];
           } else if (code.includes('power')) {
-            features = ['1800 Credits / month', 'Everything Unlocked', 'PDF uploads: 100 files', 'Early access to new features', 'Voice: Pay-per-use (in credits)', 'See credit system below'];
+            features = ['1800 Credits/mo', 'All learning modes', 'Standard + Premium quality', 'PDF uploads (100)', 'Voice pay-per-use'];
             pdf_limit = 100;
-            modes = ['All Modes'];
+            modes = ['Revision', 'Explain', 'Exam', 'PlacementPrep'];
           } else {
             // Fallback for other plans (like credit packs if they show up)
             features = [`${p.credits} Credits included`, 'No subscription required'];
@@ -718,11 +722,10 @@ function PricingContent() {
                     </thead>
                     <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800/50">
                       {[
-                        { f: 'Lesson Generation', b: '2', s: '4', p: '8' },
-                        { f: 'Revision Mode', b: '1.2', s: '2.4', p: '4.8' },
-                        { f: 'Explain Mode', b: '3.2', s: '6.4', p: '12.8' },
-                        { f: 'Exam Mode', b: '—', s: '5.2', p: '10.4' },
-                        { f: 'Placement Mode', b: '—', s: '~8', p: '~16' },
+                        { f: 'Revision', b: '1.2', s: '2.0', p: '3.5' },
+                        { f: 'Explain', b: '2.0', s: '4.0', p: '6.0' },
+                        { f: 'Exam', b: '3.0', s: '5.0', p: '7.0' },
+                        { f: 'PlacementPrep', b: '4.0', s: '6.0', p: '9.0' },
                       ].map((row, i) => (
                         <tr key={i} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
                           <td className="py-4 pr-4 font-medium text-neutral-900 dark:text-neutral-100">{row.f}</td>
@@ -753,7 +756,6 @@ function PricingContent() {
                       <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800/50">
                         {[
                           { f: 'TTS (per minute)', b: '0.4', s: '0.8', p: '1.5' },
-                          { f: 'ASR (per minute)', b: '0.5', s: '1', p: '1.5' },
                         ].map((row, i) => (
                           <tr key={i} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
                             <td className="py-4 font-medium text-neutral-900 dark:text-neutral-100">{row.f}</td>
@@ -780,9 +782,7 @@ function PricingContent() {
                       </thead>
                       <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800/50">
                         {[
-                          { p: 'Starter', c: '0.20 credits' },
-                          { p: 'Pro', c: '0.15 credits' },
-                          { p: 'Power', c: '0.12 credits' },
+                          { p: 'All Plans', c: '0.10 credits' },
                         ].map((row, i) => (
                           <tr key={i} className="group hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
                             <td className="py-4 font-medium text-neutral-900 dark:text-neutral-100">{row.p}</td>
@@ -793,7 +793,7 @@ function PricingContent() {
                     </table>
                   </div>
                   <p className="mt-4 text-xs text-neutral-500 italic">
-                    Example: A 50-page PDF typically uses 8–11 credits depending on your plan.
+                    Example: A 50-page PDF uses 5 credits (50 x 0.1).
                   </p>
                 </div>
               </div>

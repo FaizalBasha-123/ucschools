@@ -443,14 +443,44 @@ function GenerationPreviewContent() {
           )}
 
           {error && (
-            <div className="mt-6 flex gap-3">
-              <Button
-                onClick={goBackToClassroom}
-                className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700"
-              >
-                <ArrowLeft className="size-4 mr-2" />
-                Go Back & Retry
-              </Button>
+            <div className="mt-6 flex flex-col gap-3">
+              {error.startsWith('BUDGET_EXCEEDED:') ? (
+                <>
+                  <div className="bg-amber-950/10 border border-amber-900/30 rounded-xl p-4 text-sm text-amber-300">
+                    <p className="font-medium mb-1">More scenes available</p>
+                    <p className="text-amber-400/70 text-xs">
+                      This topic can be covered in more detail with extra scenes.
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={goBackToClassroom}
+                      className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setError(null);
+                        startGeneration(true);
+                      }}
+                      className="flex-1 bg-amber-600 hover:bg-amber-500 text-white"
+                    >
+                      Retry with extra scenes
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex gap-3">
+                  <Button
+                    onClick={goBackToClassroom}
+                    className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-white border border-neutral-700"
+                  >
+                    <ArrowLeft className="size-4 mr-2" />
+                    Go Back & Retry
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

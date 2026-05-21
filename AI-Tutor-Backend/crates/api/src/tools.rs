@@ -10,6 +10,7 @@ use ai_tutor_domain::routing::QualityTier;
 use ai_tutor_routing::routing_rules;
 
 use crate::app::{ApiError, AppState};
+use crate::telemetry::UsageEvent;
 
 #[derive(Deserialize)]
 pub struct WebSearchRequest {
@@ -59,7 +60,7 @@ fn normalize_search_requirement(requirement: &str) -> String {
 }
 
 pub async fn web_search(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(payload): Json<WebSearchRequest>,
 ) -> Result<Json<WebSearchResponse>, ApiError> {
     let api_key = env::var("AI_TUTOR_TAVILY_API_KEY").unwrap_or_default();
@@ -164,6 +165,18 @@ pub async fn web_search(
     for r in &result.results {
         context_parts.push(format!("Source: {}\nURL: {}\nContent:\n{}\n---", r.title, r.url, r.content));
     }
+
+    // Record Tavily usage cost (flat $0.005 per query)
+    let event = UsageEvent {
+        account_id: "system".into(),
+        request_id: uuid::Uuid::new_v4().to_string(),
+        component: "web_search".into(),
+        provider_id: "tavily".into(),
+        model_id: "tavily-search".into(),
+        input_tokens: 0,
+        output_tokens: 0,
+    };
+    let _ = state.service.record_api_usage(event).await;
 
     Ok(Json(WebSearchResponse {
         success: true,

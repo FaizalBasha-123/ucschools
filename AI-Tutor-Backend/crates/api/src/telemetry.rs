@@ -100,8 +100,13 @@ async fn flush_batch(repo: &Arc<dyn ApiUsageRepository>, events: Vec<UsageEvent>
 }
 
 fn calculate_event_cost(event: &UsageEvent) -> i64 {
+    // Tavily web search: flat $0.50/1000 queries = 500 millicents per query
+    if event.provider_id == "tavily" {
+        return 500;
+    }
     let (input_rate, output_rate) = match (event.provider_id.as_str(), event.model_id.as_str()) {
         ("openrouter", "google/gemini-2.5-flash") => (0.15, 0.60),
+        ("openrouter", "google/gemini-2.0-flash-001") => (0.10, 0.40),
         ("openrouter", "google/gemini-2.0-flash") => (0.10, 0.40),
         ("openrouter", "google/gemini-1.5-flash") => (0.075, 0.30),
         ("openrouter", "google/gemini-flash-lite") => (0.075, 0.30),
@@ -113,6 +118,8 @@ fn calculate_event_cost(event: &UsageEvent) -> i64 {
         ("openrouter", m) if m.starts_with("black-forest-labs/flux-dev")    => (0.025, 0.025),
         ("openrouter", m) if m.starts_with("black-forest-labs/flux-schnell") => (0.003, 0.003),
         ("openrouter", "hexgrad/kokoro-82m") => (0.01, 0.01),
+        ("openrouter", "openai/gpt-4o-mini") => (0.15, 0.60),
+        ("openrouter", "openai/gpt-4o") => (2.50, 10.00),
         ("groq", m) if m.starts_with("llama3") || m.starts_with("llama-3") => (0.05, 0.10),
         ("groq", "whisper-large-v3") => (0.0, 0.0),
         ("groq", "whisper-small") => (0.0, 0.0),

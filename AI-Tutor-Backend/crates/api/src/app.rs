@@ -311,6 +311,7 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
         || path == "/api/operator/jobs"
         || path == "/api/operator/audit-logs"
         || path == "/api/operator/api-costs"
+        || path == "/api/operator/burn-rate"
         || path == "/api/operator/settings/emails"
         || path.starts_with("/api/operator/settings/emails/")
         || path == "/api/operator/system/toggle-maintenance"
@@ -1233,6 +1234,7 @@ pub struct OperatorApiCostsResponse {
     pub openrouter_cost_usd: f64,
     pub groq_cost_usd: f64,
     pub tts_cost_usd: f64,
+    pub tavily_cost_usd: f64,
     /// Estimated gross margin: (revenue_inr/84 - api_cost_usd) / (revenue_inr/84)
     pub estimated_margin_30d: f64,
     pub by_component: Vec<ApiCostByComponent>,
@@ -1242,6 +1244,41 @@ pub struct OperatorApiCostsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiCostQuery {
     pub days: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderBurnRate {
+    pub cost_usd: f64,
+    pub pct: f64,
+    pub queries: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HourlyBurn {
+    pub hour: String,
+    pub cost_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelBurnRate {
+    pub model: String,
+    pub cost_usd: f64,
+    pub queries: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BurnRateResponse {
+    pub period_hours: i64,
+    pub total_burn_usd: f64,
+    pub by_provider: HashMap<String, ProviderBurnRate>,
+    pub hourly_burn: Vec<HourlyBurn>,
+    pub top_models: Vec<ModelBurnRate>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BurnRateQuery {
+    pub hours: Option<i64>,
+    pub per_user: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1691,6 +1728,8 @@ pub trait LessonAppService: Send + Sync {
     /// Returns aggregated API cost data for the operator console.
     /// Returns zeroes gracefully when api_usage_records table is empty.
     async fn get_api_usage_costs(&self, days: Option<i64>) -> Result<OperatorApiCostsResponse>;
+    /// SRE burn rate: cost aggregation per provider, hourly breakdown, top models.
+    async fn get_burn_rate(&self, hours: i64, _per_user: bool) -> Result<BurnRateResponse>;
     /// Record an API usage event from frontend generation routes.
     async fn record_api_usage(&self, event: UsageEvent) -> Result<()>;
     async fn toggle_maintenance(&self) -> Result<ToggleMaintenanceResponse>;
@@ -3925,8 +3964,8 @@ impl LiveLessonAppService {
             return Ok(());
         }
 
-        let precharged = request.precharged_credits.unwrap_or(0.0).max(0.0);
-        let delta = usage.total - precharged;
+        let precharged = (request.precharged_credits.unwrap_or(0.0).max(0.0) * 100.0).round() / 100.0;
+        let delta = ((usage.total - precharged) * 100.0).round() / 100.0;
         if delta.abs() < 0.01 {
             return Ok(());
         }
@@ -3961,7 +4000,7 @@ impl LiveLessonAppService {
                 .await
                 .map_err(|err| anyhow!(err))?;
         } else {
-            let refund = -delta;
+            let refund = (-delta * 100.0).round() / 100.0;
             let entry = CreditLedgerEntry {
                 id: format!("refund-{}-{}", account_id, lesson.id),
                 account_id: account_id.to_string(),
@@ -4167,8 +4206,43 @@ impl LiveLessonAppService {
         let scene_actions_llm = build_llm(&scene_actions_model, "scene_actions")?;
         let pipeline_llm = build_llm(&scene_content_model, "content")?;
 
-        let pipeline = LlmGenerationPipeline::new(pipeline_llm)
+        let mut pipeline = LlmGenerationPipeline::new(pipeline_llm)
             .with_phase_llms(outlines_llm, scene_content_llm, scene_actions_llm);
+
+        if request.enable_web_search {
+            let tavily_key = std::env::var("AI_TUTOR_TAVILY_API_KEY").unwrap_or_default();
+            let tavily_base = std::env::var("AI_TUTOR_TAVILY_BASE_URL")
+                .unwrap_or_else(|_| "https://api.tavily.com/search".to_string());
+            if !tavily_key.is_empty() {
+                let telemetry = Arc::clone(&self.telemetry);
+                let acc_id = account_id.unwrap_or("system").to_string();
+                let telemetry_clone = Arc::clone(&telemetry);
+                let acc_id_clone = acc_id.clone();
+                pipeline = pipeline.with_tavily_web_search_and_callback(
+                    tavily_key,
+                    tavily_base,
+                    5,
+                    Box::new(move |_query: &str| {
+                        let t = Arc::clone(&telemetry_clone);
+                        let a = acc_id_clone.clone();
+                        let _q = _query.to_string();
+                        tokio::spawn(async move {
+                            let event = UsageEvent {
+                                account_id: a,
+                                request_id: uuid::Uuid::new_v4().to_string(),
+                                component: "web_search_pipeline".into(),
+                                provider_id: "tavily".into(),
+                                model_id: "tavily-search".into(),
+                                input_tokens: 0,
+                                output_tokens: 0,
+                            };
+                            let _ = t.record_usage(event).await;
+                        });
+                    }),
+                );
+            }
+        }
+
         let pipeline = Arc::new(pipeline);
         let mut orchestrator = LessonGenerationOrchestrator::new(
             pipeline,
@@ -5105,7 +5179,8 @@ impl LessonAppService for LiveLessonAppService {
             }
         });
 
-        let mut context = BillingContext::new(balance.balance, active_subscription);
+        let credit_balance = (balance.balance * 100.0).round() / 100.0;
+        let mut context = BillingContext::new(credit_balance, active_subscription);
 
         let has_blocking_unpaid_invoice = unpaid_invoices.iter().any(|invoice| {
             matches!(
@@ -5537,6 +5612,7 @@ impl LessonAppService for LiveLessonAppService {
         let mut openrouter_cost = 0.0_f64;
         let mut groq_cost = 0.0_f64;
         let mut tts_cost = 0.0_f64;
+        let mut tavily_cost = 0.0_f64;
 
         for rec in &usage_records {
             let cost_usd = rec.cost_usd_millicents as f64 / 100_000.0;
@@ -5551,6 +5627,7 @@ impl LessonAppService for LiveLessonAppService {
                 "openrouter" => openrouter_cost += cost_usd,
                 "groq"       => groq_cost += cost_usd,
                 "elevenlabs" => tts_cost += cost_usd,
+                "tavily"     => tavily_cost += cost_usd,
                 _            => openrouter_cost += cost_usd, // default bucket
             }
         }
@@ -5593,7 +5670,7 @@ impl LessonAppService for LiveLessonAppService {
             })
             .collect();
 
-        let total = openrouter_cost + groq_cost + tts_cost;
+        let total = openrouter_cost + groq_cost + tts_cost + tavily_cost;
         let revenue_usd: f64 = per_user.iter().map(|u| u.revenue_inr / 84.0).sum();
         let margin = if revenue_usd > 0.0 { (revenue_usd - total) / revenue_usd } else { 0.0 };
 
@@ -5602,9 +5679,74 @@ impl LessonAppService for LiveLessonAppService {
             openrouter_cost_usd: openrouter_cost,
             groq_cost_usd: groq_cost,
             tts_cost_usd: tts_cost,
+            tavily_cost_usd: tavily_cost,
             estimated_margin_30d: margin,
             by_component,
             per_user,
+        })
+    }
+
+    async fn get_burn_rate(&self, hours: i64, _per_user: bool) -> Result<BurnRateResponse> {
+        let window = chrono::Utc::now() - chrono::Duration::hours(hours);
+
+        let usage_records = self.storage
+            .list_api_usage_records_since(window)
+            .await
+            .unwrap_or_default();
+
+        let mut provider_costs: std::collections::HashMap<String, (f64, i64)> = Default::default();
+        let mut hourly_costs: std::collections::HashMap<i64, f64> = Default::default();
+        let mut model_costs: std::collections::HashMap<String, (f64, i64)> = Default::default();
+        let mut total = 0.0_f64;
+
+        for rec in &usage_records {
+            let cost_usd = rec.cost_usd_millicents as f64 / 100_000.0;
+            total += cost_usd;
+
+            let p_entry = provider_costs.entry(rec.provider.clone()).or_default();
+            p_entry.0 += cost_usd;
+            p_entry.1 += 1;
+
+            let hour_trunc = rec.created_at.timestamp() / 3600;
+            *hourly_costs.entry(hour_trunc).or_default() += cost_usd;
+
+            let m_entry = model_costs.entry(rec.model_id.clone()).or_default();
+            m_entry.0 += cost_usd;
+            m_entry.1 += 1;
+        }
+
+        let by_provider: std::collections::HashMap<String, ProviderBurnRate> = provider_costs
+            .into_iter()
+            .map(|(provider, (cost, queries))| {
+                let pct = if total > 0.0 { (cost / total) * 100.0 } else { 0.0 };
+                (provider, ProviderBurnRate { cost_usd: cost, pct, queries })
+            })
+            .collect();
+
+        let mut hourly_burn: Vec<HourlyBurn> = hourly_costs
+            .into_iter()
+            .map(|(hour_trunc, cost_usd)| {
+                let hour_ts = chrono::DateTime::from_timestamp(hour_trunc * 3600, 0)
+                    .unwrap_or_default()
+                    .to_rfc3339();
+                HourlyBurn { hour: hour_ts, cost_usd }
+            })
+            .collect();
+        hourly_burn.sort_by(|a, b| a.hour.cmp(&b.hour));
+
+        let mut top_models: Vec<ModelBurnRate> = model_costs
+            .into_iter()
+            .map(|(model, (cost, queries))| ModelBurnRate { model, cost_usd: cost, queries })
+            .collect();
+        top_models.sort_by(|a, b| b.cost_usd.partial_cmp(&a.cost_usd).unwrap_or(std::cmp::Ordering::Equal));
+        top_models.truncate(20);
+
+        Ok(BurnRateResponse {
+            period_hours: hours,
+            total_burn_usd: total,
+            by_provider,
+            hourly_burn,
+            top_models,
         })
     }
 
@@ -6093,18 +6235,20 @@ impl LessonAppService for LiveLessonAppService {
                     .get_credit_balance(account_id)
                     .await
                     .map_err(|err| anyhow!(err))?;
-                if credits_required() && balance.balance < estimated_credits {
+                let min_required = min_generation_credits();
+                if credits_required() && balance.balance < min_required {
                     anyhow::bail!(
-                        "insufficient credits: required {:.2}, balance {:.2}",
-                        estimated_credits,
+                        "insufficient credits: minimum {:.2}, balance {:.2}",
+                        min_required,
                         balance.balance
                     );
                 }
+                let est_rounded = (estimated_credits * 100.0).round() / 100.0;
                 let entry = CreditLedgerEntry {
                     id: format!("precharge-{}-{}", account_id, lesson_id),
                     account_id: account_id.to_string(),
                     kind: CreditEntryKind::Debit,
-                    amount: estimated_credits,
+                    amount: est_rounded,
                     reason: format!(
                         "lesson:{} precharge est_secs={:.0}",
                         lesson_id,
@@ -6116,7 +6260,7 @@ impl LessonAppService for LiveLessonAppService {
                     .apply_credit_entry(&entry)
                     .await
                     .map_err(|err| anyhow!(err))?;
-                request.precharged_credits = Some(estimated_credits);
+                request.precharged_credits = Some(est_rounded);
             }
         }
         let job = build_queued_job(Uuid::new_v4().to_string(), &request, chrono::Utc::now());
@@ -7411,6 +7555,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/operator/settings/emails", get(list_operator_emails).post(add_operator_email))
         .route("/api/operator/settings/emails/{email}", delete(remove_operator_email))
         .route("/api/operator/api-costs", get(get_operator_api_costs))
+        .route("/api/operator/burn-rate", get(get_operator_burn_rate))
         .route("/api/internal/usage", post(post_internal_usage))
         .route("/api/operator/system/toggle-maintenance", post(toggle_maintenance))
         .route("/api/operator/schools", get(list_schools).post(create_school_handler))
@@ -8160,6 +8305,19 @@ async fn get_operator_api_costs(
         .map_err(ApiError::internal)
 }
 
+async fn get_operator_burn_rate(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Query(query): Query<BurnRateQuery>,
+) -> Result<Json<BurnRateResponse>, ApiError> {
+    state
+        .service
+        .get_burn_rate(query.hours.unwrap_or(24), query.per_user.unwrap_or(false))
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
 async fn post_internal_usage(
     State(state): State<AppState>,
     Json(body): Json<InternalUsageReportRequest>,
@@ -8432,7 +8590,7 @@ async fn generate_lesson(
         .generate_lesson(payload)
         .await
         .map(Json)
-        .map_err(ApiError::internal)
+        .map_err(|err| map_generation_error(err))
 }
 
 async fn generate_lesson_async(
@@ -8454,7 +8612,7 @@ async fn generate_lesson_async(
         .queue_lesson(payload)
         .await
         .map(|response| (StatusCode::ACCEPTED, Json(response)))
-        .map_err(ApiError::internal)
+        .map_err(|err| map_generation_error(err))
 }
 
 async fn preview_lesson(
@@ -10633,10 +10791,18 @@ async fn check_generation_entitlement(
     check_generation_entitlement_with_min(state, auth_context, 0.0).await
 }
 
+fn min_generation_credits() -> f64 {
+    read_optional_env("AI_TUTOR_MIN_GENERATION_CREDITS")
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| *v >= 0.0)
+        .map(|v| (v * 100.0).round() / 100.0)
+        .unwrap_or(2.0)
+}
+
 async fn check_generation_entitlement_with_min(
     state: &AppState,
     auth_context: &AuthenticatedAccountContext,
-    min_credits: f64,
+    _min_credits: f64,
 ) -> Result<(), ApiError> {
     let billing_ctx = state
         .service
@@ -10651,15 +10817,16 @@ async fn check_generation_entitlement_with_min(
 
     if !billing_ctx.can_generate {
         return Err(ApiError::payment_required(format!(
-            "Insufficient credits. Current balance: {}. Please purchase credits or activate a subscription.",
+            "Insufficient credits. Current balance: {:.2}. Please purchase credits or activate a subscription.",
             billing_ctx.credit_balance
         )));
     }
 
-    if min_credits > 0.0 && !billing_ctx.can_generate_with_min_credits(min_credits) {
+    let required = min_generation_credits();
+    if required > 0.0 && billing_ctx.credit_balance < required {
         return Err(ApiError::payment_required(format!(
-            "Insufficient credits. Need about {:.2} credits, balance is {:.2}.",
-            min_credits, billing_ctx.credit_balance
+            "Insufficient credits. Need at least {:.2} credits, balance is {:.2}.",
+            required, billing_ctx.credit_balance
         )));
     }
 
@@ -10920,7 +11087,7 @@ fn calculate_credit_usage(
     
     // Fixed lesson credit cost + voice credit cost
     let lesson_portion = lesson_credits_fixed(quality, learning);
-    let voice_portion = (duration_secs / 60.0) * quality.credits_per_minute();
+    let voice_portion = ((duration_secs / 60.0) * quality.credits_per_minute() * 100.0).round() / 100.0;
 
     CreditUsage {
         total: lesson_portion + voice_portion,
@@ -11260,6 +11427,39 @@ impl ApiError {
             message,
         }
     }
+
+    fn budget_exceeded(scene_count: usize, hard_cap: usize, quality: &str, extra_cost: f64) -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            message: format!(
+                "BUDGET_EXCEEDED: scene_count={}, hard_cap={}, quality={}, extra_cost={:.2}",
+                scene_count, hard_cap, quality, extra_cost
+            ),
+        }
+    }
+}
+
+fn map_generation_error(err: anyhow::Error) -> ApiError {
+    let msg = err.to_string();
+    if let Some(rest) = msg.strip_prefix("BUDGET_EXCEEDED: ") {
+        let mut scene_count = 0usize;
+        let mut hard_cap = 0usize;
+        let mut quality = "standard";
+        let mut extra_cost = 0.0f64;
+        for pair in rest.split(", ") {
+            if let Some((key, value)) = pair.split_once('=') {
+                match key {
+                    "scene_count" => scene_count = value.parse().unwrap_or(0),
+                    "hard_cap" => hard_cap = value.parse().unwrap_or(0),
+                    "quality" => quality = value,
+                    "extra_cost" => extra_cost = value.parse().unwrap_or(0.0),
+                    _ => {}
+                }
+            }
+        }
+        return ApiError::budget_exceeded(scene_count, hard_cap, quality, extra_cost);
+    }
+    ApiError::internal(err)
 }
 
 impl IntoResponse for ApiError {
@@ -11873,9 +12073,20 @@ mod tests {
                     openrouter_cost_usd: 0.0,
                     groq_cost_usd: 0.0,
                     tts_cost_usd: 0.0,
+                    tavily_cost_usd: 0.0,
                     estimated_margin_30d: 0.0,
                     by_component: vec![],
                     per_user: vec![],
+                })
+            }
+
+            async fn get_burn_rate(&self, _hours: i64, _per_user: bool) -> Result<BurnRateResponse> {
+                Ok(BurnRateResponse {
+                    period_hours: _hours,
+                    total_burn_usd: 0.0,
+                    by_provider: Default::default(),
+                    hourly_burn: vec![],
+                    top_models: vec![],
                 })
             }
 

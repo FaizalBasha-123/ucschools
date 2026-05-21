@@ -187,7 +187,7 @@ pub struct TierLimits {
 pub fn tier_limits(tier: QualityTier) -> TierLimits {
     match tier {
         QualityTier::Basic => TierLimits {
-            max_slides: 5,
+            max_slides: 7,
             max_examples_per_slide: 1,
             max_tokens_per_response: 2048,
             enable_refinement: false,
@@ -195,7 +195,7 @@ pub fn tier_limits(tier: QualityTier) -> TierLimits {
             max_cost_usd_per_request: 0.01,
         },
         QualityTier::Standard => TierLimits {
-            max_slides: 8,
+            max_slides: 10,
             max_examples_per_slide: 2,
             max_tokens_per_response: 4096,
             enable_refinement: false,
@@ -203,7 +203,7 @@ pub fn tier_limits(tier: QualityTier) -> TierLimits {
             max_cost_usd_per_request: 0.05,
         },
         QualityTier::Premium => TierLimits {
-            max_slides: 15,
+            max_slides: 14,
             max_examples_per_slide: 3,
             max_tokens_per_response: 8192,
             enable_refinement: true,
