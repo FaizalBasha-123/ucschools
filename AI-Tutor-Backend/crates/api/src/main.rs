@@ -1,11 +1,10 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::{anyhow, Result};
 use reqwest::Url;
 use tracing::{error, info};
 
-use ai_tutor_api::alerting;
-use ai_tutor_api::app::{build_router, LessonAppService, LiveLessonAppService};
+use ai_tutor_api::app::{build_router, LiveLessonAppService};
 use ai_tutor_routing::{operator_emails, overrides};
 use ai_tutor_api::llm_proxy::{llm_proxy_router, LlmProxyState};
 use ai_tutor_api::queue::LessonQueue;
@@ -22,9 +21,6 @@ use ai_tutor_providers::{
 };
 use ai_tutor_storage::filesystem::FileStorage;
 use ai_tutor_storage::repositories::{ApiUsageRepository, RuntimeSessionRepository};
-
-mod cleanup;
-use cleanup::{run_cleanup_loop, CleanupConfig};
 
 async fn run_startup_readiness_checks(
     storage: &FileStorage,
@@ -289,17 +285,6 @@ async fn main() -> Result<()> {
         }
     }
 
-    let cleanup_root = storage.root_dir().to_path_buf();
-    let cleanup_cfg = CleanupConfig::from_env();
-    let billing_maintenance_interval_minutes = std::env::var(
-        "AI_TUTOR_BILLING_MAINTENANCE_INTERVAL_MINUTES",
-    )
-    .ok()
-    .and_then(|value| value.parse::<u64>().ok())
-    .unwrap_or(15)
-    .max(1);
-    let billing_maintenance_interval =
-        Duration::from_secs(billing_maintenance_interval_minutes * 60);
     let provider_config = Arc::new(ServerProviderConfig::from_env());
 
     run_startup_readiness_checks(storage.as_ref(), provider_config.as_ref())
@@ -357,21 +342,6 @@ async fn main() -> Result<()> {
         base_url,
     ));
     
-    let cleanup_service = Arc::clone(&service) as Arc<dyn LessonAppService>;
-    tokio::spawn(run_cleanup_loop(cleanup_root, cleanup_cfg, cleanup_service));
-    
-    let billing_service = Arc::clone(&service);
-    tokio::spawn(async move {
-        loop {
-            if let Err(err) = billing_service.run_billing_maintenance_cycle().await {
-                error!(error = %err, "billing maintenance run failed");
-            }
-            tokio::time::sleep(billing_maintenance_interval).await;
-        }
-    });
-
-    alerting::run_alert_loop(Arc::clone(&storage));
-
     let app = build_router(service.clone());
 
     let proxy_state = LlmProxyState {
@@ -379,14 +349,6 @@ async fn main() -> Result<()> {
         provider_config: Arc::clone(&provider_config),
     };
     let app = app.merge(llm_proxy_router(proxy_state));
-
-    let worker_service = Arc::clone(&service);
-    tokio::spawn(async move {
-        info!("Starting AI Tutor lesson generation worker loop");
-        if let Err(err) = worker_service.run_worker_loop().await {
-            error!(error = %err, "AI Tutor worker loop crashed");
-        }
-    });
 
     let addr: SocketAddr = format!("{}:{}", host, port)
         .parse()

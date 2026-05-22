@@ -1,10 +1,11 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
-import { apiFetch, hasAuthSessionHint } from '@/lib/auth/session';
+import { apiFetch, authHeaders, hasAuthSessionHint } from '@/lib/auth/session';
 
 interface CreditsContextType {
   credits: number | null;
+  planName: string;
   refreshCredits: () => Promise<void>;
   loading: boolean;
 }
@@ -13,6 +14,7 @@ const CreditsContext = createContext<CreditsContextType | undefined>(undefined);
 
 export function CreditsProvider({ children }: { children: ReactNode }) {
   const [credits, setCredits] = useState<number | null>(null);
+  const [planName, setPlanName] = useState('Free');
   const [loading, setLoading] = useState(false);
 
   const refreshCredits = useCallback(async () => {
@@ -20,21 +22,23 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
 
     setLoading(true);
     try {
-      const res = await apiFetch('/api/billing/dashboard', {
-        method: 'GET',
+      const res = await fetch('/api/billing/dashboard', {
+        headers: authHeaders(),
         cache: 'no-store',
       });
       if (res.status === 401) {
-        // Not logged in with user session (e.g. on an operator-only page)
         setCredits(null);
         return;
       }
       if (res.ok) {
         const data = await res.json();
-        const balance = data?.entitlement?.credit_balance ?? data?.data?.entitlement?.credit_balance ?? null;
+        const entitlement = (data.data || data)?.entitlement;
+        const balance = entitlement?.credit_balance ?? null;
         if (balance !== null) {
           setCredits(balance);
         }
+        const plan = entitlement?.active_subscription?.plan_code?.split('_')[0] || 'Free';
+        setPlanName(plan);
       }
     } catch (err) {
       console.error('Failed to refresh credits:', err);
@@ -43,17 +47,29 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Initial fetch on mount
+  // Fetch only on mount when visible, then on tab focus/visibility change
   useEffect(() => {
-    refreshCredits();
+    if (document.visibilityState === 'visible') {
+      refreshCredits();
+    }
 
-    // Auto-refresh every 60s to keep in sync
-    const interval = setInterval(refreshCredits, 60_000);
-    return () => clearInterval(interval);
+    const onFocus = () => refreshCredits();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refreshCredits();
+      }
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [refreshCredits]);
 
   return (
-    <CreditsContext.Provider value={{ credits, refreshCredits, loading }}>
+    <CreditsContext.Provider value={{ credits, planName, refreshCredits, loading }}>
       {children}
     </CreditsContext.Provider>
   );

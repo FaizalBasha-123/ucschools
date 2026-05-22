@@ -62,8 +62,6 @@ export default function OperatorJobsPage() {
 
   useEffect(() => {
     fetchJobs();
-    const interval = setInterval(fetchJobs, 10000); // Auto-refresh every 10s
-    return () => clearInterval(interval);
   }, [router]);
 
   const handleAction = async (jobId: string, action: 'cancel' | 'resume') => {
