@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -27,7 +27,7 @@ import {
   Menu,
   X,
 } from 'lucide-react';
-import { clearAuthSession, authHeaders } from '@/lib/auth/session';
+import { clearAuthSession } from '@/lib/auth/session';
 import { useCredits } from '@/lib/contexts/credits-context';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -41,33 +41,11 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
   const router = useRouter();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const [planName, setPlanName] = useState('Free');
 
   // Use the shared CreditsContext — single source of truth
-  const { credits } = useCredits();
+  const { credits, planName } = useCredits();
 
   const isBillingContext = pathname.startsWith('/billing');
-
-  // Only fetch plan name (not credits — credits come from context)
-  useEffect(() => {
-    async function fetchPlan() {
-      try {
-        const res = await fetch('/api/billing/dashboard', {
-          headers: authHeaders(),
-          cache: 'no-store'
-        });
-        if (res.ok) {
-          const json = await res.json();
-          const entitlement = (json.data || json)?.entitlement;
-          const plan = entitlement?.active_subscription?.plan_code?.split('_')[0] || 'Free';
-          setPlanName(plan);
-        }
-      } catch (err) {
-        console.error('Failed to fetch plan name for sidebar:', err);
-      }
-    }
-    fetchPlan();
-  }, [pathname]);
 
   const userLinks = [
     { href: '/classroom', label: 'Classrooms', icon: LayoutDashboard },
