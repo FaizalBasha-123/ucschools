@@ -7,7 +7,6 @@ use std::{
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use tokio::{fs, sync::oneshot};
 use tracing::{error, info, warn};
@@ -65,8 +64,6 @@ pub struct QueueLeaseCounts {
 
 pub struct FileBackedLessonQueue {
     storage: Arc<FileStorage>,
-    queue_db_path: Option<PathBuf>,
-    worker_id: String,
 }
 
 #[async_trait]
@@ -75,46 +72,28 @@ impl LessonQueue for FileBackedLessonQueue {
         self.enqueue_request(request).await
     }
 
-    async fn claim_next(&self, worker_id: &str) -> Result<Option<QueuedLessonRequest>> {
-        if let Some(db_path) = self.queue_db_path.clone() {
-            return Self::claim_next_sqlite(db_path, worker_id.to_string()).await;
-        }
-
+    async fn claim_next(&self, _worker_id: &str) -> Result<Option<QueuedLessonRequest>> {
         let files = self.list_queue_files().await?;
-        if !files.is_empty() {
-             println!("DEBUG: claim_next found {} files in queue", files.len());
-        }
         for mut path in files {
-            println!("DEBUG: claim_next examining {:?}", path);
             if let Some(reset_path) = Self::reset_stale_working_file(&path).await? {
-                println!("DEBUG: claim_next reset stale file {:?}", reset_path);
                 path = reset_path;
             }
 
             if path.extension().and_then(|ext| ext.to_str()) == Some("working") {
-                println!("DEBUG: claim_next skipping .working file");
                 continue;
             }
 
-            println!("DEBUG: claim_next attempting to claim {:?}", path);
             let claimed = Self::claim_file(&path).await?;
-            println!("DEBUG: claim_next successfully claimed {:?}", claimed);
             return Ok(Some(Self::read_queued_request(&claimed).await?));
         }
         Ok(None)
     }
 
-    async fn heartbeat(&self, job_id: &str, worker_id: &str) -> Result<()> {
-        if let Some(db_path) = self.queue_db_path.clone() {
-            return Self::touch_claim_sqlite(db_path, job_id.to_string(), worker_id.to_string()).await;
-        }
+    async fn heartbeat(&self, _job_id: &str, _worker_id: &str) -> Result<()> {
         Ok(())
     }
 
     async fn complete(&self, job_id: &str) -> Result<()> {
-        if let Some(db_path) = self.queue_db_path.clone() {
-            return Self::delete_sqlite_entry(db_path, job_id).await;
-        }
         let working_path = self.queue_dir().join(format!("{}.json.working", job_id));
         if fs::try_exists(&working_path).await? {
             fs::remove_file(working_path).await?;
@@ -135,11 +114,7 @@ impl LessonQueue for FileBackedLessonQueue {
     }
 
     fn backend_label(&self) -> &'static str {
-        if self.queue_db_path.is_some() {
-            "sqlite"
-        } else {
-            "filesystem"
-        }
+        "filesystem"
     }
 }
 
@@ -155,40 +130,6 @@ pub fn claim_heartbeat_interval_ms() -> u64 {
     CLAIM_HEARTBEAT_INTERVAL.as_millis() as u64
 }
 
-fn queue_worker_id() -> String {
-    if let Ok(explicit) = std::env::var("AI_TUTOR_QUEUE_WORKER_ID") {
-        let trimmed = explicit.trim();
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
-        }
-    }
-
-    let require_explicit = matches!(
-        std::env::var("AI_TUTOR_QUEUE_REQUIRE_EXPLICIT_WORKER_ID")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "true" | "yes" | "on"
-    );
-
-    if require_explicit {
-        panic!(
-            "AI_TUTOR_QUEUE_REQUIRE_EXPLICIT_WORKER_ID is enabled but AI_TUTOR_QUEUE_WORKER_ID is missing"
-        );
-    }
-
-    let host = std::env::var("HOSTNAME")
-        .or_else(|_| std::env::var("COMPUTERNAME"))
-        .unwrap_or_else(|_| "unknown-host".to_string());
-    format!(
-        "worker-{}-{}-{}",
-        host,
-        std::process::id(),
-        Utc::now().timestamp_millis()
-    )
-}
-
 fn default_max_attempts() -> u32 {
     DEFAULT_MAX_ATTEMPTS
 }
@@ -197,16 +138,6 @@ impl FileBackedLessonQueue {
     pub fn new(storage: Arc<FileStorage>) -> Self {
         Self {
             storage,
-            queue_db_path: None,
-            worker_id: queue_worker_id(),
-        }
-    }
-
-    pub fn with_queue_db(storage: Arc<FileStorage>, queue_db_path: impl Into<PathBuf>) -> Self {
-        Self {
-            storage,
-            queue_db_path: Some(queue_db_path.into()),
-            worker_id: queue_worker_id(),
         }
     }
 
@@ -215,9 +146,6 @@ impl FileBackedLessonQueue {
     }
 
     pub async fn enqueue_request(&self, request: &QueuedLessonRequest) -> Result<()> {
-        if let Some(db_path) = self.queue_db_path.clone() {
-            return Self::enqueue_sqlite(db_path, request.clone()).await;
-        }
         fs::create_dir_all(self.queue_dir()).await?;
         let path = self.queue_dir().join(format!("{}.json", request.job.id));
         let bytes = serde_json::to_vec_pretty(&normalized_queued_request(request.clone()))?;
@@ -310,10 +238,6 @@ impl FileBackedLessonQueue {
     }
 
     pub async fn process_pending_once(&self, service: Arc<LiveLessonAppService>) -> Result<usize> {
-        if let Some(db_path) = self.queue_db_path.clone() {
-            return self.process_pending_once_sqlite(db_path, service).await;
-        }
-
         let mut processed = 0usize;
         let files = self.list_queue_files().await?;
         for mut path in files {
@@ -480,10 +404,6 @@ impl FileBackedLessonQueue {
     }
 
     pub async fn pending_count(&self) -> Result<usize> {
-        if let Some(db_path) = self.queue_db_path.clone() {
-            return Self::pending_count_sqlite(db_path).await;
-        }
-
         let mut count = 0usize;
         let files = self.list_queue_files().await?;
         for path in files {
@@ -500,10 +420,6 @@ impl FileBackedLessonQueue {
     }
 
     pub async fn lease_counts(&self) -> Result<QueueLeaseCounts> {
-        if let Some(db_path) = self.queue_db_path.clone() {
-            return Self::lease_counts_sqlite(db_path).await;
-        }
-
         let mut active = 0usize;
         let mut stale = 0usize;
         let files = self.list_queue_files().await?;
@@ -535,10 +451,6 @@ impl FileBackedLessonQueue {
     }
 
     pub async fn cancel_request(&self, job_id: &str) -> Result<QueueCancelResult> {
-        if let Some(db_path) = self.queue_db_path.clone() {
-            return Self::cancel_sqlite(db_path, job_id.to_string()).await;
-        }
-
         let queued_path = self.queue_dir().join(format!("{}.json", job_id));
         let working_path = self.queue_dir().join(format!("{}.json.working", job_id));
 
@@ -552,449 +464,6 @@ impl FileBackedLessonQueue {
         }
 
         Ok(QueueCancelResult::NotFound)
-    }
-
-    async fn enqueue_sqlite(db_path: PathBuf, queued: QueuedLessonRequest) -> Result<()> {
-        let queued = normalized_queued_request(queued);
-        if let Some(parent) = db_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let connection = open_queue_db(&db_path)?;
-            let payload_json = serde_json::to_string_pretty(&queued)?;
-            connection.execute(
-                "INSERT INTO lesson_queue (
-                    job_id, payload_json, status, queued_at, available_at, claimed_at, claimed_by, lease_until
-                 ) VALUES (?1, ?2, 'queued', ?3, ?4, NULL, NULL, NULL)
-                 ON CONFLICT(job_id) DO UPDATE SET
-                    payload_json = excluded.payload_json,
-                    status = 'queued',
-                    queued_at = excluded.queued_at,
-                    available_at = excluded.available_at,
-                    claimed_at = NULL,
-                    claimed_by = NULL,
-                    lease_until = NULL",
-                params![
-                    queued.job.id,
-                    payload_json,
-                    queued.queued_at.to_rfc3339(),
-                    queued.available_at.to_rfc3339(),
-                ],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
-    }
-
-    async fn process_pending_once_sqlite(
-        &self,
-        db_path: PathBuf,
-        service: Arc<LiveLessonAppService>,
-    ) -> Result<usize> {
-        let mut processed = 0usize;
-        while let Some(queued) =
-            Self::claim_next_sqlite(db_path.clone(), self.worker_id.clone()).await?
-        {
-            processed += 1;
-            let (heartbeat_stop, heartbeat_handle) = Self::spawn_sqlite_claim_heartbeat(
-                db_path.clone(),
-                queued.job.id.clone(),
-                self.worker_id.clone(),
-            );
-            let processing_result = match service
-                .build_orchestrator(
-                    &queued.request,
-                    queued.model_string.as_deref(),
-                    Some(queued.lesson_id.clone()),
-                )
-                .await
-            {
-                Ok(orchestrator) => {
-                    orchestrator
-                        .generate_lesson_for_job(
-                            queued.request.clone(),
-                            queued.lesson_id.clone(),
-                            queued.job.clone(),
-                            service.base_url(),
-                            false,
-                        )
-                        .await
-                }
-                Err(err) => Err(err),
-            };
-            let _ = heartbeat_stop.send(());
-            let _ = heartbeat_handle.await;
-
-            match processing_result {
-                Ok(output) => {
-                    service
-                        .apply_credit_debit_for_output(&queued.request, &output.lesson)
-                        .await
-                        .map_err(|err| anyhow!(err))?;
-                    Self::delete_sqlite_entry(db_path.clone(), &queued.job.id).await?;
-                }
-                Err(err) => {
-                    let error_message = err.to_string();
-                    if should_retry_queue_error(&error_message)
-                        && queued.attempt + 1 < queued.max_attempts
-                    {
-                        let mut retried = queued.clone();
-                        retried.attempt += 1;
-                        retried.last_error = Some(error_message.clone());
-                        retried.job.status = LessonGenerationJobStatus::Queued;
-                        retried.job.step = LessonGenerationStep::Queued;
-                        retried.job.progress = 0;
-                        retried.job.message = format!(
-                            "Queued retry {}/{} after transient failure",
-                            retried.attempt + 1,
-                            retried.max_attempts
-                        );
-                        retried.job.error = Some(error_message.clone());
-                        retried.job.started_at = None;
-                        retried.job.completed_at = None;
-                        retried.job.updated_at = Utc::now();
-                        retried.available_at = Utc::now() + retry_backoff(retried.attempt);
-
-                        self.storage
-                            .update_job(&retried.job)
-                            .await
-                            .map_err(|update_err| anyhow!(update_err))?;
-                        Self::requeue_sqlite(db_path.clone(), retried).await?;
-                        info!(
-                            "AI Tutor queue scheduled SQLite retry for job {}",
-                            queued.job.id
-                        );
-                        continue;
-                    }
-
-                    let mut failed_job = queued.job.clone();
-                    failed_job.status = LessonGenerationJobStatus::Failed;
-                    failed_job.step = LessonGenerationStep::Failed;
-                    failed_job.progress = 100;
-                    failed_job.message = "Lesson generation failed".to_string();
-                    failed_job.error = Some(error_message);
-                    failed_job.updated_at = chrono::Utc::now();
-                    failed_job.completed_at = Some(chrono::Utc::now());
-                    self.storage
-                        .update_job(&failed_job)
-                        .await
-                        .map_err(|update_err| anyhow!(update_err))?;
-                    Self::delete_sqlite_entry(db_path.clone(), &queued.job.id).await?;
-                    error!(
-                        "AI Tutor SQLite queue processing error for {}: {}",
-                        queued.job.id, err
-                    );
-                }
-            }
-        }
-
-        Ok(processed)
-    }
-
-    pub(crate) async fn claim_next_sqlite(
-        db_path: PathBuf,
-        worker_id: String,
-    ) -> Result<Option<QueuedLessonRequest>> {
-        if let Some(parent) = db_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        tokio::task::spawn_blocking(move || -> Result<Option<QueuedLessonRequest>> {
-            let mut connection = open_queue_db(&db_path)?;
-            let now = Utc::now();
-            let stale_before = now
-                - chrono::Duration::from_std(STALE_WORKING_TIMEOUT)
-                    .unwrap_or_else(|_| chrono::Duration::minutes(5));
-            let lease_until = now
-                + chrono::Duration::from_std(STALE_WORKING_TIMEOUT)
-                    .unwrap_or_else(|_| chrono::Duration::minutes(5));
-            let tx = connection.transaction()?;
-
-            let row: Option<(String, String)> = tx
-                .query_row(
-                    "SELECT job_id, payload_json
-                     FROM lesson_queue
-                     WHERE
-                       (status = 'queued' AND available_at <= ?1)
-                       OR
-                       (
-                         status = 'working'
-                         AND (
-                             (lease_until IS NOT NULL AND lease_until <= ?2)
-                             OR
-                             (lease_until IS NULL AND claimed_at IS NOT NULL AND claimed_at <= ?3)
-                         )
-                       )
-                     ORDER BY queued_at
-                     LIMIT 1",
-                    params![
-                        now.to_rfc3339(),
-                        now.to_rfc3339(),
-                        stale_before.to_rfc3339()
-                    ],
-                    |row| Ok((row.get(0)?, row.get(1)?)),
-                )
-                .optional()?;
-
-            let Some((job_id, payload_json)) = row else {
-                tx.commit()?;
-                return Ok(None);
-            };
-
-            let claimed = tx.execute(
-                "UPDATE lesson_queue
-                 SET status = 'working', claimed_at = ?2, claimed_by = ?3, lease_until = ?4
-                 WHERE job_id = ?1
-                   AND (
-                        (status = 'queued' AND available_at <= ?5)
-                     OR (
-                        status = 'working'
-                        AND (
-                            (lease_until IS NOT NULL AND lease_until <= ?6)
-                            OR (lease_until IS NULL AND claimed_at IS NOT NULL AND claimed_at <= ?7)
-                        )
-                     )
-                   )",
-                params![
-                    job_id,
-                    now.to_rfc3339(),
-                    worker_id,
-                    lease_until.to_rfc3339(),
-                    now.to_rfc3339(),
-                    now.to_rfc3339(),
-                    stale_before.to_rfc3339()
-                ],
-            )?;
-            if claimed == 0 {
-                tx.commit()?;
-                return Ok(None);
-            }
-            tx.commit()?;
-
-            let queued: QueuedLessonRequest = serde_json::from_str(&payload_json)?;
-            Ok(Some(normalized_queued_request(queued)))
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
-    }
-
-    async fn requeue_sqlite(db_path: PathBuf, queued: QueuedLessonRequest) -> Result<()> {
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let connection = open_queue_db(&db_path)?;
-            let payload_json =
-                serde_json::to_string_pretty(&normalized_queued_request(queued.clone()))?;
-            connection.execute(
-                "UPDATE lesson_queue
-                 SET payload_json = ?2,
-                     status = 'queued',
-                     available_at = ?3,
-                     claimed_at = NULL,
-                     claimed_by = NULL,
-                     lease_until = NULL
-                 WHERE job_id = ?1",
-                params![
-                    queued.job.id,
-                    payload_json,
-                    queued.available_at.to_rfc3339()
-                ],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
-    }
-
-    async fn delete_sqlite_entry(db_path: PathBuf, job_id: &str) -> Result<()> {
-        let job_id = job_id.to_string();
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let connection = open_queue_db(&db_path)?;
-            connection.execute(
-                "DELETE FROM lesson_queue WHERE job_id = ?1",
-                params![job_id],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
-    }
-
-    async fn pending_count_sqlite(db_path: PathBuf) -> Result<usize> {
-        if let Some(parent) = db_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        tokio::task::spawn_blocking(move || -> Result<usize> {
-            let connection = open_queue_db(&db_path)?;
-            let now = Utc::now();
-            let stale_before = now
-                - chrono::Duration::from_std(STALE_WORKING_TIMEOUT)
-                    .unwrap_or_else(|_| chrono::Duration::minutes(5));
-            let count: i64 = connection.query_row(
-                "SELECT COUNT(*) FROM lesson_queue
-                 WHERE
-                   status = 'queued'
-                   OR (
-                        status = 'working'
-                        AND (
-                            (lease_until IS NOT NULL AND lease_until <= ?1)
-                            OR (lease_until IS NULL AND claimed_at IS NOT NULL AND claimed_at <= ?2)
-                        )
-                   )",
-                params![now.to_rfc3339(), stale_before.to_rfc3339()],
-                |row| row.get(0),
-            )?;
-            Ok(count as usize)
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
-    }
-
-    async fn lease_counts_sqlite(db_path: PathBuf) -> Result<QueueLeaseCounts> {
-        if let Some(parent) = db_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        tokio::task::spawn_blocking(move || -> Result<QueueLeaseCounts> {
-            let connection = open_queue_db(&db_path)?;
-            let now = Utc::now();
-            let stale_before = now
-                - chrono::Duration::from_std(STALE_WORKING_TIMEOUT)
-                    .unwrap_or_else(|_| chrono::Duration::minutes(5));
-            let (active, stale): (i64, i64) = connection.query_row(
-                "SELECT
-                    SUM(CASE
-                        WHEN status = 'working'
-                         AND NOT (
-                            (lease_until IS NOT NULL AND lease_until <= ?1)
-                            OR (lease_until IS NULL AND claimed_at IS NOT NULL AND claimed_at <= ?2)
-                         )
-                        THEN 1 ELSE 0 END),
-                    SUM(CASE
-                        WHEN status = 'working'
-                         AND (
-                            (lease_until IS NOT NULL AND lease_until <= ?1)
-                            OR (lease_until IS NULL AND claimed_at IS NOT NULL AND claimed_at <= ?2)
-                         )
-                        THEN 1 ELSE 0 END)
-                 FROM lesson_queue",
-                params![now.to_rfc3339(), stale_before.to_rfc3339()],
-                |row| {
-                    Ok((
-                        row.get::<_, Option<i64>>(0)?.unwrap_or(0),
-                        row.get::<_, Option<i64>>(1)?.unwrap_or(0),
-                    ))
-                },
-            )?;
-            Ok(QueueLeaseCounts {
-                active: active as usize,
-                stale: stale as usize,
-            })
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
-    }
-
-    async fn cancel_sqlite(db_path: PathBuf, job_id: String) -> Result<QueueCancelResult> {
-        if let Some(parent) = db_path.parent() {
-            fs::create_dir_all(parent).await?;
-        }
-        tokio::task::spawn_blocking(move || -> Result<QueueCancelResult> {
-            let connection = open_queue_db(&db_path)?;
-            let row: Option<(String, Option<String>, Option<String>)> = connection
-                .query_row(
-                    "SELECT status, claimed_at, lease_until
-                     FROM lesson_queue
-                     WHERE job_id = ?1",
-                    params![job_id],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                )
-                .optional()?;
-
-            match row {
-                Some((status, _claimed_at, _lease_until)) if status == "queued" => {
-                    connection.execute(
-                        "DELETE FROM lesson_queue WHERE job_id = ?1",
-                        params![job_id],
-                    )?;
-                    Ok(QueueCancelResult::Cancelled)
-                }
-                Some((status, claimed_at, lease_until)) if status == "working" => {
-                    let now = Utc::now();
-                    let stale_before = now
-                        - chrono::Duration::from_std(STALE_WORKING_TIMEOUT)
-                            .unwrap_or_else(|_| chrono::Duration::minutes(5));
-                    let lease_expired = lease_until
-                        .as_deref()
-                        .and_then(parse_rfc3339_utc)
-                        .map(|lease| lease <= now)
-                        .unwrap_or_else(|| {
-                            claimed_at
-                                .as_deref()
-                                .and_then(parse_rfc3339_utc)
-                                .map(|claimed| claimed <= stale_before)
-                                .unwrap_or(false)
-                        });
-
-                    if lease_expired {
-                        connection.execute(
-                            "DELETE FROM lesson_queue WHERE job_id = ?1",
-                            params![job_id],
-                        )?;
-                        Ok(QueueCancelResult::Cancelled)
-                    } else {
-                        Ok(QueueCancelResult::AlreadyClaimed)
-                    }
-                }
-                Some((_status, _claimed_at, _lease_until)) => Ok(QueueCancelResult::NotFound),
-                None => Ok(QueueCancelResult::NotFound),
-            }
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
-    }
-
-    async fn touch_claim_sqlite(db_path: PathBuf, job_id: String, worker_id: String) -> Result<()> {
-        tokio::task::spawn_blocking(move || -> Result<()> {
-            let connection = open_queue_db(&db_path)?;
-            let now = Utc::now();
-            let lease_until = now
-                + chrono::Duration::from_std(STALE_WORKING_TIMEOUT)
-                    .unwrap_or_else(|_| chrono::Duration::minutes(5));
-            connection.execute(
-                "UPDATE lesson_queue
-                 SET claimed_at = ?2,
-                     lease_until = ?3
-                 WHERE job_id = ?1 AND status = 'working' AND claimed_by = ?4",
-                params![
-                    job_id,
-                    now.to_rfc3339(),
-                    lease_until.to_rfc3339(),
-                    worker_id
-                ],
-            )?;
-            Ok(())
-        })
-        .await
-        .map_err(|err| anyhow!(err))?
-    }
-
-    fn spawn_sqlite_claim_heartbeat(
-        db_path: PathBuf,
-        job_id: String,
-        worker_id: String,
-    ) -> (oneshot::Sender<()>, tokio::task::JoinHandle<()>) {
-        let (stop_tx, mut stop_rx) = oneshot::channel();
-        let handle = tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = &mut stop_rx => break,
-                    _ = tokio::time::sleep(CLAIM_HEARTBEAT_INTERVAL) => {
-                        if let Err(err) = Self::touch_claim_sqlite(db_path.clone(), job_id.clone(), worker_id.clone()).await {
-                            warn!("AI Tutor SQLite queue heartbeat failed for {}: {}", job_id, err);
-                        }
-                    }
-                }
-            }
-        });
-        (stop_tx, handle)
     }
 
     fn spawn_file_claim_heartbeat(
@@ -1041,12 +510,6 @@ fn release_claimed_path(path: &Path) -> PathBuf {
     } else {
         path.to_path_buf()
     }
-}
-
-fn parse_rfc3339_utc(value: &str) -> Option<DateTime<Utc>> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .ok()
-        .map(|parsed| parsed.with_timezone(&Utc))
 }
 
 fn retry_backoff(attempt: u32) -> chrono::Duration {
@@ -1102,50 +565,4 @@ pub fn spawn_one_shot_queue_kick(
             }
         }
     });
-}
-
-fn open_queue_db(path: &Path) -> Result<Connection> {
-    let connection = Connection::open(path)?;
-    connection.busy_timeout(Duration::from_secs(2))?;
-    connection.execute_batch(
-        "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = NORMAL;
-         CREATE TABLE IF NOT EXISTS lesson_queue (
-            job_id TEXT PRIMARY KEY,
-            payload_json TEXT NOT NULL,
-            status TEXT NOT NULL,
-            queued_at TEXT NOT NULL,
-            available_at TEXT NOT NULL,
-            claimed_at TEXT,
-            claimed_by TEXT,
-            lease_until TEXT
-        );",
-    )?;
-    ensure_queue_column_exists(&connection, "claimed_by", "TEXT")?;
-    ensure_queue_column_exists(&connection, "lease_until", "TEXT")?;
-    Ok(connection)
-}
-
-fn ensure_queue_column_exists(
-    connection: &Connection,
-    column: &str,
-    column_type: &str,
-) -> Result<()> {
-    let mut statement = connection.prepare("PRAGMA table_info(lesson_queue)")?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        let name: String = row.get(1)?;
-        if name == column {
-            return Ok(());
-        }
-    }
-
-    connection.execute(
-        &format!(
-            "ALTER TABLE lesson_queue ADD COLUMN {} {}",
-            column, column_type
-        ),
-        [],
-    )?;
-    Ok(())
 }

@@ -8,7 +8,7 @@ Operate and recover the async lesson queue worker in production with predictable
 
 - Backend service: AI-Tutor-Backend
 - Queue path: async lesson generation and retries
-- Storage modes: filesystem with optional SQLite/Postgres-backed metadata
+- Storage modes: filesystem (dev) or Redis (production) queue, with PostgreSQL metadata
 
 ## Required environment
 

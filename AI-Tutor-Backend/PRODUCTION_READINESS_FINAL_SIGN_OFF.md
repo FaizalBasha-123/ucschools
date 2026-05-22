@@ -366,10 +366,10 @@ Poll `/api/system/status` and `/api/system/ops-gate` every 60 seconds:
 
 ### 6.2 Queue Durability
 
-**Current State**: File-backed job queue (SQLite optional)  
+**Current State**: Redis-backed job queue  
 **Limitation**: No distributed consensus during region failover  
 **Benefit**: Simple to understand, debug, operate  
-**Recommendation**: Use SQLite backend in production for better durability  
+**Recommendation**: Use Redis backend in production (already configured)  
 
 ### 6.3 Asset Storage
 
@@ -416,7 +416,7 @@ If `system_status.queue_stale_leases > 0`:
 
 ```bash
 # Check which leases are stale (>5 min old)
-ls -la $AI_TUTOR_QUEUE_DB_PATH/working/  # or check SQLite if using
+ls -la $AI_TUTOR_STORAGE_ROOT/lesson-queue/  # file-based queue directory (development only)
 
 # Mark stale jobs as failed (queue worker will retry on next poll)
 # OR manually restart affected instance:

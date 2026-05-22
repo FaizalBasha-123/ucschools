@@ -84,8 +84,8 @@ use ai_tutor_providers::{
 };
 use ai_tutor_routing::routing_rules;
 use ai_tutor_runtime::session::{
-    lesson_playback_events,
-    ActionAckPolicy, PlaybackEvent, TutorStreamEvent,
+    action_execution_metadata_for_name, lesson_playback_events,
+    ActionAckPolicy, PlaybackEvent, TutorEventKind, TutorStreamEvent, TutorTurnStatus,
 };
 use ai_tutor_storage::{
     filesystem::FileStorage,
@@ -11429,15 +11429,15 @@ fn derive_ops_gate(status: &SystemStatusResponse) -> OpsGateResponse {
         format!("asset_backend={}", status.asset_backend),
     );
     add_check(
-        "queue_backend_sqlite",
+        "queue_backend_ready",
         strict,
-        status.queue_backend == "sqlite",
+        !status.queue_backend.is_empty() && status.queue_backend != "unknown",
         format!("queue_backend={}", status.queue_backend),
     );
     add_check(
-        "runtime_backend_sqlite",
+        "runtime_backend_ready",
         strict,
-        status.runtime_session_backend == "sqlite",
+        !status.runtime_session_backend.is_empty() && status.runtime_session_backend != "unknown",
         format!("runtime_session_backend={}", status.runtime_session_backend),
     );
     let explicit_worker_id = std::env::var("AI_TUTOR_QUEUE_WORKER_ID")
@@ -12033,7 +12033,7 @@ mod tests {
             _reason: &str,
         ) -> Result<CreditBalanceResponse> {
             self.credit_balance
-                .read()
+                .lock()
                 .unwrap()
                 .clone()
                 .ok_or_else(|| anyhow!("missing credit balance response"))
@@ -12188,7 +12188,7 @@ mod tests {
                 Ok(true)
             }
 
-            async fn adjust_user_credits(&self, account_id: &str, amount: f64, reason: &str) -> Result<AdjustCreditsResponse> {
+            async fn adjust_user_credits(&self, account_id: &str, amount: f64, _reason: &str) -> Result<AdjustCreditsResponse> {
                 let kind = if amount > 0.0 { CreditEntryKind::Grant } else { CreditEntryKind::Debit };
                 Ok(AdjustCreditsResponse {
                     account_id: account_id.to_string(),
@@ -12196,6 +12196,18 @@ mod tests {
                     amount: amount.abs(),
                     kind,
                 })
+            }
+
+            async fn handle_google_account_auth(&self, _claims: GoogleIdTokenClaims) -> Result<AuthSessionResponse> {
+                self.auth_session_response
+                    .lock()
+                    .unwrap()
+                    .clone()
+                    .ok_or_else(|| anyhow!("missing auth session response"))
+            }
+
+            async fn delete_lesson_shelf_item(&self, _account_id: &str, _item_id: &str) -> Result<()> {
+                Ok(())
             }
 
             async fn get_api_usage_costs(&self, _days: Option<i64>) -> Result<OperatorApiCostsResponse> {
@@ -12238,6 +12250,8 @@ mod tests {
                     id: "mock-school".to_string(),
                     name: payload.name,
                     operator_email: payload.operator_email,
+                    institution_type: payload.institution_type.clone().unwrap_or_else(|| "school".to_string()),
+                    description: payload.description.clone(),
                     plan: payload.plan.unwrap_or_else(|| "free".to_string()),
                     credit_pool: 0.0,
                     member_count: 0,
@@ -12305,6 +12319,8 @@ mod tests {
                     archived_at: None,
                     thumbnail_url: None,
                     failure_reason: None,
+                    group_id: None,
+                    is_shared: false,
                     created_at: chrono::Utc::now().to_rfc3339(),
                     updated_at: chrono::Utc::now().to_rfc3339(),
                 }],
@@ -12332,6 +12348,8 @@ mod tests {
                 archived_at: None,
                 thumbnail_url: None,
                 failure_reason: None,
+                group_id: None,
+                is_shared: false,
                 created_at: chrono::Utc::now().to_rfc3339(),
                 updated_at: chrono::Utc::now().to_rfc3339(),
             })
@@ -12355,6 +12373,8 @@ mod tests {
                 archived_at: Some(chrono::Utc::now().to_rfc3339()),
                 thumbnail_url: None,
                 failure_reason: None,
+                group_id: None,
+                is_shared: false,
                 created_at: chrono::Utc::now().to_rfc3339(),
                 updated_at: chrono::Utc::now().to_rfc3339(),
             })
@@ -12378,6 +12398,8 @@ mod tests {
                 archived_at: None,
                 thumbnail_url: None,
                 failure_reason: None,
+                group_id: None,
+                is_shared: false,
                 created_at: chrono::Utc::now().to_rfc3339(),
                 updated_at: chrono::Utc::now().to_rfc3339(),
             })
@@ -12401,6 +12423,8 @@ mod tests {
                 archived_at: None,
                 thumbnail_url: None,
                 failure_reason: None,
+                group_id: None,
+                is_shared: false,
                 created_at: chrono::Utc::now().to_rfc3339(),
                 updated_at: chrono::Utc::now().to_rfc3339(),
             })
@@ -12425,6 +12449,8 @@ mod tests {
                 archived_at: None,
                 thumbnail_url: None,
                 failure_reason: None,
+                group_id: None,
+                is_shared: false,
                 created_at: chrono::Utc::now().to_rfc3339(),
                 updated_at: chrono::Utc::now().to_rfc3339(),
             })
@@ -12919,6 +12945,8 @@ mod tests {
             quality_mode: None,
             learning_mode: None,
             precharged_credits: None,
+            pdf_images: vec![],
+            extra_scenes_consented: false,
             };        let now = Utc::now();
         LessonGenerationJob {
             id: "job-1".to_string(),
@@ -13185,6 +13213,7 @@ mod tests {
         ));
         let queue = Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
         let telemetry = Arc::new(TelemetryService::new(Arc::clone(&storage) as Arc<dyn ApiUsageRepository>));
+        let runtime_sessions: Arc<dyn RuntimeSessionRepository> = Arc::clone(&storage) as Arc<dyn RuntimeSessionRepository>;
         Arc::new(LiveLessonAppService::new(
             storage,
             asset_store,
@@ -13195,21 +13224,19 @@ mod tests {
             Arc::new(DefaultTtsProviderFactory::new((*provider_config).clone())),
             Arc::new(DefaultAsrProviderFactory::new((*provider_config).clone())),
             queue,
+            runtime_sessions,
+            None,
             telemetry,
             "http://localhost:8099".to_string(),
         ))
     }
 
     fn build_live_service_with_fakes(storage: Arc<FileStorage>) -> Arc<dyn LessonAppService> {
-        build_live_service_with_fakes_and_queue(
-            storage,
-            std::env::var("AI_TUTOR_QUEUE_DB_PATH").ok(),
-        )
+        build_live_service_with_fakes_and_queue(storage)
     }
 
     fn build_live_service_with_fakes_and_queue(
         storage: Arc<FileStorage>,
-        queue_db_path: Option<String>,
     ) -> Arc<dyn LessonAppService> {
         std::env::set_var("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL", "openai:gpt-4o-mini");
         std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL", "openai:gpt-4o-mini");
@@ -13244,16 +13271,12 @@ mod tests {
             storage.root_dir().join("assets"),
             "http://localhost:8099/assets",
         ));
-        let queue: Arc<dyn LessonQueue> = match queue_db_path {
-            Some(db_path) => Arc::new(FileBackedLessonQueue::with_queue_db(
-                Arc::clone(&storage),
-                db_path,
-            )),
-            None => Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage))),
-        };
+        let queue: Arc<dyn LessonQueue> =
+            Arc::new(FileBackedLessonQueue::new(Arc::clone(&storage)));
         let telemetry = Arc::new(TelemetryService::new(
             Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
         ));
+        let runtime_sessions: Arc<dyn RuntimeSessionRepository> = Arc::clone(&storage) as Arc<dyn RuntimeSessionRepository>;
         Arc::new(
             LiveLessonAppService::new(
                 storage,
@@ -13265,6 +13288,8 @@ mod tests {
                 Arc::new(FakeTtsProviderFactory),
                 Arc::new(FakeAsrProviderFactory),
                 queue,
+                runtime_sessions,
+                None,
                 telemetry,
                 "http://localhost:8099".to_string(),
             ),
@@ -13297,6 +13322,7 @@ mod tests {
         let telemetry = Arc::new(TelemetryService::new(
             Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
         ));
+        let runtime_sessions: Arc<dyn RuntimeSessionRepository> = Arc::clone(&storage) as Arc<dyn RuntimeSessionRepository>;
         Arc::new(LiveLessonAppService::new(
             storage,
             asset_store,
@@ -13314,6 +13340,8 @@ mod tests {
             Arc::new(FakeTtsProviderFactory),
             Arc::new(FakeAsrProviderFactory),
             queue,
+            runtime_sessions,
+            None,
             telemetry,
             "http://localhost:8099".to_string(),
         ))
@@ -13345,6 +13373,7 @@ mod tests {
         let telemetry = Arc::new(TelemetryService::new(
             Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
         ));
+        let runtime_sessions: Arc<dyn RuntimeSessionRepository> = Arc::clone(&storage) as Arc<dyn RuntimeSessionRepository>;
         Arc::new(LiveLessonAppService::new(
             storage,
             asset_store,
@@ -13355,6 +13384,8 @@ mod tests {
             Arc::new(FakeTtsProviderFactory),
             Arc::new(FakeAsrProviderFactory),
             queue,
+            runtime_sessions,
+            None,
             telemetry,
             "http://localhost:8099".to_string(),
         ))
@@ -13386,6 +13417,7 @@ mod tests {
         let telemetry = Arc::new(TelemetryService::new(
             Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
         ));
+        let runtime_sessions: Arc<dyn RuntimeSessionRepository> = Arc::clone(&storage) as Arc<dyn RuntimeSessionRepository>;
         Arc::new(LiveLessonAppService::new(
             storage,
             asset_store,
@@ -13396,6 +13428,8 @@ mod tests {
             Arc::new(FakeTtsProviderFactory),
             Arc::new(FakeAsrProviderFactory),
             queue,
+            runtime_sessions,
+            None,
             telemetry,
             "http://localhost:8099".to_string(),
         ))
@@ -13428,6 +13462,7 @@ mod tests {
         let telemetry = Arc::new(TelemetryService::new(
             Arc::clone(&storage) as Arc<dyn ApiUsageRepository>
         ));
+        let runtime_sessions: Arc<dyn RuntimeSessionRepository> = Arc::clone(&storage) as Arc<dyn RuntimeSessionRepository>;
         Arc::new(LiveLessonAppService::new(
             storage,
             asset_store,
@@ -13438,6 +13473,8 @@ mod tests {
             Arc::new(FakeTtsProviderFactory),
             Arc::new(FakeAsrProviderFactory),
             queue,
+            runtime_sessions,
+            None,
             telemetry,
             "http://localhost:8099".to_string(),
         ))
@@ -14309,34 +14346,9 @@ mod tests {
 
 
     #[tokio::test]
-    async fn live_service_system_status_reports_sqlite_backends_and_queue_depth() {
+    async fn live_service_system_status_reports_backends_and_queue_depth() {
         let root = temp_root();
-        let lesson_db_path = root.join("runtime").join("lessons.db");
-        let runtime_db_path = root.join("runtime").join("runtime-sessions.db");
-        let queue_db_path = root.join("runtime").join("lesson-queue.db");
-        let job_db_path = root.join("runtime").join("lesson-jobs.db");
-        let previous_lesson_db = std::env::var("AI_TUTOR_LESSON_DB_PATH").ok();
-        let previous_queue_db = std::env::var("AI_TUTOR_QUEUE_DB_PATH").ok();
-        let previous_job_db = std::env::var("AI_TUTOR_JOB_DB_PATH").ok();
-        std::env::set_var(
-            "AI_TUTOR_LESSON_DB_PATH",
-            lesson_db_path.to_string_lossy().to_string(),
-        );
-        std::env::set_var(
-            "AI_TUTOR_QUEUE_DB_PATH",
-            queue_db_path.to_string_lossy().to_string(),
-        );
-        std::env::set_var(
-            "AI_TUTOR_JOB_DB_PATH",
-            job_db_path.to_string_lossy().to_string(),
-        );
-        let storage = Arc::new(FileStorage::with_databases(
-            &root,
-            Some(lesson_db_path),
-            Some(runtime_db_path.clone()),
-            Some(job_db_path),
-            None,
-        ));
+        let storage = Arc::new(FileStorage::new(&root));
         let service = build_live_service_with_fakes(Arc::clone(&storage));
 
         let request = build_generation_request(GenerateLessonPayload {
@@ -14354,6 +14366,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
         let job = build_queued_job(
@@ -14362,7 +14376,7 @@ mod tests {
             chrono::Utc::now(),
         );
         storage.create_job(&job).await.unwrap();
-        FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path)
+        FileBackedLessonQueue::new(Arc::clone(&storage))
             .enqueue(&QueuedLessonRequest {
                 lesson_id: "lesson-system-status".to_string(),
                 job,
@@ -14379,26 +14393,10 @@ mod tests {
 
         let status = service.get_system_status().await.unwrap();
 
-        if let Some(value) = previous_lesson_db {
-            std::env::set_var("AI_TUTOR_LESSON_DB_PATH", value);
-        } else {
-            std::env::remove_var("AI_TUTOR_LESSON_DB_PATH");
-        }
-        if let Some(value) = previous_queue_db {
-            std::env::set_var("AI_TUTOR_QUEUE_DB_PATH", value);
-        } else {
-            std::env::remove_var("AI_TUTOR_QUEUE_DB_PATH");
-        }
-        if let Some(value) = previous_job_db {
-            std::env::set_var("AI_TUTOR_JOB_DB_PATH", value);
-        } else {
-            std::env::remove_var("AI_TUTOR_JOB_DB_PATH");
-        }
-
-        assert_eq!(status.queue_backend, "sqlite");
-        assert_eq!(status.lesson_backend, "sqlite");
-        assert_eq!(status.job_backend, "sqlite");
-        assert_eq!(status.runtime_session_backend, "sqlite");
+        assert_eq!(status.queue_backend, "filesystem");
+        assert_eq!(status.lesson_backend, "postgres");
+        assert_eq!(status.job_backend, "postgres");
+        assert_eq!(status.runtime_session_backend, "postgres");
         assert_eq!(status.asset_backend, "local");
         assert_eq!(status.queue_pending_jobs, 1);
         assert_eq!(status.queue_active_leases, 0);
@@ -14412,17 +14410,11 @@ mod tests {
     #[tokio::test]
     async fn live_service_system_status_reports_queue_active_and_stale_leases() {
         let root = temp_root();
-        let queue_db_path = root.join("runtime").join("lesson-queue.db");
-        let previous_queue_db = std::env::var("AI_TUTOR_QUEUE_DB_PATH").ok();
         let previous_stale_timeout_ms = std::env::var("AI_TUTOR_QUEUE_STALE_TIMEOUT_MS").ok();
-        std::env::set_var(
-            "AI_TUTOR_QUEUE_DB_PATH",
-            queue_db_path.to_string_lossy().to_string(),
-        );
         std::env::set_var("AI_TUTOR_QUEUE_STALE_TIMEOUT_MS", "300000");
         let storage = Arc::new(FileStorage::new(&root));
         let service = build_live_service_with_fakes(Arc::clone(&storage));
-        let queue = FileBackedLessonQueue::with_queue_db(Arc::clone(&storage), &queue_db_path);
+        let queue = FileBackedLessonQueue::new(Arc::clone(&storage));
         let request = build_generation_request(GenerateLessonPayload {
             requirement: "Teach fractions".to_string(),
             language: Some("en-US".to_string()),
@@ -14438,6 +14430,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
 
@@ -14447,7 +14441,6 @@ mod tests {
             chrono::Utc::now(),
         );
         storage.create_job(&active_job).await.unwrap();
-        println!("DEBUG: Enqueuing job {}", active_job.id);
         queue
             .enqueue(&QueuedLessonRequest {
                 lesson_id: "lesson-system-status-active-lease".to_string(),
@@ -14462,13 +14455,9 @@ mod tests {
             })
             .await
             .unwrap();
-        let _ = FileBackedLessonQueue::claim_next_sqlite(
-            queue_db_path.clone(),
-            "status-worker-active-lease".to_string(),
-        )
-        .await
-        .unwrap()
-        .expect("active lease should be claimed");
+        // Simulate active lease by creating a .working file
+        let active_working = queue.queue_dir().join("job-system-status-active-lease.json.working");
+        tokio::fs::write(&active_working, "claimed").await.unwrap();
 
         let stale_job = build_queued_job(
             "job-system-status-stale-lease".to_string(),
@@ -14476,7 +14465,6 @@ mod tests {
             chrono::Utc::now(),
         );
         storage.create_job(&stale_job).await.unwrap();
-        println!("DEBUG: Enqueuing job {}", stale_job.id);
         queue
             .enqueue(&QueuedLessonRequest {
                 lesson_id: "lesson-system-status-stale-lease".to_string(),
@@ -14491,42 +14479,18 @@ mod tests {
             })
             .await
             .unwrap();
-        let _ = FileBackedLessonQueue::claim_next_sqlite(
-            queue_db_path.clone(),
-            "status-worker-stale-lease".to_string(),
-        )
-        .await
-        .unwrap()
-        .expect("stale lease should be claimed");
-
-        tokio::task::spawn_blocking({
-            let db_path = queue_db_path.clone();
-            let stale_id = stale_job.id.clone();
-            move || -> anyhow::Result<()> {
-                let connection = rusqlite::Connection::open(db_path)?;
-                connection.execute(
-                    "UPDATE lesson_queue
-                     SET lease_until = ?2
-                     WHERE job_id = ?1",
-                    rusqlite::params![
-                        stale_id,
-                        (chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339()
-                    ],
-                )?;
-                Ok(())
-            }
-        })
-        .await
-        .unwrap()
-        .unwrap();
+        // Simulate stale lease by creating a .working file with old mtime
+        let stale_working = queue.queue_dir().join("job-system-status-stale-lease.json.working");
+        tokio::fs::write(&stale_working, "claimed").await.unwrap();
+        // Set mtime to 10 minutes ago to simulate a stale lease
+        let stale_mtime = filetime::FileTime::from_unix_time(
+            (chrono::Utc::now() - chrono::Duration::minutes(10)).timestamp(),
+            0,
+        );
+        filetime::set_file_mtime(&stale_working, stale_mtime).unwrap();
 
         let status = service.get_system_status().await.unwrap();
 
-        if let Some(value) = previous_queue_db {
-            std::env::set_var("AI_TUTOR_QUEUE_DB_PATH", value);
-        } else {
-            std::env::remove_var("AI_TUTOR_QUEUE_DB_PATH");
-        }
         if let Some(value) = previous_stale_timeout_ms {
             std::env::set_var("AI_TUTOR_QUEUE_STALE_TIMEOUT_MS", value);
         } else {
@@ -14626,6 +14590,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
 
@@ -15430,6 +15396,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
 
@@ -15487,6 +15455,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
 
@@ -16664,10 +16634,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn live_service_reads_persisted_lesson_from_sqlite_storage() {
+    async fn live_service_reads_persisted_lesson_from_storage() {
         let root = temp_root();
-        let lesson_db_path = root.join("runtime").join("lessons.db");
-        let storage = Arc::new(FileStorage::with_lesson_db(&root, &lesson_db_path));
+        let storage = Arc::new(FileStorage::new(&root));
         let lesson = sample_lesson();
 
         storage.save_lesson(&lesson).await.unwrap();
@@ -16683,7 +16652,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(lesson_response.status(), StatusCode::OK);
-        assert!(lesson_db_path.exists());
     }
 
     #[tokio::test]
@@ -16752,6 +16720,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
 
@@ -16862,6 +16832,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
 
@@ -16958,6 +16930,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
 
@@ -17042,6 +17016,8 @@ mod tests {
             learning_mode: None,
             school_id: None,
             precharged_credits: None,
+            pdf_images: vec![],
+            extra_scenes_consented: false,
         };
         let job = LessonGenerationJob {
             id: "job-stale".to_string(),
@@ -17111,6 +17087,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
         let job = build_queued_job("job-cancel-live".to_string(), &request, chrono::Utc::now());
@@ -17175,6 +17153,8 @@ mod tests {
             account_id: None,
             quality_mode: None,
             learning_mode: None,
+            enable_web_search: None,
+            extra_scenes_consented: false,
         })
         .unwrap();
         let now = chrono::Utc::now();

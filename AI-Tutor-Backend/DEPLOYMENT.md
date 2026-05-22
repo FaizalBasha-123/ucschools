@@ -25,9 +25,9 @@ This guide covers deploying AI-Tutor with the new **pedagogy-aware model routing
 
 ### 2. Database Setup
 
-- [ ] Initialize persistent storage (one of):
-  - SQLite: Set `AI_TUTOR_LESSON_DB_PATH`, `AI_TUTOR_RUNTIME_DB_PATH`, etc.
-  - PostgreSQL/Neon: Set `AI_TUTOR_POSTGRES_URL` with `sslmode=require`
+- [ ] Initialize persistent storage:
+  - **PostgreSQL**: Set `AI_TUTOR_POSTGRES_URL` with `sslmode=require`
+  - **Redis**: Set `AI_TUTOR_REDIS_URL` (queue + runtime sessions)
 - [ ] Run schema migrations automatically on first API startup
 - [ ] Verify database connectivity: Call `/api/health` and check response
 
@@ -106,7 +106,7 @@ This guide covers deploying AI-Tutor with the new **pedagogy-aware model routing
 
 ### 10. Backup & Disaster Recovery
 
-- [ ] Set up daily backups of persistent storage (SQLite/Postgres + R2 assets)
+- [ ] Set up daily backups of persistent storage (PostgreSQL + R2 assets)
 - [ ] Document recovery procedure: restore DB, restart API, verify SSE stream
 - [ ] Test backup restoration in staging environment
 

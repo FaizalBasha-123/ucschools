@@ -1482,6 +1482,11 @@ mod tests {
         async fn get_lesson(&self, lesson_id: &str) -> std::result::Result<Option<Lesson>, String> {
             Ok(self.lessons.lock().unwrap().get(lesson_id).cloned())
         }
+
+        async fn delete_lesson(&self, lesson_id: &str) -> std::result::Result<(), String> {
+            self.lessons.lock().unwrap().remove(lesson_id);
+            Ok(())
+        }
     }
 
     #[derive(Default)]
@@ -1544,6 +1549,10 @@ mod tests {
                 .take(limit)
                 .cloned()
                 .collect())
+        }
+
+        async fn delete_jobs_by_lesson(&self, _lesson_id: &str) -> std::result::Result<(), String> {
+            Ok(())
         }
     }
 

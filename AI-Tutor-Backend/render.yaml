@@ -35,14 +35,6 @@ services:
         value: "10000"
       - key: AI_TUTOR_STORAGE_ROOT
         value: "/tmp/ai-tutor"
-      - key: AI_TUTOR_LESSON_DB_PATH
-        value: "/tmp/ai-tutor/runtime/lessons.db"
-      - key: AI_TUTOR_RUNTIME_DB_PATH
-        value: "/tmp/ai-tutor/runtime/runtime-sessions.db"
-      - key: AI_TUTOR_JOB_DB_PATH
-        value: "/tmp/ai-tutor/runtime/lesson-jobs.db"
-      - key: AI_TUTOR_QUEUE_DB_PATH
-        value: "/tmp/ai-tutor/runtime/lesson-queue.db"
       - key: AI_TUTOR_ASSET_TTL_HOURS
         value: "24"
       - key: AI_TUTOR_JOB_TTL_HOURS
