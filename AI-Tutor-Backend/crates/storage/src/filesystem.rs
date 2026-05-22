@@ -698,9 +698,6 @@ pub struct ConnectionMetrics {
 impl FileStorage {
     pub fn with_databases(
         root: impl Into<PathBuf>,
-        _lesson_db_path: Option<PathBuf>,
-        _runtime_db_path: Option<PathBuf>,
-        _job_db_path: Option<PathBuf>,
         postgres_url: Option<String>,
     ) -> Self {
         Self {
@@ -708,6 +705,14 @@ impl FileStorage {
             postgres_url: postgres_url.expect("AI_TUTOR_POSTGRES_URL is required"),
             postgres_ready: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub fn new(root: impl Into<PathBuf>) -> Self {
+        let postgres_url = std::env::var("AI_TUTOR_POSTGRES_URL")
+            .ok()
+            .or_else(|| std::env::var("AI_TUTOR_NEON_DATABASE_URL").ok())
+            .expect("AI_TUTOR_POSTGRES_URL is required for FileStorage");
+        Self::with_databases(root, Some(postgres_url))
     }
 
     fn ensure_postgres_ready_blocking(
@@ -4465,7 +4470,8 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
 
 #[cfg(test)]
 mod tests {
-    use PathBuf;
+    use std::path::PathBuf;
+    use std::time::SystemTime;
 
     use chrono::{Duration as ChronoDuration, Utc};
     use tokio::runtime::Runtime;
@@ -4499,6 +4505,30 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    fn sample_request() -> LessonGenerationRequest {
+        LessonGenerationRequest {
+            requirements: UserRequirements {
+                requirement: "Teach me fractions".to_string(),
+                language: Language::EnUs,
+                user_nickname: None,
+                user_bio: None,
+            },
+            pdf_content: None,
+            pdf_images: vec![],
+            enable_image_generation: false,
+            enable_video_generation: false,
+            enable_tts: false,
+            agent_mode: AgentMode::Default,
+            account_id: None,
+            school_id: None,
+            quality_mode: None,
+            learning_mode: None,
+            precharged_credits: None,
+            enable_web_search: false,
+            extra_scenes_consented: false,
+        }
     }
 
     #[test]
@@ -4541,65 +4571,11 @@ mod tests {
     }
 
     #[test]
-    fn saves_and_reads_lesson_from_sqlite() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let root = temp_root();
-            let db_path = root.join("runtime").join("lessons.db");
-            let storage = FileStorage::with_lesson_db(&root, &db_path);
-            let now = Utc::now();
-            let lesson = Lesson {
-                id: "lesson-sqlite-1".to_string(),
-                account_id: None,
-                school_id: None,
-                title: "Fractions".to_string(),
-                language: "en-US".to_string(),
-                description: Some("Understand fractions".to_string()),
-                stage: None,
-                scenes: vec![],
-                style: Some("interactive".to_string()),
-                agent_ids: vec![],
-                created_at: now,
-                updated_at: now,
-            };
-
-            storage.save_lesson(&lesson).await.unwrap();
-            let loaded = storage
-                .get_lesson("lesson-sqlite-1")
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(loaded.id, lesson.id);
-            assert_eq!(loaded.title, lesson.title);
-            assert!(db_path.exists());
-        });
-    }
-
-    #[test]
     fn marks_stale_running_job_as_failed_on_read() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
             let storage = FileStorage::new(temp_root());
-            let req = LessonGenerationRequest {
-                requirements: UserRequirements {
-                    requirement: "Teach me fractions".to_string(),
-                    language: Language::EnUs,
-                    user_nickname: None,
-                    user_bio: None,
-
-                },
-                pdf_content: None,
-
-                enable_image_generation: false,
-                enable_video_generation: false,
-                enable_tts: false,
-                agent_mode: AgentMode::Default,
-                account_id: None,
-                school_id: None,
-                quality_mode: None,
-                learning_mode: None,
-                precharged_credits: None,
-            };
+            let req = sample_request();
             let stale_time = Utc::now() - ChronoDuration::minutes(31);
             let job = LessonGenerationJob {
                 id: "job-1".to_string(),
@@ -4653,35 +4629,6 @@ mod tests {
     }
 
     #[test]
-    fn saves_and_reads_runtime_session_state_from_sqlite() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let root = temp_root();
-            let db_path = root.join("runtime").join("runtime-sessions.db");
-            let storage = FileStorage::with_runtime_db(&root, &db_path);
-            let state = DirectorState {
-                turn_count: 3,
-                agent_responses: vec![],
-                whiteboard_ledger: vec![],
-                whiteboard_state: None,
-            };
-
-            storage
-                .save_runtime_session("session-sqlite", &state)
-                .await
-                .unwrap();
-            let loaded = storage
-                .get_runtime_session("session-sqlite")
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(loaded.turn_count, 3);
-            assert!(!storage.runtime_session_path("session-sqlite").exists());
-            assert!(db_path.exists());
-        });
-    }
-
-    #[test]
     fn saves_and_reads_runtime_action_execution_state() {
         let rt = Runtime::new().unwrap();
         rt.block_on(async {
@@ -4714,99 +4661,6 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(listed.len(), 1);
-        });
-    }
-
-    #[test]
-    fn saves_and_reads_runtime_action_execution_state_from_sqlite() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let root = temp_root();
-            let db_path = root.join("runtime").join("runtime-actions.db");
-            let storage = FileStorage::with_runtime_db(&root, &db_path);
-            let record = RuntimeActionExecutionRecord {
-                session_id: "session-sqlite".to_string(),
-                runtime_session_mode: "managed_runtime_session".to_string(),
-                execution_id: "exec-sqlite".to_string(),
-                action_name: "wb_draw_text".to_string(),
-                status: RuntimeActionExecutionStatus::Accepted,
-                created_at_unix_ms: 1_700_000_000_000,
-                updated_at_unix_ms: 1_700_000_000_500,
-                timeout_at_unix_ms: 1_700_000_015_000,
-                last_error: None,
-            };
-
-            storage
-                .save_runtime_action_execution(&record)
-                .await
-                .unwrap();
-            let loaded = storage
-                .get_runtime_action_execution("exec-sqlite")
-                .await
-                .unwrap()
-                .unwrap();
-            assert_eq!(loaded.action_name, "wb_draw_text");
-            let listed = storage
-                .list_runtime_action_executions_for_session("session-sqlite")
-                .await
-                .unwrap();
-            assert_eq!(listed.len(), 1);
-            assert!(db_path.exists());
-        });
-    }
-
-    #[test]
-    fn saves_and_reads_job_from_sqlite() {
-        let rt = Runtime::new().unwrap();
-        rt.block_on(async {
-            let root = temp_root();
-            let db_path = root.join("runtime").join("lesson-jobs.db");
-            let storage = FileStorage::with_job_db(&root, &db_path);
-            let req = LessonGenerationRequest {
-                requirements: UserRequirements {
-                    requirement: "Teach percentages".to_string(),
-                    language: Language::EnUs,
-                    user_nickname: None,
-                    user_bio: None,
-
-                },
-                pdf_content: None,
-
-                enable_image_generation: false,
-                enable_video_generation: false,
-                enable_tts: false,
-                agent_mode: AgentMode::Default,
-                account_id: None,
-                school_id: None,
-                quality_mode: None,
-                learning_mode: None,
-                precharged_credits: None,
-            };
-            let now = Utc::now();
-            let job = LessonGenerationJob {
-                id: "job-sqlite-1".to_string(),
-                account_id: None,
-                school_id: None,
-                status: LessonGenerationJobStatus::Queued,
-                step: LessonGenerationStep::Queued,
-                progress: 0,
-                message: "Queued".to_string(),
-                created_at: now,
-                updated_at: now,
-                started_at: None,
-                completed_at: None,
-                input_summary: LessonGenerationJobInputSummary::from(&req),
-                scenes_generated: 0,
-                total_scenes: None,
-                result: None,
-                error: None,
-            };
-
-            storage.create_job(&job).await.unwrap();
-            let loaded = storage.get_job("job-sqlite-1").await.unwrap().unwrap();
-            assert_eq!(loaded.id, "job-sqlite-1");
-            assert!(matches!(loaded.status, LessonGenerationJobStatus::Queued));
-            assert!(db_path.exists());
         });
     }
 
@@ -4937,10 +4791,9 @@ mod tests {
                         language: Language::EnUs,
                         user_nickname: None,
                         user_bio: None,
-    
                     },
                     pdf_content: None,
-    
+                    pdf_images: vec![],
                     enable_image_generation: false,
                     enable_video_generation: false,
                     enable_tts: false,
@@ -4950,6 +4803,8 @@ mod tests {
                     quality_mode: None,
                     learning_mode: None,
                     precharged_credits: None,
+                    enable_web_search: false,
+                    extra_scenes_consented: false,
                 },
                 model_string: Some("openai:gpt-4o-mini".to_string()),
                 max_attempts: 3,

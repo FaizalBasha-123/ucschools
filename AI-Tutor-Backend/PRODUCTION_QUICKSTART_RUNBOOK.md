@@ -316,8 +316,8 @@ curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
 # If file-backed:
 cp -r $AI_TUTOR_QUEUE_DB_PATH /backup/queue-$(date +%Y-%m-%d).db.bak
 
-# If SQLite:
-sqlite3 $AI_TUTOR_QUEUE_DB_PATH ".backup /backup/queue-$(date +%Y-%m-%d).db.bak"
+# No SQLite fallback - all persistent data is in PostgreSQL.
+# Queue state is in Redis (ephemeral - jobs are re-queued from PostgreSQL if Redis is rebuilt).
 ```
 
 **Lesson Storage** (generated lessons):
@@ -331,7 +331,8 @@ aws s3 sync s3://ai-tutor-assets /backup/assets-$(date +%Y-%m-%d)
 
 **Runtime Sessions** (student session state):
 ```bash
-sqlite3 $AI_TUTOR_RUNTIME_DB_PATH ".backup /backup/runtime-$(date +%Y-%m-%d).db.bak"
+# PostgreSQL: pg_dump for full backup
+pg_dump "$AI_TUTOR_POSTGRES_URL" > /backup/postgres-$(date +%Y-%m-%d).sql
 ```
 
 ---

@@ -8,7 +8,7 @@ Provide a deterministic response when backup validation or restore execution fai
 
 - Lesson/job/runtime metadata under `AI_TUTOR_STORAGE_ROOT`
 - Queue snapshots and runtime state files
-- SQLite databases (if enabled)
+- PostgreSQL database (primary persistent storage)
 - Postgres state (if enabled): accounts, credits, billing, subscriptions
 
 ## Backup policy baseline

@@ -9,7 +9,6 @@ async-trait.workspace = true
 ai_tutor_domain = { path = "../domain" }
 anyhow.workspace = true
 chrono.workspace = true
-rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

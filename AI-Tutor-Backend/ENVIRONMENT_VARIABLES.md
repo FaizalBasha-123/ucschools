@@ -39,14 +39,14 @@
 
 ### Database Configuration
 
-| Variable | Default | Example | Purpose |
-|----------|---------|---------|---------|
-| `AI_TUTOR_QUEUE_DB_PATH` | File-backed | `sqlite:///data/queue.db` | Job queue backend (file or SQLite) |
-| `AI_TUTOR_JOB_DB_PATH` | File-backed | `sqlite:///data/jobs.db` | Job metadata storage |
-| `AI_TUTOR_RUNTIME_DB_PATH` | File-backed | `sqlite:///data/runtime.db` | Runtime session state storage |
-| `AI_TUTOR_LESSON_DB_PATH` | File-backed | `sqlite:///data/lessons.db` | Generated lesson storage |
+| Variable | Required | Example | Purpose |
+|----------|----------|---------|---------|
+| `AI_TUTOR_POSTGRES_URL` | Yes | `postgres://user:pass@host:5432/db` | Primary persistent storage (lessons, jobs, billing, accounts) |
+| `AI_TUTOR_REDIS_URL` | Yes* | `rediss://default:pass@host:12345` | Job queue + runtime sessions (Valkey/Redis) |
 
-**Recommendation**: Use SQLite for production (higher durability than file-backed)
+*`AI_TUTOR_AIVEN_REDIS_URL` or `REDIS_URL` accepted as alternatives.
+
+**Architecture**: All persistent data (lessons, jobs, billing, accounts, runtime sessions) is stored in **PostgreSQL**. The lesson generation queue uses **Redis** (`RedisLessonQueue`). There is no SQLite — it was removed in favor of PostgreSQL + Redis for consistency and durability across all environments.
 
 ### Asset Storage Configuration
 
@@ -137,11 +137,9 @@ OPENROUTER_API_KEY="sk-or-prod-kxxxxxxxxxxxxxxxxxxxxxxxxxx"
 AI_TUTOR_PRIMARY_MODEL="openrouter:openai/gpt-4o-mini"
 AI_TUTOR_FALLBACK_MODELS="openrouter:anthropic/claude-sonnet-4-6;openai:gpt-3.5-turbo"
 
-# Database (SQLite for better durability)
-AI_TUTOR_QUEUE_DB_PATH="sqlite:///var/ai-tutor/queue.db"
-AI_TUTOR_JOB_DB_PATH="sqlite:///var/ai-tutor/jobs.db"
-AI_TUTOR_RUNTIME_DB_PATH="sqlite:///var/ai-tutor/runtime.db"
-AI_TUTOR_LESSON_DB_PATH="sqlite:///var/ai-tutor/lessons.db"
+# Database (PostgreSQL + Redis)
+AI_TUTOR_POSTGRES_URL="postgres://user:pass@host:5432/ai-tutor"
+AI_TUTOR_REDIS_URL="rediss://default:password@valkey-host:12345"
 
 # Asset Storage (Cloudflare R2)
 AI_TUTOR_ASSET_STORE="r2"
@@ -204,7 +202,7 @@ If all checks pass with `"pass": true`, your production configuration is valid.
 | CORS origins without protocol | Browser blocks requests | Use full URL: `https://yourdomain.com` |
 | HTTPS enabled but no X-Forwarded-Proto header | All requests blocked with 426 | Configure reverse proxy to add header |
 | No LLM API key set | Fallback mode (demo), lessons fail silently | Set either OPENAI or OPENROUTER key |
-| File-backed queue with multiple instances | Race conditions, lost jobs | Use SQLite backend in production |
+| File-backed queue with multiple instances | Race conditions, lost jobs | Use Redis queue in production |
 | Committing .env to git | Secrets leaked on GitHub | Add `.env` to `.gitignore` |
 | Unset `OAUTH_REDIRECT_URL` | OAuth callback fails with redirect mismatch | Must match Google Console registration |
 

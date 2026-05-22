@@ -273,9 +273,6 @@ async fn main() -> Result<()> {
 
     let storage = Arc::new(FileStorage::with_databases(
         storage_root,
-        None, // Local SQLite fallbacks removed
-        None,
-        None,
         Some(postgres_url.clone()),
     ));
     storage
