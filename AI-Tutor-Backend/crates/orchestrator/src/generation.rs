@@ -492,8 +492,6 @@ struct SlideElementDto {
     #[serde(default, alias = "chartType", alias = "chart_type")]
     chart_type: Option<String>,
     /// Raw SVG markup for kind=svg elements.
-    #[serde(default, alias = "svgContent", alias = "svg_content", alias = "svg")]
-    svg_content: Option<String>,
     /// Accessibility description for kind=svg elements.
     #[serde(default)]
     alt: Option<String>,
@@ -685,7 +683,7 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         let image_note = if request.enable_image_generation {
             "AI image gen is available but EXPENSIVE. Use \"image\" visual_type ONLY for photorealistic scenes, real-world photos, or historical artwork where no other visual type suffices."
         } else {
-            "AI image gen is DISABLED. Do NOT use \"image\" visual_type. Use svg/chart/latex/html/none instead."
+            "AI image gen is DISABLED. Do NOT use \"image\" visual_type. Use chart/latex/html/none instead."
         };
 
         let user = format!(
@@ -706,13 +704,12 @@ Rules:
 
 Visual type decision (choose ONE per slide scene, omit for quiz/pbl):
   \"none\"  → text-only (vocabulary, steps, definitions)
-  \"svg\"   → labeled diagrams (anatomy, circuits, cell structure, flow charts)
   \"chart\" → data/comparisons/statistics/percentages (bar, pie, line)
   \"latex\" → math formulas, chemical equations, physics expressions
   \"html\"  → interactive simulations (pendulum, sorting, cell cycle animation)
   \"image\" → {image_note}
 
-Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz\",\"visual_type\":\"none|svg|chart|latex|html|image\"}}]}}",
+Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz\",\"visual_type\":\"none|chart|latex|html|image\"}}]}}",
     requirement = request.requirements.requirement,
     pdf = pdf_info,
     lang = language,
@@ -1583,15 +1580,7 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             width: element.width,
             height: element.height,
         },
-        "svg" => SlideElement::Svg {
-            id,
-            left: element.left,
-            top: element.top,
-            width: element.width,
-            height: element.height,
-            svg: sanitize_svg(&element.svg_content.unwrap_or_default()),
-            alt: element.alt,
-        },
+
         _ => SlideElement::Text {
             id,
             left: element.left,
@@ -1606,7 +1595,6 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
 /// Maps a raw string from the LLM to a VisualType.
 fn map_visual_type(raw: Option<&str>) -> Option<VisualType> {
     match raw?.trim().to_ascii_lowercase().as_str() {
-        "svg"   => Some(VisualType::Svg),
         "chart" => Some(VisualType::Chart),
         "latex" => Some(VisualType::Latex),
         "html"  => Some(VisualType::Html),
@@ -1616,34 +1604,6 @@ fn map_visual_type(raw: Option<&str>) -> Option<VisualType> {
     }
 }
 
-/// Strips dangerous SVG attributes and tags before storing.
-/// Removes: script, foreignObject, use[href], onXxx event handlers.
-fn sanitize_svg(svg: &str) -> String {
-    // Fast-path: if no dangerous content, return as-is (avoids regex dependency)
-    if svg.trim().is_empty() {
-        return String::new();
-    }
-    // Strip <script> blocks
-    let mut out = svg.to_string();
-    while let Some(start) = out.to_ascii_lowercase().find("<script") {
-        if let Some(end) = out.to_ascii_lowercase()[start..].find("</script>") {
-            out.replace_range(start..start + end + 9, "");
-        } else {
-            out.replace_range(start.., "");
-            break;
-        }
-    }
-    // Strip <foreignObject> blocks
-    while let Some(start) = out.to_ascii_lowercase().find("<foreignobject") {
-        if let Some(end) = out.to_ascii_lowercase()[start..].find("</foreignobject>") {
-            out.replace_range(start..start + end + 16, "");
-        } else {
-            out.replace_range(start.., "");
-            break;
-        }
-    }
-    out
-}
 
 /// Builds a context-aware image prompt for AI image generation.
 /// Only called when the LLM explicitly chose visual_type = Image.
@@ -2311,7 +2271,6 @@ fn slide_focus_targets(content: &SceneContent) -> String {
                 SlideElement::Latex { id, latex, .. } => format!("{}:latex:{}", id, latex),
                 SlideElement::Line { id, .. } => format!("{}:line", id),
                 SlideElement::Table { id, .. } => format!("{}:table", id),
-                SlideElement::Svg { id, alt, .. } => format!("{}:svg:{}", id, alt.as_deref().unwrap_or("diagram")),
             })
             .collect::<Vec<_>>()
             .join(", "),
@@ -2414,7 +2373,6 @@ fn valid_slide_targets(content: &SceneContent) -> HashMap<String, &'static str> 
                 SlideElement::Chart { id, .. } => (id.clone(), "chart"),
                 SlideElement::Latex { id, .. } => (id.clone(), "latex"),
                 SlideElement::Table { id, .. } => (id.clone(), "table"),
-                SlideElement::Svg { id, .. } => (id.clone(), "svg"),
             })
             .collect(),
         _ => HashMap::new(),
@@ -2702,25 +2660,6 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
-            }
-        }),
-        SlideElement::Svg {
-            id,
-            left,
-            top,
-            width,
-            height,
-            svg,
-            alt,
-        } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Svg {
-                id,
-                left,
-                top,
-                width,
-                height,
-                svg,
-                alt,
             }
         }),
     }
@@ -3933,26 +3872,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn visual_type_svg_creates_no_media_generation() {
-        // When LLM says visual_type="svg", no expensive AI image should be generated.
+    async fn visual_type_chart_creates_no_media_generation() {
+        // When LLM says visual_type="chart", no AI image should be generated.
         let llm = MockLlmProvider {
             responses: Mutex::new(vec![
-                r#"{"outlines":[{"title":"Mitochondria Structure","description":"Cell powerhouse anatomy","key_points":["matrix","cristae","ATP"],"scene_type":"slide","visual_type":"svg"}]}"#.to_string(),
+                r#"{"outlines":[{"title":"Mitochondria Energy","description":"ATP production stats","key_points":["ATP","ADP","efficiency"],"scene_type":"slide","visual_type":"chart"}]}"#.to_string(),
             ]),
         };
         let pipeline = LlmGenerationPipeline::new(Box::new(llm));
         let mut request = sample_request();
-        request.enable_image_generation = true; // flag is on, but LLM chose svg not image
+        request.enable_image_generation = true;
 
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines.len(), 1);
         assert!(
             outlines[0].media_generations.is_empty(),
-            "svg visual_type must produce zero AI image requests"
+            "chart visual_type must produce zero AI image requests"
         );
         assert!(
-            matches!(outlines[0].visual_type, Some(VisualType::Svg)),
-            "visual_type must be Some(Svg)"
+            matches!(outlines[0].visual_type, Some(VisualType::Chart)),
+            "visual_type must be Some(Chart)"
         );
     }
 

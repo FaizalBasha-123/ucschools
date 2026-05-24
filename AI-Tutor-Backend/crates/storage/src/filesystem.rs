@@ -73,55 +73,83 @@ impl std::ops::DerefMut for PooledPgConnection {
     }
 }
 
-static PG_POOL: OnceLock<PgPool> = OnceLock::new();
+// Pool stored in RwLock so init is fallible - no panic on DB unreachable at startup.
+static PG_POOL: OnceLock<std::sync::RwLock<Option<PgPool>>> = OnceLock::new();
+
+/// Builds the r2d2 pool. min_idle=0 means no test connection at build time,
+/// so this always succeeds even when the DB is temporarily unreachable.
+fn build_pg_pool(url: &str) -> AnyResult<PgPool> {
+    if url.contains("sslmode=require") || url.contains("sslmode=verify-full") {
+        let tls = native_tls::TlsConnector::builder()
+            .build()
+            .map_err(|e| anyhow::anyhow!("TLS build error: {}", e))?;
+        let connector = postgres_native_tls::MakeTlsConnector::new(tls);
+        let manager = r2d2_postgres::PostgresConnectionManager::new(
+            url.parse().map_err(|e| anyhow::anyhow!("invalid postgres URL: {}", e))?,
+            connector,
+        );
+        let pool = r2d2::Pool::builder()
+            .max_size(10)
+            .min_idle(Some(0))
+            .max_lifetime(Some(Duration::from_secs(5 * 60)))
+            .idle_timeout(Some(Duration::from_secs(3 * 60)))
+            .connection_timeout(Duration::from_secs(10))
+            .build(manager)
+            .map_err(|e| anyhow::anyhow!("failed to build TLS pool: {}", e))?;
+        Ok(PgPool::Tls(pool))
+    } else {
+        let manager = r2d2_postgres::PostgresConnectionManager::new(
+            url.parse().map_err(|e| anyhow::anyhow!("invalid postgres URL: {}", e))?,
+            postgres::NoTls,
+        );
+        let pool = r2d2::Pool::builder()
+            .max_size(10)
+            .min_idle(Some(0))
+            .max_lifetime(Some(Duration::from_secs(5 * 60)))
+            .idle_timeout(Some(Duration::from_secs(3 * 60)))
+            .connection_timeout(Duration::from_secs(10))
+            .build(manager)
+            .map_err(|e| anyhow::anyhow!("failed to build NoTLS pool: {}", e))?;
+        Ok(PgPool::NoTls(pool))
+    }
+}
 
 fn get_pg_client(url: &str) -> AnyResult<PooledPgConnection> {
-    let pool = PG_POOL.get_or_init(|| {
-        let pool = if url.contains("sslmode=require") || url.contains("sslmode=verify-full") {
-            let tls = native_tls::TlsConnector::builder().build().unwrap();
-            let connector = postgres_native_tls::MakeTlsConnector::new(tls);
-            let manager = r2d2_postgres::PostgresConnectionManager::new(
-                url.parse().unwrap(),
-                connector
-            );
-            PgPool::Tls(
-                r2d2::Pool::builder()
-                    .max_size(25)
-                    .max_lifetime(Some(Duration::from_secs(5 * 60)))
-                    .idle_timeout(Some(Duration::from_secs(3 * 60)))
-                    .connection_timeout(Duration::from_secs(5))
-                    .build(manager)
-                    .unwrap()
-            )
-        } else {
-            let manager = r2d2_postgres::PostgresConnectionManager::new(
-                url.parse().unwrap(),
-                postgres::NoTls
-            );
-            PgPool::NoTls(
-                r2d2::Pool::builder()
-                    .max_size(25)
-                    .max_lifetime(Some(Duration::from_secs(5 * 60)))
-                    .idle_timeout(Some(Duration::from_secs(3 * 60)))
-                    .connection_timeout(Duration::from_secs(5))
-                    .build(manager)
-                    .unwrap()
-            )
-        };
-
-        // Run migrations once on startup
-        let mut client = match &pool {
-            PgPool::Tls(p) => PooledPgConnection::Tls(p.get().unwrap()),
-            PgPool::NoTls(p) => PooledPgConnection::NoTls(p.get().unwrap()),
-        };
-        FileStorage::run_postgres_migrations(&mut client).expect("failed to run postgres migrations");
-
-        pool
-    });
-
-    match pool {
-        PgPool::Tls(p) => Ok(PooledPgConnection::Tls(p.get()?)),
-        PgPool::NoTls(p) => Ok(PooledPgConnection::NoTls(p.get()?)),
+    let lock = PG_POOL.get_or_init(|| std::sync::RwLock::new(None));
+    // Fast path
+    {
+        let guard = lock.read().map_err(|_| anyhow::anyhow!("pg pool lock poisoned"))?;
+        if let Some(pool) = guard.as_ref() {
+            return match pool {
+                PgPool::Tls(p) => Ok(PooledPgConnection::Tls(p.get()?)),
+                PgPool::NoTls(p) => Ok(PooledPgConnection::NoTls(p.get()?)),
+            };
+        }
+    }
+    // Slow path: build pool once
+    {
+        let mut guard = lock.write().map_err(|_| anyhow::anyhow!("pg pool lock poisoned"))?;
+        if guard.is_none() {
+            tracing::info!("Initializing Postgres pool...");
+            let pool = build_pg_pool(url)?;
+            let mut client = match &pool {
+                PgPool::Tls(p) => PooledPgConnection::Tls(
+                    p.get().map_err(|e| anyhow::anyhow!("migration connect: {}", e))?
+                ),
+                PgPool::NoTls(p) => PooledPgConnection::NoTls(
+                    p.get().map_err(|e| anyhow::anyhow!("migration connect: {}", e))?
+                ),
+            };
+            FileStorage::run_postgres_migrations(&mut client)
+                .map_err(|e| anyhow::anyhow!("postgres migrations: {}", e))?;
+            tracing::info!("Postgres pool ready.");
+            *guard = Some(pool);
+        }
+        let pool = guard.as_ref().expect("pool set above");
+        match pool {
+            PgPool::Tls(p) => Ok(PooledPgConnection::Tls(p.get()?)),
+            PgPool::NoTls(p) => Ok(PooledPgConnection::NoTls(p.get()?)),
+        }
     }
 }
 
@@ -720,9 +748,27 @@ impl FileStorage {
         if postgres_ready.load(Ordering::Acquire) {
             return Ok(());
         }
-        let _client = get_pg_client(postgres_url).map_err(|err| err.to_string())?;
-        postgres_ready.store(true, Ordering::Release);
-        Ok(())
+        // Retry with back-off to handle Neon cold-start and transient failures
+        let mut last_err = String::new();
+        for attempt in 1..=5u32 {
+            match get_pg_client(postgres_url) {
+                Ok(_) => {
+                    postgres_ready.store(true, Ordering::Release);
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_err = e.to_string();
+                    tracing::warn!(
+                        "Postgres not ready (attempt {}/5): {}. Retrying in 2s...",
+                        attempt, last_err
+                    );
+                    if attempt < 5 {
+                        std::thread::sleep(Duration::from_secs(2));
+                    }
+                }
+            }
+        }
+        Err(format!("Postgres unreachable after 5 attempts: {}", last_err))
     }
 
     pub async fn ensure_postgres_ready(&self) -> Result<(), String> {
