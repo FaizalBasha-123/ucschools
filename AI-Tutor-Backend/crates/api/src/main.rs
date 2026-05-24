@@ -271,10 +271,13 @@ async fn main() -> Result<()> {
         storage_root,
         Some(postgres_url.clone()),
     ));
-    storage
-        .ensure_postgres_ready()
-        .await
-        .expect("initialize postgres migrations");
+    if let Err(e) = storage.ensure_postgres_ready().await {
+        tracing::error!(
+            "FATAL: Cannot connect to Postgres after retries: {}. Check AI_TUTOR_NEON_DATABASE_URL / AI_TUTOR_POSTGRES_URL. Neon free-tier computes suspend after inactivity.",
+            e
+        );
+        std::process::exit(1);
+    }
 
     // Initialize operator emails from env var + DB
     {
