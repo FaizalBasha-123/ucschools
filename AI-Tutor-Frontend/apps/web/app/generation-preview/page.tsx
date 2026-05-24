@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'motion/react';
 import {
@@ -70,6 +70,8 @@ function GenerationPreviewContent() {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [consented, setConsented] = useState(false);
+  // One-shot guard: fetchPreview must run exactly once per page load
+  const hasFetchedPreviewRef = useRef(false);
 
   // Load session from sessionStorage
   useEffect(() => {
@@ -86,16 +88,20 @@ function GenerationPreviewContent() {
   }, []);
 
   useEffect(() => {
-    if (!sessionLoaded) return;
+    if (!sessionLoaded || !session) return;
     if (!hasAuthSessionHint()) {
       router.replace('/auth?next=/');
       return;
     }
-    if (session && !previewData && !previewLoading && !consented) {
-      fetchPreview();
-    }
+    // Guard: only ever fetch preview once. The original code had previewData/
+    // previewLoading/consented in the dep array, which caused fetchPreview() to
+    // re-run every time those state values changed — creating an infinite loop
+    // of POST /api/lessons/preview requests that burned Neon compute hours.
+    if (hasFetchedPreviewRef.current) return;
+    hasFetchedPreviewRef.current = true;
+    fetchPreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionLoaded, session, previewData, previewLoading, consented]);
+  }, [sessionLoaded, session]);
 
   const fetchPreview = async () => {
     if (!session) return;
@@ -162,20 +168,35 @@ function GenerationPreviewContent() {
         extra_scenes_consented: useExtraScenes ?? consented,
       };
 
-      // Attach raw PDF as base64 if available
-      let pdfBase64: string | undefined;
-      if (session.pdfStorageKey) {
+      // Attach PDF context to the generation payload.
+      //
+      // Priority:
+      //   1. If pdfText (pre-parsed by pdfjs + optional Tesseract OCR) is available,
+      //      encode it as base64 UTF-8 and send it. The Rust backend detects pre-parsed
+      //      text by the absence of the PDF binary magic header ("JVBERi...") and skips
+      //      the redundant pdf-extract step.
+      //   2. If only the raw blob is available (pdfStorageKey but no pdfText — legacy path),
+      //      re-encode the raw PDF binary as base64 and send it. Backend uses pdf-extract.
+      //   3. If neither is available, no PDF context is sent.
+      if (session.pdfText && session.pdfText.trim().length > 0) {
+        // Encode pre-parsed text (pdfjs text + OCR) as base64 UTF-8.
+        // encodeURIComponent + unescape handles non-ASCII characters safely.
+        setStatusMessage('Attaching PDF context...');
+        const encoded = btoa(unescape(encodeURIComponent(session.pdfText)));
+        payload.pdf_text = encoded;
+        log.info(`PDF pre-parsed text attached: ${session.pdfText.length} chars`);
+      } else if (session.pdfStorageKey) {
+        // Legacy path: no pre-parsed text in session — load raw bytes and re-encode.
+        // This happens if the user generated before the pre-parse was stored.
         setStatusMessage('Reading PDF...');
         const pdfBlob = await loadPdfBlob(session.pdfStorageKey);
         if (pdfBlob) {
-          pdfBase64 = await blobToBase64(pdfBlob);
+          const pdfBase64 = await blobToBase64(pdfBlob);
           payload.pdf_text = pdfBase64;
+          log.info('PDF raw bytes attached (legacy path)');
         }
-      } else if (session.pdfText) {
-        // Fallback: if PDF was already parsed, don't send text as base64
-        // (Rust expects base64 PDF bytes, not parsed text)
-        log.warn('PDF already parsed; sending without PDF context to Rust backend');
       }
+
 
       setCurrentStepIndex(1);
       setStatusMessage('Generating outlines, scenes, actions & media...');

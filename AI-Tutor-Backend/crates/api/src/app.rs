@@ -1984,13 +1984,14 @@ impl LiveLessonAppService {
         status: LessonShelfStatus,
         failure_reason: Option<String>,
     ) -> Result<LessonShelfItem> {
+        // Use a targeted (account_id, lesson_id) lookup instead of fetching
+        // up to 500 shelf records and doing a linear scan in Rust. This
+        // eliminates ~2000 unnecessary row fetches per lesson generation.
         let existing = self
             .storage
-            .list_lesson_shelf_items_for_account(account_id, None, 500)
+            .get_lesson_shelf_item_by_lesson_id(account_id, lesson_id)
             .await
-            .map_err(|err| anyhow!(err))?
-            .into_iter()
-            .find(|item| item.lesson_id == lesson_id);
+            .map_err(|err| anyhow!(err))?;
 
         let now = chrono::Utc::now();
         let item = if let Some(mut item) = existing {

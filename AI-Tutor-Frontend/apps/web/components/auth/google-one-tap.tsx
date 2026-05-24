@@ -31,6 +31,14 @@ declare global {
 
 export function GoogleOneTap({ onSuccess, onError }: GoogleOneTapProps) {
   const initialized = useRef(false);
+  // Store callbacks in refs so the effect dep array can be empty (runs once).
+  // This prevents Google One Tap cancel+re-init on every parent re-render
+  // (which would happen if onSuccess/onError lambda refs change each render).
+  const onSuccessRef = useRef(onSuccess);
+  const onErrorRef = useRef(onError);
+  // Keep refs in sync with latest prop values without triggering re-runs
+  onSuccessRef.current = onSuccess;
+  onErrorRef.current = onError;
 
   useEffect(() => {
     if (initialized.current) return;
@@ -90,7 +98,7 @@ export function GoogleOneTap({ onSuccess, onError }: GoogleOneTapProps) {
         });
 
         log.info('One Tap sign-in successful for %s', data.email);
-        onSuccess({
+        onSuccessRef.current({
           token: data.session_token,
           accountId: data.account_id,
           email: data.email,
@@ -98,7 +106,7 @@ export function GoogleOneTap({ onSuccess, onError }: GoogleOneTapProps) {
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         log.error('One Tap exchange failed:', msg);
-        onError?.(msg);
+        onErrorRef.current?.(msg);
       }
     };
 
@@ -163,7 +171,8 @@ export function GoogleOneTap({ onSuccess, onError }: GoogleOneTapProps) {
         // no-op
       }
     };
-  }, [onSuccess, onError]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Intentionally empty — callbacks are accessed via refs above
 
   // This component renders nothing — Google One Tap is a native browser popup
   return null;

@@ -264,7 +264,7 @@ mod tests {
     }
 
     fn make_outline() -> SceneOutline {
-        use ai_tutor_domain::scene::SceneType;
+        use ai_tutor_domain::scene::{SceneType, VisualType};
         SceneOutline {
             id: "outline-1".to_string(),
             scene_type: SceneType::Slide,
@@ -276,6 +276,7 @@ mod tests {
             order: 1,
             language: Some("en-US".to_string()),
             suggested_image_ids: vec![],
+            visual_type: Some(VisualType::None),
             media_generations: vec![],
             quiz_config: None,
             interactive_config: None,

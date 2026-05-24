@@ -36,6 +36,13 @@ pub trait LessonAdaptiveRepository: Send + Sync {
 pub trait LessonShelfRepository: Send + Sync {
     async fn upsert_lesson_shelf_item(&self, item: &LessonShelfItem) -> Result<(), String>;
     async fn get_lesson_shelf_item(&self, item_id: &str) -> Result<Option<LessonShelfItem>, String>;
+    /// Targeted lookup by (account_id, lesson_id) — avoids the 500-row full-account scan
+    /// that upsert_generation_shelf_item was doing to find the existing item's primary key.
+    async fn get_lesson_shelf_item_by_lesson_id(
+        &self,
+        account_id: &str,
+        lesson_id: &str,
+    ) -> Result<Option<LessonShelfItem>, String>;
     async fn list_lesson_shelf_items_for_account(
         &self,
         account_id: &str,

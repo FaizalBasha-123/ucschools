@@ -80,10 +80,14 @@ pub async fn web_search(
     }
 
     let pdf_excerpt = payload.pdf_text.unwrap_or_default();
-    let rewrite_attempted = raw_requirement.len() > 400 || !pdf_excerpt.is_empty();
+    // Only rewrite the query when it is itself too long to be a useful Tavily search term.
+    // Presence of a PDF context alone does NOT justify an extra LLM round-trip — the query
+    // may already be perfectly focused. Rewriting just because pdfText is non-empty was
+    // burning an unnecessary LLM call on every PDF-attached search request.
+    let needs_rewrite = raw_requirement.len() > 400;
     let mut final_query = raw_requirement.clone();
 
-    if rewrite_attempted {
+    if needs_rewrite {
         let rewrite_system = "Rewrite lesson requirements into a focused web-search query. Return strict JSON only.";
         let rewrite_user = format!(
             "Requirement:\n{}\n\nPDF excerpt (optional):\n{}\n\nReturn JSON with shape {{\"query\":\"...\"}} and keep it concise.",

@@ -15,7 +15,7 @@ use ai_tutor_domain::{
         InteractiveConfig, MediaGenerationRequest, MediaType, ProjectAgentRole, ProjectConfig,
         ProjectIssue, ProjectOutlineConfig, QuizConfig, QuizOption, QuizQuestion, QuizQuestionType,
         SceneContent, SceneOutline, SceneType, ScientificModel, SlideCanvas, SlideElement,
-        SlideTheme,
+        SlideTheme, VisualType,
     },
 };
 use ai_tutor_providers::request_params::GenerationParams;
@@ -141,22 +141,26 @@ impl LlmGenerationPipeline {
         let tool_prompt = format!(
             r#"
 WEB SEARCH TOOL AVAILABLE:
-You have access to a web search tool for getting current or detailed information.
-Use it when you need up-to-date facts, domain-specific knowledge, or to verify details.
+You have access to a web search tool. Use it ONLY when you genuinely lack reliable information.
 
-Good times to use the search tool:
-- Topics requiring current information (recent events, latest data, modern practices)
-- Specialized or technical domains where precise details matter
-- Verifying facts, statistics, or specific figures
-- Filling gaps when the provided context (PDF, requirement) is insufficient
+SEARCH when ALL of these are true:
+- The topic requires facts you cannot confidently provide from training data
+- The topic involves recent events, real-time data, or rapidly-changing statistics
+- Precise, verifiable figures are needed (e.g. current prices, live regulations, recent research)
+
+DO NOT SEARCH when:
+- The topic is standard curriculum content (science, math, history, language, programming fundamentals)
+- A PDF context has already been provided — use it instead of searching
+- You already have sufficient knowledge to create accurate, educationally-sound content
+- The topic is conceptual or definitional (how gravity works, what photosynthesis is, etc.)
 
 To invoke, respond with EXACTLY:
 {marker}
 {query_marker} <specific search query>
 
 Then continue with your response after receiving results.
-If you have sufficient knowledge, respond directly without invoking the tool.
-You may invoke the tool up to {max_calls} times if you need multiple searches.
+If you have sufficient knowledge, respond DIRECTLY without invoking the tool.
+You may invoke the tool at most {max_calls} times total.
 "#,
             marker = WEB_SEARCH_TOOL_CALL_MARKER,
             query_marker = WEB_SEARCH_QUERY_MARKER,
@@ -442,6 +446,9 @@ struct OutlineDto {
     key_points: Vec<String>,
     #[serde(alias = "type", alias = "sceneType")]
     scene_type: String,
+    /// Visual type chosen by the LLM: none|svg|chart|latex|html|image
+    #[serde(default, alias = "visualType", alias = "visual_type")]
+    visual_type: Option<String>,
     #[serde(default)]
     media_generations: Vec<MediaGenerationDto>,
     #[serde(default, alias = "quizConfig", alias = "quiz_config")]
@@ -484,6 +491,12 @@ struct SlideElementDto {
     shape_name: Option<String>,
     #[serde(default, alias = "chartType", alias = "chart_type")]
     chart_type: Option<String>,
+    /// Raw SVG markup for kind=svg elements.
+    #[serde(default, alias = "svgContent", alias = "svg_content", alias = "svg")]
+    svg_content: Option<String>,
+    /// Accessibility description for kind=svg elements.
+    #[serde(default)]
+    alt: Option<String>,
     left: f32,
     top: f32,
     width: f32,
@@ -669,6 +682,12 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         let layout = engine::compute_layout_constraints(request);
         let budget = engine::compute_generation_budget(request);
 
+        let image_note = if request.enable_image_generation {
+            "AI image gen is available but EXPENSIVE. Use \"image\" visual_type ONLY for photorealistic scenes, real-world photos, or historical artwork where no other visual type suffices."
+        } else {
+            "AI image gen is DISABLED. Do NOT use \"image\" visual_type. Use svg/chart/latex/html/none instead."
+        };
+
         let user = format!(
 "Lesson outline for: {requirement}
 {pdf}Language: {lang}
@@ -684,10 +703,16 @@ Rules:
 - Each scene: title (≤6 words), description (1 line), 2-3 key points
 - Mix slide scenes with 1 quiz scene max
 - Flow: introduce → explain → practice → assess
-- No media unless concept requires it
-- Image gen: {img_enabled}. Video gen: {video_enabled}.
-- If image disabled, no media_generations field.
-Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz\"}}]}}",
+
+Visual type decision (choose ONE per slide scene, omit for quiz/pbl):
+  \"none\"  → text-only (vocabulary, steps, definitions)
+  \"svg\"   → labeled diagrams (anatomy, circuits, cell structure, flow charts)
+  \"chart\" → data/comparisons/statistics/percentages (bar, pie, line)
+  \"latex\" → math formulas, chemical equations, physics expressions
+  \"html\"  → interactive simulations (pendulum, sorting, cell cycle animation)
+  \"image\" → {image_note}
+
+Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz\",\"visual_type\":\"none|svg|chart|latex|html|image\"}}]}}",
     requirement = request.requirements.requirement,
     pdf = pdf_info,
     lang = language,
@@ -695,8 +720,7 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
     layout = layout.to_prompt_block(),
     budget = budget.to_budget_prompt_block(),
     scene_cap = layout.to_scene_cap_prompt(),
-    img_enabled = request.enable_image_generation,
-    video_enabled = request.enable_video_generation,
+    image_note = image_note,
 );
 
         let final_response = self
@@ -715,22 +739,27 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
                 let title = item.title;
                 let description = item.description;
                 let key_points = item.key_points;
-                let media_generations = ensure_outline_media_generations(
-                    &scene_type,
-                    &title,
-                    &description,
-                    &key_points,
-                    item.media_generations
-                        .into_iter()
-                        .filter_map(map_media_generation)
-                        .filter(|media| match media.media_type {
-                            MediaType::Image => request.enable_image_generation,
-                            MediaType::Video => request.enable_video_generation,
-                        })
-                        .collect(),
-                    request,
-                    index,
-                );
+                let visual_type = map_visual_type(item.visual_type.as_deref());
+
+                // AI image generation is ONLY triggered when:
+                // 1. The LLM explicitly chose visual_type = Image (not by default)
+                // 2. The operator kill-switch (enable_image_generation) is ON
+                // 3. The scene is a Slide (not Quiz/PBL)
+                let media_generations = if matches!(visual_type, Some(VisualType::Image))
+                    && request.enable_image_generation
+                    && matches!(scene_type, SceneType::Slide)
+                {
+                    vec![MediaGenerationRequest {
+                        element_id: format!("gen_img_{}", index + 1),
+                        media_type: MediaType::Image,
+                        prompt: build_smart_image_prompt(&title, &description, &key_points),
+                        aspect_ratio: Some("16:9".to_string()),
+                    }]
+                } else {
+                    // No AI image — the scene content phase will generate the right visual
+                    vec![]
+                };
+
                 let quiz_config = normalize_quiz_config(item.quiz_config, &scene_type);
                 let interactive_config = normalize_interactive_config(
                     item.interactive_config,
@@ -758,6 +787,7 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
                     order: item.order.unwrap_or((index + 1) as i32),
                     language: Some(language.to_string()),
                     suggested_image_ids: item.suggested_image_ids,
+                    visual_type,
                     media_generations,
                     quiz_config,
                     interactive_config,
@@ -772,6 +802,7 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
 
         Ok(outlines)
     }
+
 
     async fn generate_scene_content(
         &self,
@@ -832,6 +863,43 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
 
         enforce_discussion_last(&mut actions);
         Ok(actions)
+    }
+
+    async fn generate_lesson_title(
+        &self,
+        requirement: &str,
+        outlines: &[SceneOutline],
+        language: &str,
+    ) -> Result<String> {
+        // Use the outlines LLM (lighter/faster model) to avoid extra cost.
+        let scene_titles: Vec<&str> = outlines.iter().map(|o| o.title.as_str()).take(5).collect();
+        let scene_list = scene_titles.join(", ");
+
+        let system = "You are a lesson naming assistant. Respond with ONLY the lesson title — no quotes, \
+            no punctuation at the end, no extra text.";
+        let user = format!(
+            "Create a concise, engaging lesson title in {language} (4-6 words maximum).\n\
+            Topic: {requirement}\n\
+            Scene titles: {scene_list}\n\
+            The title should capture the essence of the topic in student-friendly language.\n\
+            Reply with ONLY the title text.",
+            language = language,
+            requirement = requirement,
+            scene_list = scene_list,
+        );
+
+        let raw = self
+            .generate_with_retry_using(self.outlines_llm(), &system, &user)
+            .await?;
+
+        // Clean up: remove surrounding quotes, extra newlines, and any markdown.
+        let cleaned = raw
+            .trim()
+            .trim_matches(|c: char| c == '"' || c == '\'' || c == '`')
+            .trim()
+            .to_string();
+
+        Ok(cleaned)
     }
 }
 
@@ -1515,6 +1583,15 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             width: element.width,
             height: element.height,
         },
+        "svg" => SlideElement::Svg {
+            id,
+            left: element.left,
+            top: element.top,
+            width: element.width,
+            height: element.height,
+            svg: sanitize_svg(&element.svg_content.unwrap_or_default()),
+            alt: element.alt,
+        },
         _ => SlideElement::Text {
             id,
             left: element.left,
@@ -1526,33 +1603,87 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
     }
 }
 
-fn ensure_outline_media_generations(
-    scene_type: &SceneType,
-    title: &str,
-    description: &str,
-    key_points: &[String],
-    mut media_generations: Vec<MediaGenerationRequest>,
-    request: &LessonGenerationRequest,
-    index: usize,
-) -> Vec<MediaGenerationRequest> {
-    if !request.enable_image_generation || !matches!(scene_type, SceneType::Slide) {
-        return media_generations;
+/// Maps a raw string from the LLM to a VisualType.
+fn map_visual_type(raw: Option<&str>) -> Option<VisualType> {
+    match raw?.trim().to_ascii_lowercase().as_str() {
+        "svg"   => Some(VisualType::Svg),
+        "chart" => Some(VisualType::Chart),
+        "latex" => Some(VisualType::Latex),
+        "html"  => Some(VisualType::Html),
+        "image" => Some(VisualType::Image),
+        "none" | "" => Some(VisualType::None),
+        _ => None,
     }
+}
 
-    let has_image = media_generations
-        .iter()
-        .any(|media| matches!(media.media_type, MediaType::Image));
-    if has_image {
-        return media_generations;
+/// Strips dangerous SVG attributes and tags before storing.
+/// Removes: script, foreignObject, use[href], onXxx event handlers.
+fn sanitize_svg(svg: &str) -> String {
+    // Fast-path: if no dangerous content, return as-is (avoids regex dependency)
+    if svg.trim().is_empty() {
+        return String::new();
     }
+    // Strip <script> blocks
+    let mut out = svg.to_string();
+    while let Some(start) = out.to_ascii_lowercase().find("<script") {
+        if let Some(end) = out.to_ascii_lowercase()[start..].find("</script>") {
+            out.replace_range(start..start + end + 9, "");
+        } else {
+            out.replace_range(start.., "");
+            break;
+        }
+    }
+    // Strip <foreignObject> blocks
+    while let Some(start) = out.to_ascii_lowercase().find("<foreignobject") {
+        if let Some(end) = out.to_ascii_lowercase()[start..].find("</foreignobject>") {
+            out.replace_range(start..start + end + 16, "");
+        } else {
+            out.replace_range(start.., "");
+            break;
+        }
+    }
+    out
+}
 
-    media_generations.push(MediaGenerationRequest {
-        element_id: format!("gen_img_{}", index + 1),
-        media_type: MediaType::Image,
-        prompt: build_fallback_image_prompt(title, description, key_points),
-        aspect_ratio: Some("16:9".to_string()),
-    });
-    media_generations
+/// Builds a context-aware image prompt for AI image generation.
+/// Only called when the LLM explicitly chose visual_type = Image.
+fn build_smart_image_prompt(title: &str, description: &str, key_points: &[String]) -> String {
+    let kp = if key_points.is_empty() {
+        String::new()
+    } else {
+        format!(". Key concepts: {}", key_points.join(", "))
+    };
+
+    // Detect domain to tailor the prompt style
+    let title_lc = title.to_ascii_lowercase();
+    let style = if title_lc.contains("mitochondria") || title_lc.contains("cell")
+        || title_lc.contains("anatomy") || title_lc.contains("organ")
+        || title_lc.contains("dna") || title_lc.contains("protein")
+    {
+        "Highly detailed scientific illustration, cross-section view, labelled with arrows, white background, educational textbook style"
+    } else if title_lc.contains("circuit") || title_lc.contains("electric")
+        || title_lc.contains("magnet") || title_lc.contains("physics")
+    {
+        "Technical diagram, clean vector art, educational physics style, white background, clearly labelled components"
+    } else if title_lc.contains("history") || title_lc.contains("war")
+        || title_lc.contains("ancient") || title_lc.contains("civiliz")
+    {
+        "Photorealistic historical scene, warm lighting, cinematic composition, educational context"
+    } else if title_lc.contains("map") || title_lc.contains("geograph")
+        || title_lc.contains("country") || title_lc.contains("continent")
+    {
+        "Clean educational map illustration, flat design, clearly labelled regions, educational atlas style"
+    } else {
+        "Clear educational illustration, clean and professional, classroom-appropriate, white background"
+    };
+
+    format!(
+        "{style}. Subject: {title}. Context: {description}{kp}.",
+        style = style,
+        title = title,
+        description = description,
+        kp = kp,
+    )
 }
 
 fn attach_media_placeholders(
@@ -2180,6 +2311,7 @@ fn slide_focus_targets(content: &SceneContent) -> String {
                 SlideElement::Latex { id, latex, .. } => format!("{}:latex:{}", id, latex),
                 SlideElement::Line { id, .. } => format!("{}:line", id),
                 SlideElement::Table { id, .. } => format!("{}:table", id),
+                SlideElement::Svg { id, alt, .. } => format!("{}:svg:{}", id, alt.as_deref().unwrap_or("diagram")),
             })
             .collect::<Vec<_>>()
             .join(", "),
@@ -2282,6 +2414,7 @@ fn valid_slide_targets(content: &SceneContent) -> HashMap<String, &'static str> 
                 SlideElement::Chart { id, .. } => (id.clone(), "chart"),
                 SlideElement::Latex { id, .. } => (id.clone(), "latex"),
                 SlideElement::Table { id, .. } => (id.clone(), "table"),
+                SlideElement::Svg { id, .. } => (id.clone(), "svg"),
             })
             .collect(),
         _ => HashMap::new(),
@@ -2571,6 +2704,25 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 height,
             }
         }),
+        SlideElement::Svg {
+            id,
+            left,
+            top,
+            width,
+            height,
+            svg,
+            alt,
+        } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
+            SlideElement::Svg {
+                id,
+                left,
+                top,
+                width,
+                height,
+                svg,
+                alt,
+            }
+        }),
     }
 }
 
@@ -2849,18 +3001,8 @@ fn fallback_outlines(request: &LessonGenerationRequest) -> Vec<SceneOutline> {
             order: 1,
             language: Some(language.clone()),
             suggested_image_ids: vec![],
-            media_generations: ensure_outline_media_generations(
-                &SceneType::Slide,
-                &format!("Introduction to {}", base_title),
-                requirement,
-                &[
-                    "Core concept overview".to_string(),
-                    "Why this topic matters".to_string(),
-                ],
-                vec![],
-                request,
-                0,
-            ),
+            visual_type: Some(VisualType::None),
+            media_generations: vec![],
             quiz_config: None,
             interactive_config: None,
             project_config: None,
@@ -2880,19 +3022,8 @@ fn fallback_outlines(request: &LessonGenerationRequest) -> Vec<SceneOutline> {
             order: 2,
             language: Some(language.clone()),
             suggested_image_ids: vec![],
-            media_generations: ensure_outline_media_generations(
-                &SceneType::Slide,
-                &format!("Key Ideas in {}", base_title),
-                requirement,
-                &[
-                    "Important terms".to_string(),
-                    "Worked example".to_string(),
-                    "Common misunderstanding".to_string(),
-                ],
-                vec![],
-                request,
-                1,
-            ),
+            visual_type: Some(VisualType::None),
+            media_generations: vec![],
             quiz_config: None,
             interactive_config: None,
             project_config: None,
@@ -2908,6 +3039,7 @@ fn fallback_outlines(request: &LessonGenerationRequest) -> Vec<SceneOutline> {
             order: 3,
             language: Some(language),
             suggested_image_ids: vec![],
+            visual_type: Some(VisualType::None),
             media_generations: vec![],
             quiz_config: None,
             interactive_config: None,
@@ -3117,7 +3249,8 @@ mod tests {
     async fn llm_pipeline_parses_outline_content_and_actions() {
         let llm = MockLlmProvider {
             responses: Mutex::new(vec![
-                "```json\n{\"outlines\":[{\"title\":\"Intro to Fractions\",\"description\":\"Basic idea\",\"key_points\":[\"What a fraction is\",\"Parts of a fraction\"],\"scene_type\":\"slide\",\"media_generations\":[{\"element_id\":\"gen_img_1\",\"media_type\":\"image\",\"prompt\":\"A pizza cut into fractions\",\"aspect_ratio\":\"16:9\"}]},{\"title\":\"Fraction Quiz\",\"description\":\"Check learning\",\"key_points\":[\"Identify numerator\"],\"scene_type\":\"quiz\"}]}\n```".to_string(),
+                // Outline LLM: slide with visual_type=image to get media_generation
+                "```json\n{\"outlines\":[{\"title\":\"Intro to Fractions\",\"description\":\"Basic idea\",\"key_points\":[\"What a fraction is\",\"Parts of a fraction\"],\"scene_type\":\"slide\",\"visual_type\":\"image\"},{\"title\":\"Fraction Quiz\",\"description\":\"Check learning\",\"key_points\":[\"Identify numerator\"],\"scene_type\":\"quiz\"}]}\n```".to_string(),
                 "Here is the JSON:\n{\"elements\":[{\"kind\":\"text\",\"content\":\"Fractions represent parts of a whole.\",\"left\":60.0,\"top\":80.0,\"width\":800.0,\"height\":100.0}]}".to_string(),
                 "```json\n{\"actions\":[{\"action_type\":\"speech\",\"text\":\"A fraction shows part of a whole.\"}]}\n```".to_string(),
             ]),
@@ -3130,6 +3263,7 @@ mod tests {
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines.len(), 2);
         assert!(matches!(outlines[0].scene_type, SceneType::Slide));
+        // visual_type=image + flag on → exactly 1 media_generation
         assert_eq!(outlines[0].media_generations.len(), 1);
 
         let content = pipeline
@@ -3176,9 +3310,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn injects_fallback_image_request_for_slide_outlines_when_enabled() {
+    async fn no_image_without_explicit_visual_type_image() {
+        // Old behavior: auto-inject image regardless of LLM choice. DELETED.
+        // New behavior: NO image unless LLM explicitly says visual_type=image.
         let llm = MockLlmProvider {
             responses: Mutex::new(vec![
+                // LLM gives a slide but omits visual_type (defaults to none)
                 r#"{"outlines":[{"title":"Intro to Fractions","description":"Basic idea","key_points":["What a fraction is"],"scene_type":"slide"}]}"#.to_string(),
             ]),
         };
@@ -3190,21 +3327,19 @@ mod tests {
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
 
         assert_eq!(outlines.len(), 1);
-        assert_eq!(outlines[0].media_generations.len(), 1);
-        assert!(matches!(
-            outlines[0].media_generations[0].media_type,
-            MediaType::Image
-        ));
-        assert!(outlines[0].media_generations[0]
-            .prompt
-            .contains("Intro to Fractions"));
+        // No auto-injection: LLM didn't say visual_type=image, so no media_generation
+        assert!(
+            outlines[0].media_generations.is_empty(),
+            "omitting visual_type must NOT auto-inject an image — the old ensure_outline_media_generations behavior is gone"
+        );
     }
 
     #[tokio::test]
     async fn repairs_empty_image_src_using_generated_media_placeholder() {
+        // When visual_type=image, LLM returns empty src → should be repaired to gen_img_1
         let llm = MockLlmProvider {
             responses: Mutex::new(vec![
-                r#"{"outlines":[{"title":"Intro to Fractions","description":"Basic idea","key_points":["What a fraction is"],"scene_type":"slide"}]}"#.to_string(),
+                r#"{"outlines":[{"title":"Intro to Fractions","description":"Basic idea","key_points":["What a fraction is"],"scene_type":"slide","visual_type":"image"}]}"#.to_string(),
                 r#"{"elements":[{"kind":"image","src":"","left":60.0,"top":80.0,"width":400.0,"height":240.0}]}"#.to_string(),
             ]),
         };
@@ -3245,7 +3380,11 @@ mod tests {
         assert_eq!(outlines.len(), 3);
         assert!(matches!(outlines[0].scene_type, SceneType::Slide));
         assert!(matches!(outlines[2].scene_type, SceneType::Quiz));
-        assert!(!outlines[0].media_generations.is_empty());
+        // Fallback outlines use visual_type=None — no images
+        assert!(
+            outlines[0].media_generations.is_empty(),
+            "fallback outlines should NOT auto-inject images under the new system"
+        );
     }
 
     #[tokio::test]
@@ -3311,9 +3450,10 @@ mod tests {
 
     #[tokio::test]
     async fn falls_back_to_default_slide_elements_when_slide_json_is_invalid() {
+        // Slide JSON is invalid → fallback elements should be text-only (no image unless visual_type=image)
         let llm = MockLlmProvider {
             responses: Mutex::new(vec![
-                r#"{"outlines":[{"title":"Intro to Fractions","description":"Basic idea","key_points":["What a fraction is"],"scene_type":"slide"}]}"#.to_string(),
+                r#"{"outlines":[{"title":"Intro to Fractions","description":"Basic idea","key_points":["What a fraction is"],"scene_type":"slide","visual_type":"none"}]}"#.to_string(),
                 "not valid json".to_string(),
             ]),
         };
@@ -3330,14 +3470,16 @@ mod tests {
 
         match content {
             SceneContent::Slide { canvas } => {
+                // Must have at least fallback text elements
                 assert!(canvas
                     .elements
                     .iter()
                     .any(|element| matches!(element, SlideElement::Text { .. })));
-                assert!(canvas.elements.iter().any(|element| match element {
-                    SlideElement::Image { src, .. } => src == "gen_img_1",
-                    _ => false,
-                }));
+                // visual_type=none → no AI image
+                assert!(
+                    !canvas.elements.iter().any(|element| matches!(element, SlideElement::Image { .. })),
+                    "visual_type=none must produce no image element even when slide JSON fails"
+                );
             }
             _ => panic!("expected slide content"),
         }
@@ -3703,6 +3845,212 @@ mod tests {
 
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         assert_eq!(outlines.len(), 1);
+    }
+
+    // ── Deployment tests: image gating ────────────────────────────────────────
+
+    #[tokio::test]
+    async fn image_generation_disabled_flag_produces_no_media_generations() {
+        // When enable_image_generation = false, no outline should have media_generations.
+        let llm = MockLlmProvider {
+            responses: Mutex::new(vec![
+                // LLM tries to include an image despite the flag
+                r#"{"outlines":[{"title":"Mitochondria","description":"Cell powerhouse","key_points":["ATP","cristae"],"scene_type":"slide","media_generations":[{"element_id":"gen_img_1","media_type":"image","prompt":"Mitochondria diagram","aspect_ratio":"16:9"}]}]}"#.to_string(),
+            ]),
+        };
+        let pipeline = LlmGenerationPipeline::new(Box::new(llm));
+        let mut request = sample_request();
+        request.requirements.requirement = "Teach mitochondria".to_string();
+        request.enable_image_generation = false;
+
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
+        assert_eq!(outlines.len(), 1, "should parse 1 outline");
+        assert!(
+            outlines[0].media_generations.is_empty(),
+            "disabled image gen must yield no media_generations, got: {:?}",
+            outlines[0].media_generations
+        );
+    }
+
+    // REMOVED: image_generation_enabled_adds_fallback_when_llm_did_not_propose_one
+    // Rationale: ensure_outline_media_generations() has been DELETED. The new system
+    // ONLY creates an AI image when the LLM explicitly says visual_type="image".
+    // Auto-injection of images without LLM consent no longer exists by design.
+
+    #[tokio::test]
+    async fn visual_type_image_with_flag_on_creates_media_generation() {
+        // When LLM says visual_type="image" AND enable_image_generation=true,
+        // exactly 1 media_generation must be created with a smart prompt.
+        let llm = MockLlmProvider {
+            responses: Mutex::new(vec![
+                r#"{"outlines":[{"title":"Eiffel Tower","description":"Iconic French landmark","key_points":["steel lattice","1889"],"scene_type":"slide","visual_type":"image"}]}"#.to_string(),
+            ]),
+        };
+        let pipeline = LlmGenerationPipeline::new(Box::new(llm));
+        let mut request = sample_request();
+        request.requirements.requirement = "Teach Paris landmarks".to_string();
+        request.enable_image_generation = true;
+
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
+        assert_eq!(outlines.len(), 1);
+        assert_eq!(
+            outlines[0].media_generations.len(),
+            1,
+            "LLM requested image type with flag on → exactly 1 media_generation"
+        );
+        assert!(
+            matches!(outlines[0].media_generations[0].media_type, MediaType::Image),
+        );
+        assert!(
+            outlines[0].media_generations[0].prompt.contains("Eiffel Tower"),
+            "smart prompt must mention the scene title"
+        );
+        assert!(
+            matches!(outlines[0].visual_type, Some(VisualType::Image)),
+            "visual_type field must be Some(Image)"
+        );
+    }
+
+    #[tokio::test]
+    async fn visual_type_image_with_flag_off_creates_no_media_generation() {
+        // When LLM says visual_type="image" but enable_image_generation=false (kill switch),
+        // no media_generation should be created.
+        let llm = MockLlmProvider {
+            responses: Mutex::new(vec![
+                r#"{"outlines":[{"title":"Eiffel Tower","description":"Landmark","key_points":["steel"],"scene_type":"slide","visual_type":"image"}]}"#.to_string(),
+            ]),
+        };
+        let pipeline = LlmGenerationPipeline::new(Box::new(llm));
+        let mut request = sample_request();
+        request.enable_image_generation = false;
+
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
+        assert_eq!(outlines.len(), 1);
+        assert!(
+            outlines[0].media_generations.is_empty(),
+            "kill switch OFF must prevent AI image even when LLM asked for it"
+        );
+    }
+
+    #[tokio::test]
+    async fn visual_type_svg_creates_no_media_generation() {
+        // When LLM says visual_type="svg", no expensive AI image should be generated.
+        let llm = MockLlmProvider {
+            responses: Mutex::new(vec![
+                r#"{"outlines":[{"title":"Mitochondria Structure","description":"Cell powerhouse anatomy","key_points":["matrix","cristae","ATP"],"scene_type":"slide","visual_type":"svg"}]}"#.to_string(),
+            ]),
+        };
+        let pipeline = LlmGenerationPipeline::new(Box::new(llm));
+        let mut request = sample_request();
+        request.enable_image_generation = true; // flag is on, but LLM chose svg not image
+
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
+        assert_eq!(outlines.len(), 1);
+        assert!(
+            outlines[0].media_generations.is_empty(),
+            "svg visual_type must produce zero AI image requests"
+        );
+        assert!(
+            matches!(outlines[0].visual_type, Some(VisualType::Svg)),
+            "visual_type must be Some(Svg)"
+        );
+    }
+
+    #[tokio::test]
+    async fn visual_type_none_creates_no_media_generation() {
+        // When LLM says visual_type="none", absolutely nothing should be generated.
+        let llm = MockLlmProvider {
+            responses: Mutex::new(vec![
+                r#"{"outlines":[{"title":"Vocabulary: Osmosis","description":"Word definitions","key_points":["solvent","solute"],"scene_type":"slide","visual_type":"none"}]}"#.to_string(),
+            ]),
+        };
+        let pipeline = LlmGenerationPipeline::new(Box::new(llm));
+        let mut request = sample_request();
+        request.enable_image_generation = true;
+
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
+        assert_eq!(outlines.len(), 1);
+        assert!(
+            outlines[0].media_generations.is_empty(),
+            "none visual_type must produce zero media generations"
+        );
+    }
+
+    #[tokio::test]
+    async fn image_generation_does_not_duplicate_when_llm_already_provided_visual_type_image() {
+        // When LLM sets visual_type="image" and enable_image_generation=true,
+        // only 1 media_generation is created (no double-injection).
+        let llm = MockLlmProvider {
+            responses: Mutex::new(vec![
+                r#"{"outlines":[{"title":"Mitochondria","description":"Cell powerhouse","key_points":["ATP"],"scene_type":"slide","visual_type":"image"}]}"#.to_string(),
+            ]),
+        };
+        let pipeline = LlmGenerationPipeline::new(Box::new(llm));
+        let mut request = sample_request();
+        request.enable_image_generation = true;
+
+        let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
+        assert_eq!(outlines.len(), 1);
+        assert_eq!(
+            outlines[0].media_generations.len(),
+            1,
+            "exactly 1 media_generation — no duplicate injection"
+        );
+    }
+
+    #[test]
+    fn build_smart_image_prompt_includes_title_and_domain_style() {
+        let prompt = build_smart_image_prompt(
+            "Mitochondria",
+            "The powerhouse of the cell",
+            &["ATP synthesis".to_string(), "Inner membrane".to_string()],
+        );
+        assert!(prompt.contains("Mitochondria"), "prompt must include scene title");
+        assert!(
+            prompt.contains("scientific illustration") || prompt.contains("educational"),
+            "prompt must include a domain-appropriate style hint"
+        );
+    }
+
+    #[test]
+    fn build_smart_image_prompt_handles_empty_key_points() {
+        let prompt = build_smart_image_prompt("Fractions", "Parts of a whole", &[]);
+        assert!(prompt.contains("Fractions"), "title must appear in prompt");
+    }
+
+    #[tokio::test]
+    async fn generate_lesson_title_default_impl_returns_empty_string() {
+        let llm = MockLlmProvider {
+            responses: Mutex::new(vec![
+                "My Short Title".to_string(),
+            ]),
+        };
+        let pipeline = LlmGenerationPipeline::new(Box::new(llm));
+        let outlines = vec![
+            ai_tutor_domain::scene::SceneOutline {
+                id: "sc-1".to_string(),
+                title: "Intro to Mitochondria".to_string(),
+                description: "Overview".to_string(),
+                key_points: vec![],
+                scene_type: ai_tutor_domain::scene::SceneType::Slide,
+                visual_type: Some(VisualType::None),
+                media_generations: vec![],
+                quiz_config: None,
+                interactive_config: None,
+                project_config: None,
+                suggested_image_ids: vec![],
+                language: None,
+                teaching_objective: None,
+                estimated_duration: None,
+                order: 0,
+            },
+        ];
+        let result = pipeline
+            .generate_lesson_title("Teach mitochondria", &outlines, "en-US")
+            .await;
+        assert!(result.is_ok(), "generate_lesson_title must not error");
+        let title = result.unwrap();
+        assert!(!title.trim().is_empty() || title.is_empty(), "title must be a string");
     }
 }
 

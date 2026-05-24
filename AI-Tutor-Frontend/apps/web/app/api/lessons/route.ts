@@ -9,6 +9,7 @@ import {
 } from '@/lib/server/classroom-storage';
 import { createLogger } from '@/lib/logger';
 import { backendUrl } from '@/lib/server/backend-url';
+import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('Classroom API');
 
@@ -72,8 +73,11 @@ export async function GET(request: NextRequest) {
       return apiSuccess({ classroom: localClassroom });
     }
 
-    // 2. Fallback to Rust backend for generated lessons/legacy paths    const backendRes = await fetch(`${backendUrl()}/api/lessons/${id}`, {
+    // 2. Fallback to Rust backend for generated lessons/legacy paths.
+    // /api/lessons/{id} is session_auth_required — forward the user JWT or it returns 401.
+    const backendRes = await fetch(`${backendUrl()}/api/lessons/${id}`, {
       method: 'GET',
+      headers: authHeadersFrom(request),
     });
 
     if (backendRes.status === 404) {

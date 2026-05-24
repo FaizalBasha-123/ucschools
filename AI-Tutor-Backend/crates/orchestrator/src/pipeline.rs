@@ -56,6 +56,20 @@ pub trait LessonGenerationPipeline: Send + Sync {
         content: &SceneContent,
         pdf_context: Option<&str>,
     ) -> Result<Vec<LessonAction>>;
+
+    /// Generate a concise, engaging lesson title (4-6 words) using a lightweight model.
+    /// Falls back gracefully — callers MUST handle an Err or empty string by using
+    /// the truncated requirement string instead.
+    async fn generate_lesson_title(
+        &self,
+        requirement: &str,
+        outlines: &[SceneOutline],
+        language: &str,
+    ) -> Result<String> {
+        // Default: signal to caller to use fallback. Real impl overrides this.
+        let _ = (requirement, outlines, language);
+        Ok(String::new())
+    }
 }
 
 pub struct LessonGenerationOrchestrator<P, L, J>
@@ -134,7 +148,8 @@ where
     ) -> Result<GenerationOutput> {
         let now = job.created_at;
         let request_id = Uuid::new_v4().to_string();
-        let stage = build_stage(&lesson_id, &request, now);
+        // max_scenes is unknown until outlines are generated; set it after run_pipeline.
+        let stage = build_stage(&lesson_id, &request, now, None);
 
         if create_job {
             self.jobs
@@ -247,28 +262,64 @@ where
             )
             .await?;
 
-            use ai_tutor_media::pdf_processor::PdfProcessor;
             use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-            let pdf_bytes = STANDARD
-                .decode(pdf_b64)
-                .map_err(|err| anyhow!("Failed to decode PDF content: {}", err))?;
+            // Detect whether the payload is a binary PDF or pre-parsed UTF-8 text.
+            //
+            // All valid PDF binaries, when base64-encoded, start with "JVBERi"
+            // (the base64 encoding of the "%PDF-" magic header).
+            // Pre-parsed text encoded by the frontend never starts with that prefix.
+            //
+            // Binary path  → decode bytes → pdf-extract crate (text layer only)
+            // Pre-parsed   → decode UTF-8 → skip pdf-extract, use text directly
+            //
+            // The binary path is the original behavior and remains fully unchanged.
+            let is_binary_pdf = pdf_b64.starts_with("JVBERi");
 
-            if let Ok(pdf_result) = PdfProcessor::process_pdf(&pdf_bytes) {
-                let tier = resolve_quality_tier(&state.request);
-                let limits = tier_limits(tier);
-                let compressed =
-                    context::compress_pdf(&pdf_result.full_text, limits.max_pdf_context_chars);
-                info!(
-                    "PDF compressed: {} chars → {} chars (tier={:?})",
-                    pdf_result.full_text.len(),
-                    compressed.len(),
-                    tier
-                );
-                state.pdf_context = Some(compressed);
+            if is_binary_pdf {
+                use ai_tutor_media::pdf_processor::PdfProcessor;
+                let pdf_bytes = STANDARD
+                    .decode(pdf_b64)
+                    .map_err(|err| anyhow!("Failed to decode PDF content: {}", err))?;
+
+                if let Ok(pdf_result) = PdfProcessor::process_pdf(&pdf_bytes) {
+                    let tier = resolve_quality_tier(&state.request);
+                    let limits = tier_limits(tier);
+                    let compressed =
+                        context::compress_pdf(&pdf_result.full_text, limits.max_pdf_context_chars);
+                    info!(
+                        "PDF (binary) compressed: {} chars → {} chars (tier={:?})",
+                        pdf_result.full_text.len(),
+                        compressed.len(),
+                        tier
+                    );
+                    state.pdf_context = Some(compressed);
+                }
+            } else {
+                // Pre-parsed text from frontend (pdfjs + optional Tesseract OCR).
+                // Decode base64 → UTF-8, then compress to tier budget.
+                // No temp file, no pdf-extract, no disk I/O.
+                if let Ok(text_bytes) = STANDARD.decode(pdf_b64) {
+                    if let Ok(text) = String::from_utf8(text_bytes) {
+                        if !text.trim().is_empty() {
+                            let tier = resolve_quality_tier(&state.request);
+                            let limits = tier_limits(tier);
+                            let compressed =
+                                context::compress_pdf(&text, limits.max_pdf_context_chars);
+                            info!(
+                                "PDF (pre-parsed) compressed: {} chars → {} chars (tier={:?})",
+                                text.len(),
+                                compressed.len(),
+                                tier
+                            );
+                            state.pdf_context = Some(compressed);
+                        }
+                    }
+                }
             }
             telemetry.record_pdf_timing(pdf_start.elapsed());
         }
+
 
         update_job(
             &self.jobs,
@@ -372,6 +423,42 @@ where
         }
 
         telemetry.record_outlines(state.outlines.len());
+
+        // ── Update stage name with an intelligent AI-generated title ──────────
+        // After outlines are finalized we know the scene titles, which gives the
+        // naming model enough context to produce a concise, engaging lesson title
+        // instead of the raw user requirement string.
+        let generated_title = tokio::time::timeout(
+            tokio::time::Duration::from_secs(4),
+            self.pipeline.generate_lesson_title(
+                &state.request.requirements.requirement,
+                &state.outlines,
+                language_code(&state.request.requirements.language),
+            ),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            warn!("lesson title generation timed out, using truncated requirement");
+            Ok(state.request.requirements.requirement.chars().take(60).collect())
+        })
+        .unwrap_or_else(|err| {
+            warn!(error = ?err, "lesson title generation failed, using truncated requirement");
+            state.request.requirements.requirement.chars().take(60).collect()
+        });
+        // Empty string means the impl returned the default no-op; use the truncated requirement.
+        let generated_title = if generated_title.trim().is_empty() {
+            state.request.requirements.requirement.chars().take(60).collect::<String>()
+        } else {
+            generated_title
+        };
+        info!(title = %generated_title, "lesson title generated");
+        state.stage.name = generated_title;
+
+        // ── Record hard max scenes on the stage so the frontend can gate the popup ──
+        let tier_for_budget = resolve_quality_tier(&state.request);
+        let complexity_for_budget = detect_complexity(&state.request.requirements.requirement);
+        let budget_for_stage = crate::complexity::compute_scene_budget(tier_for_budget, complexity_for_budget);
+        state.stage.max_scenes = Some(budget_for_stage.hard_max_scenes as u32);
 
         // Ensure budget constraints against outlines
         let budget = compute_generation_budget(tier, complexity);
@@ -909,9 +996,11 @@ fn build_stage(
     lesson_id: &str,
     request: &LessonGenerationRequest,
     now: chrono::DateTime<Utc>,
+    max_scenes: Option<u32>,
 ) -> Stage {
     Stage {
         id: format!("stage-{lesson_id}"),
+        // Placeholder name — will be replaced by generate_lesson_title() after outlines.
         name: request
             .requirements
             .requirement
@@ -926,6 +1015,7 @@ fn build_stage(
         whiteboard: vec![],
         agent_ids: vec![],
         generated_agent_configs: vec![],
+        max_scenes,
     }
 }
 
@@ -1086,7 +1176,7 @@ mod tests {
     use super::*;
     use ai_tutor_domain::{
         generation::{AgentMode, UserRequirements},
-        scene::{MediaGenerationRequest, MediaType, QuizQuestion, QuizQuestionType, SceneType},
+        scene::{MediaGenerationRequest, MediaType, QuizQuestion, QuizQuestionType, SceneType, VisualType},
     };
     use ai_tutor_media::storage::LocalFileAssetStore;
     use ai_tutor_providers::traits::{ImageProvider, TtsProvider, VideoProvider};
@@ -1123,6 +1213,7 @@ mod tests {
                     order: 1,
                     language: Some("en-US".to_string()),
                     suggested_image_ids: vec![],
+                    visual_type: Some(VisualType::None),
                     media_generations: vec![],
                     quiz_config: None,
                     interactive_config: None,
@@ -1139,6 +1230,7 @@ mod tests {
                     order: 2,
                     language: Some("en-US".to_string()),
                     suggested_image_ids: vec![],
+                    visual_type: Some(VisualType::None),
                     media_generations: vec![],
                     quiz_config: None,
                     interactive_config: None,
@@ -1320,6 +1412,7 @@ mod tests {
                 order: 1,
                 language: Some("en-US".to_string()),
                 suggested_image_ids: vec![],
+                visual_type: Some(VisualType::Image),
                 media_generations: vec![MediaGenerationRequest {
                     element_id: "gen_img_1".to_string(),
                     media_type: MediaType::Image,
@@ -1401,6 +1494,7 @@ mod tests {
                 order: 1,
                 language: Some("en-US".to_string()),
                 suggested_image_ids: vec![],
+                visual_type: Some(VisualType::None),
                 media_generations: vec![MediaGenerationRequest {
                     element_id: "gen_vid_1".to_string(),
                     media_type: MediaType::Video,

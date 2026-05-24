@@ -34,6 +34,10 @@ import { UserMenu } from '@/components/layout/user-menu';
 import { CreditsDisplay } from '@/components/layout/credits-display';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { SettingsDialog } from '@/components/settings';
+import { createLogger } from '@/lib/logger';
+import { parsePdfForSession } from '@/lib/pdf/parse-for-session';
+
+const log = createLogger('Classroom');
 
 // ── Pending lesson storage key (written by landing page on unauthenticated submit)
 const PENDING_LESSON_KEY = 'pendingLesson';
@@ -175,7 +179,10 @@ export default function ClassroomDashboard() {
       let pdfProviderId: string | undefined;
       let pdfProviderConfig: { apiKey?: string; baseUrl?: string } | undefined;
 
+      let parsedPdfText = '';
+
       if (pdfFile) {
+        // Store raw blob in IndexedDB for legacy fallback
         pdfStorageKey = await storePdfBlob(pdfFile);
         pdfFileName = pdfFile.name;
 
@@ -188,12 +195,18 @@ export default function ClassroomDashboard() {
             baseUrl: providerCfg.baseUrl,
           };
         }
+
+        // Pre-parse PDF text (pdfjs + optional Tesseract OCR for scanned pages).
+        // This happens before the redirect so generation-preview can use the text
+        // directly without needing to re-encode raw bytes.
+        // Failure is non-fatal — generation-preview falls back to the raw-bytes path.
+        parsedPdfText = await parsePdfForSession(pdfFile);
       }
 
       const sessionState = {
         sessionId: nanoid(),
         requirements,
-        pdfText: '',
+        pdfText: parsedPdfText,
         pdfImages: [],
         imageStorageIds: [],
         pdfStorageKey,
