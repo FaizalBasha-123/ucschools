@@ -1617,6 +1617,25 @@ impl LessonShelfRepository for FileStorage {
         }).await.map_err(|err| err.to_string())?
     }
 
+    async fn get_lesson_shelf_item_by_lesson_id(
+        &self,
+        account_id: &str,
+        lesson_id: &str,
+    ) -> Result<Option<LessonShelfItem>, String> {
+        let postgres_url = self.postgres_url.clone();
+        let account_id = account_id.to_string();
+        let lesson_id = lesson_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Option<LessonShelfItem>, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
+            let row = client.query_opt(
+                "SELECT id, account_id, lesson_id, source_job_id, title, subject, language, status, progress_pct, thumbnail_url, failure_reason, last_opened_at, archived_at, created_at, updated_at
+                 FROM lesson_shelf_items WHERE account_id = $1 AND lesson_id = $2 LIMIT 1",
+                &[&account_id, &lesson_id],
+            ).map_err(|err| err.to_string())?;
+            row.map(Self::postgres_row_to_shelf_item).transpose()
+        }).await.map_err(|err| err.to_string())?
+    }
+
     async fn list_lesson_shelf_items_for_account(
         &self,
         account_id: &str,

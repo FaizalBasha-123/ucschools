@@ -1,26 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
+import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('LessonsGenerateProxy');
 
-function getProxyUrl(): string | undefined {
-  return process.env.AI_TUTOR_PROXY_URL;
-}
-
 export async function POST(req: NextRequest) {
-  const proxyUrl = getProxyUrl();
-  if (!proxyUrl) {
-    return NextResponse.json(
-      { error: 'AI_TUTOR_PROXY_URL is not configured' },
-      { status: 503 }
-    );
-  }
+  const backend = backendUrl();
 
   try {
     const body = await req.json();
 
-    const response = await fetch(`${proxyUrl.replace(/\/$/, '')}/api/lessons/generate`, {
+    const response = await fetch(`${backend.replace(/\/$/, '')}/api/lessons/generate`, {
       method: 'POST',
       headers: {
         ...authHeadersFrom(req),

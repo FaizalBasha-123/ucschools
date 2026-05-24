@@ -22,6 +22,12 @@ import { toast } from 'sonner';
 import { LearningStyleDialog } from '@/components/lesson/learning-style-dialog';
 import { StudioInputBar } from '@/components/lesson/studio-input-bar';
 import { StudioSceneStrip } from '@/components/lesson/studio-scene-strip';
+import { MaxScenesDialog } from '@/components/lesson/max-scenes-dialog';
+import {
+  SceneCheckinWidget,
+  useSceneCheckin,
+  type CheckinQuestion,
+} from '@/components/lesson/scene-checkin-widget';
 import { cn } from '@/lib/utils';
 import type { UserRequirements } from '@/lib/types/generation';
 import { motion } from 'motion/react';
@@ -56,8 +62,91 @@ export default function LessonStudioPage() {
     pendingMode: LearningMode | null;
   }>({ open: false, pendingMode: null });
 
+  // ── Max-scenes dialog state ────────────────────────────────────────────────
+  const [maxScenesDialog, setMaxScenesDialog] = useState<{
+    open: boolean;
+    pendingInput: string;
+    extraCost?: number;
+  }>({ open: false, pendingInput: '' });
+
+  // ── Scene check-in state ───────────────────────────────────────────────────
+  const [checkin, setCheckin] = useState<{
+    visible: boolean;
+    sceneIndex: number;
+    question: CheckinQuestion | null;
+  }>({ visible: false, sceneIndex: 0, question: null });
+
+  const scenes = useStageStore((s) => s.scenes);
+  const currentSceneId = useStageStore((s) => s.currentSceneId);
+  const currentSceneIndex = scenes.findIndex((sc) => sc.id === currentSceneId);
+
   const currentLearningMode = useSettingsStore((s) => s.learningMode);
   const setLearningMode = useSettingsStore((s) => s.setLearningMode);
+
+  // ── Check-in trigger: fire every 2 scenes ─────────────────────────────────
+  const { onSceneAdvance } = useSceneCheckin({
+    onTrigger: async (sceneIdx) => {
+      const stage = useStageStore.getState().stage;
+      const scene = useStageStore.getState().scenes[sceneIdx];
+      if (!stage || !scene) return;
+      try {
+        // Ask the chat AI to generate a quick comprehension question for this scene.
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders() },
+          body: JSON.stringify({
+            session_id: `checkin:${stage.id}:${sceneIdx}`,
+            session_mode: 'qa',
+            messages: [
+              {
+                id: nanoid(),
+                role: 'user',
+                content:
+                  `Generate a single multiple-choice comprehension question for scene: "${scene.title}" ` +
+                  `in lesson "${stage.name}". ` +
+                  `Return JSON: {"id":"q1","text":"...","options":[{"label":"...","value":"A"},{...}],` +
+                  `"correctAnswer":"A","explanation":"..."}. Return ONLY the JSON.`,
+              },
+            ],
+          }),
+        });
+        if (!res.ok) return;
+        // The chat route streams SSE events; collect the full text delta.
+        const reader = res.body?.getReader();
+        if (!reader) return;
+        let full = '';
+        const decoder = new TextDecoder();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          // Parse SSE data lines
+          chunk.split('\n').forEach((line) => {
+            if (line.startsWith('data: ')) {
+              try {
+                const ev = JSON.parse(line.slice(6));
+                if (ev.kind === 'text_delta' && ev.content) full += ev.content;
+              } catch { /* skip */ }
+            }
+          });
+        }
+        // Extract JSON from the full response
+        const jsonMatch = full.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return;
+        const q: CheckinQuestion = JSON.parse(jsonMatch[0]);
+        setCheckin({ visible: true, sceneIndex: sceneIdx, question: q });
+      } catch (err) {
+        log.warn('[Checkin] Failed to generate check-in question:', err);
+      }
+    },
+  });
+
+  // Track scene navigation for check-in triggers
+  useEffect(() => {
+    if (currentSceneIndex >= 0) {
+      onSceneAdvance(currentSceneIndex);
+    }
+  }, [currentSceneIndex, onSceneAdvance]);
 
   // ── Load classroom ─────────────────────────────────────────────────────────
   const loadClassroom = useCallback(async () => {
@@ -202,6 +291,16 @@ export default function LessonStudioPage() {
       return;
     }
 
+    // ── Max-scenes gate ────────────────────────────────────────────────────
+    const { stage: currentStage, scenes: currentScenes } = useStageStore.getState();
+    const hardMax = currentStage?.max_scenes;
+    if (hardMax != null && currentScenes.length >= hardMax) {
+      // The user is asking for more content but the lesson is full.
+      setMaxScenesDialog({ open: true, pendingInput: topic });
+      return;
+    }
+    // ── End max-scenes gate ────────────────────────────────────────────────
+
     setStudioError(null);
     setStudioGenerating(true);
 
@@ -211,18 +310,31 @@ export default function LessonStudioPage() {
         headers: authHeaders(),
         cache: 'no-store',
       });
-      if (billingRes.ok) {
-        const bd = await billingRes.json();
-        // apiSuccess() spreads data at root: { success, entitlement, ... }
-        const entitlement = bd?.entitlement ?? bd?.data?.entitlement;
-        const credits: number = entitlement?.credit_balance ?? 0;
-        const hasSub: boolean = entitlement?.has_active_subscription ?? false;
-        const canGenerate: boolean = entitlement?.can_generate ?? (credits > 0);
-        if (!canGenerate && !hasSub && credits <= 0) {
-          toast.error('Insufficient credits', { description: 'Please choose a plan.' });
-          router.push('/pricing');
+
+      // Hard block: if we can't verify entitlement, don't proceed.
+      // The Rust backend will also reject it, but failing here gives better UX
+      // and avoids burning compute on a doomed LLM call.
+      if (!billingRes.ok) {
+        if (billingRes.status === 401) {
+          router.replace(`/auth?next=${encodeURIComponent(`/lessons/${classroomId}`)}`);
           return;
         }
+        toast.error('Could not verify your credits', {
+          description: 'Please check your connection and try again.',
+        });
+        return;
+      }
+
+      const bd = await billingRes.json();
+      // apiSuccess() spreads data at root: { success, entitlement, ... }
+      const entitlement = bd?.entitlement ?? bd?.data?.entitlement;
+      const credits: number = entitlement?.credit_balance ?? 0;
+      const hasSub: boolean = entitlement?.has_active_subscription ?? false;
+      const canGenerate: boolean = entitlement?.can_generate ?? (credits > 0);
+      if (!canGenerate && !hasSub && credits <= 0) {
+        toast.error('Insufficient credits', { description: 'Please choose a plan.' });
+        router.push('/pricing');
+        return;
       }
 
       const userProfile = useUserProfileStore.getState();
@@ -255,7 +367,7 @@ export default function LessonStudioPage() {
     } finally {
       setStudioGenerating(false);
     }
-  }, [studioGenerating, studioInput, studioLanguage, router]);
+  }, [studioGenerating, studioInput, studioLanguage, classroomId, router]);
 
   // ── Learning style intercept ──────────────────────────────────────────────
   const handleLearningModeChangeRequest = useCallback((mode: LearningMode) => {
@@ -307,6 +419,67 @@ export default function LessonStudioPage() {
     setLsDialog({ open: false, pendingMode: null });
   }, []);
 
+  // ── Max-scenes dialog handlers ──────────────────────────────────────────
+  const handleMaxScenesConsent = useCallback(() => {
+    setMaxScenesDialog((prev) => ({ ...prev, open: false }));
+    // Re-trigger the studio generate flow with consent — the pendingInput becomes the topic.
+    // We push to generation-preview with extra_scenes_consented=true via sessionStorage.
+    const { stage } = useStageStore.getState();
+    const userProfile = useUserProfileStore.getState();
+    const topic = maxScenesDialog.pendingInput || stage?.name || '';
+    const requirements: UserRequirements = {
+      requirement: topic,
+      language: stage?.language || studioLanguage,
+      userNickname: userProfile.nickname || undefined,
+      userBio: userProfile.bio || undefined,
+    };
+    sessionStorage.setItem(
+      'generationSession',
+      JSON.stringify({
+        sessionId: nanoid(),
+        requirements,
+        pdfText: '',
+        pdfImages: [],
+        imageStorageIds: [],
+        pdfStorageKey: undefined,
+        pdfFileName: undefined,
+        pdfProviderId: undefined,
+        pdfProviderConfig: undefined,
+        sceneOutlines: null,
+        currentStep: 'generating',
+        extraScenesConsented: true,
+      }),
+    );
+    router.push('/generation-preview');
+  }, [maxScenesDialog.pendingInput, studioLanguage, router]);
+
+  const handleMaxScenesDecline = useCallback(() => {
+    // Route the message to the chat bar instead.
+    setMaxScenesDialog((prev) => ({ ...prev, open: false }));
+    toast.info('Your question has been sent to the AI tutor.', { duration: 2500 });
+    // The StudioInputBar value already contains the message; we clear it
+    // so the user knows it was forwarded. (Chat is mounted via the Stage component.)
+    setStudioInput('');
+  }, []);
+
+  // ── Checkin handlers ────────────────────────────────────────────────────
+  const handleCheckinAnswer = useCallback(
+    (_qId: string, _val: string, isCorrect: boolean) => {
+      if (!isCorrect) {
+        toast.info('The AI tutor will follow up on this in the chat.', { duration: 3000 });
+      }
+    },
+    [],
+  );
+
+  const handleCheckinContinue = useCallback(() => {
+    setCheckin((prev) => ({ ...prev, visible: false }));
+  }, []);
+
+  const handleCheckinSkip = useCallback(() => {
+    setCheckin((prev) => ({ ...prev, visible: false }));
+  }, []);
+
   // ── Current scene metadata ─────────────────────────────────────────────────
   const stageName = useStageStore((s) => s.stage?.name ?? '');
   const { setCurrentSceneId } = useStageStore();
@@ -326,6 +499,30 @@ export default function LessonStudioPage() {
         onConfirm={handleLearningStyleConfirm}
         onCancel={handleLearningStyleCancel}
       />
+
+      {/* Max-scenes gate dialog */}
+      <MaxScenesDialog
+        open={maxScenesDialog.open}
+        lessonName={stageName || maxScenesDialog.pendingInput}
+        maxScenes={useStageStore.getState().stage?.max_scenes ?? 5}
+        currentScenes={scenes.length}
+        estimatedExtraCost={maxScenesDialog.extraCost}
+        onConsent={handleMaxScenesConsent}
+        onDecline={handleMaxScenesDecline}
+        onClose={() => setMaxScenesDialog((p) => ({ ...p, open: false }))}
+      />
+
+      {/* Scene check-in widget (every 2 scenes) */}
+      {checkin.visible && checkin.question && (
+        <SceneCheckinWidget
+          sceneNumber={checkin.sceneIndex + 1}
+          lessonName={stageName}
+          question={checkin.question}
+          onAnswer={handleCheckinAnswer}
+          onContinue={handleCheckinContinue}
+          onSkip={handleCheckinSkip}
+        />
+      )}
 
       {/* Root layout: scene strip | main content */}
       <div className="flex h-screen overflow-hidden bg-[#F0F4F8] dark:bg-[#0D1117]">

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { apiFetch, authHeaders, hasAuthSessionHint } from '@/lib/auth/session';
 
 interface CreditsContextType {
@@ -17,8 +17,18 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
   const [planName, setPlanName] = useState('Free');
   const [loading, setLoading] = useState(false);
 
+  // Cooldown ref: prevent hammering /api/billing/dashboard on every tab focus.
+  // Neon serverless compute bills per query — unbounded polling was draining the
+  // free tier. Enforce a minimum 30-second gap between background refreshes.
+  const lastFetchedAt = useRef<number>(0);
+  const REFRESH_COOLDOWN_MS = 30_000;
+
   const refreshCredits = useCallback(async () => {
     if (!hasAuthSessionHint()) return;
+
+    const now = Date.now();
+    if (now - lastFetchedAt.current < REFRESH_COOLDOWN_MS) return;
+    lastFetchedAt.current = now;
 
     setLoading(true);
     try {
@@ -47,23 +57,19 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Fetch only on mount when visible, then on tab focus/visibility change
+  // Fetch on mount, then refresh when user returns to tab.
+  // The cooldown above prevents redundant DB hits from rapid tab switching.
   useEffect(() => {
-    if (document.visibilityState === 'visible') {
-      refreshCredits();
-    }
+    refreshCredits();
 
-    const onFocus = () => refreshCredits();
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         refreshCredits();
       }
     };
 
-    window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
-      window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [refreshCredits]);

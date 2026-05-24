@@ -37,9 +37,14 @@ export interface Stage {
     role: string;
     persona: string;
     avatar: string;
-    color: string;
+    color: number;
     priority: number;
   }>;
+  /**
+   * Hard maximum number of scenes allowed for this lesson (set by the Rust backend from
+   * plan tier + topic complexity). Used by the frontend to gate the MaxScenesDialog.
+   */
+  max_scenes?: number;
 }
 
 /**

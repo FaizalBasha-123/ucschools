@@ -259,7 +259,7 @@ pub fn tier_limits(tier: QualityTier) -> TierLimits {
             max_examples_per_slide: 1,
             max_tokens_per_response: 2048,
             enable_refinement: false,
-            max_pdf_context_chars: 300,
+            max_pdf_context_chars: 800,
             max_cost_usd_per_request: 0.01,
         },
         QualityTier::Standard => TierLimits {

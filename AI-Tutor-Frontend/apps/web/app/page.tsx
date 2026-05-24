@@ -37,6 +37,7 @@ import { FinalCTA } from '@/components/landing/final-cta';
 import { useTheme } from '@/lib/hooks/use-theme';
 import { nanoid } from 'nanoid';
 import { storePdfBlob } from '@/lib/utils/image-storage';
+import { parsePdfForSession } from '@/lib/pdf/parse-for-session';
 import type { UserRequirements } from '@/lib/types/generation';
 import {
   archiveShelfItem,
@@ -509,8 +510,10 @@ function HomePage() {
       let pdfFileName: string | undefined;
       let pdfProviderId: string | undefined;
       let pdfProviderConfig: { apiKey?: string; baseUrl?: string } | undefined;
+      let parsedPdfText = '';
 
       if (form.pdfFile) {
+        // Store raw blob in IndexedDB for legacy fallback
         pdfStorageKey = await storePdfBlob(form.pdfFile);
         pdfFileName = form.pdfFile.name;
 
@@ -522,12 +525,16 @@ function HomePage() {
             baseUrl: providerCfg.baseUrl,
           };
         }
+
+        // Pre-parse PDF text (pdfjs + optional Tesseract OCR for scanned pages).
+        // Failure is non-fatal — generation-preview falls back to raw-bytes path.
+        parsedPdfText = await parsePdfForSession(form.pdfFile);
       }
 
       const sessionState = {
         sessionId: nanoid(),
         requirements,
-        pdfText: '',
+        pdfText: parsedPdfText,
         pdfImages: [],
         imageStorageIds: [],
         pdfStorageKey,
