@@ -7,6 +7,7 @@ const (
 	MsgTypeError = "error"
 	MsgTypeDoc   = "doc"  // client sends a document for context
 	MsgTypeData  = "data" // server sends structured query results (table/cards)
+	MsgTypePing  = "ping" // keep-alive heartbeat
 )
 
 // WSMessage represents a WebSocket message exchanged with the frontend.

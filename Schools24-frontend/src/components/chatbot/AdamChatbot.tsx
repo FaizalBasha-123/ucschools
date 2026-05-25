@@ -4,6 +4,23 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { usePathname } from 'next/navigation'
 import { ArrowUp, X, Sparkles, RotateCcw, WifiOff, Plus, FileText, Maximize2, Minimize2 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import remarkGfm from 'remark-gfm'
+import rehypeKatex from 'rehype-katex'
+import rehypeRaw from 'rehype-raw'
+import 'katex/dist/katex.min.css'
+
+// Pre-processor to handle LaTeX delimiters that remark-math might not catch
+const preprocessLaTeX = (content: string) => {
+    if (!content) return ''
+    return content
+        .replace(/\\\[/g, '$$$$')
+        .replace(/\\\]/g, '$$$$')
+        .replace(/\\\(/g, '$$')
+        .replace(/\\\)/g, '$$')
+}
+
 import { useChat, type ChatAttachment, type DataPayload } from '@/hooks/useChat'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -255,8 +272,14 @@ export default function AdamChatbot() {
     const [mounted, setMounted] = useState(false)
     const [isTriggerPopping, setIsTriggerPopping] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
-    const inputRef = useRef<HTMLInputElement>(null)
+    const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    const autoGrow = (element: HTMLTextAreaElement) => {
+        element.style.height = '40px' // Reset to min-height
+        const newHeight = Math.min(element.scrollHeight, 160) // ~7 lines (max 160px)
+        element.style.height = `${newHeight}px`
+    }
 
     const { user, userRole } = useAuth()
     const pathname = usePathname()
@@ -369,7 +392,7 @@ export default function AdamChatbot() {
     }, [])
 
     useEffect(() => { scrollToBottom() }, [messages, scrollToBottom])
-    useEffect(() => { if (isOpen && inputRef.current) inputRef.current.focus() }, [isOpen])
+    useEffect(() => { if (isOpen && textareaRef.current) textareaRef.current.focus() }, [isOpen])
 
     useEffect(() => {
         if (!isOpen || !isExpanded) return
@@ -402,10 +425,16 @@ export default function AdamChatbot() {
         sendMessage(inputValue, pendingAttachment ?? undefined)
         setInputValue('')
         setPendingAttachment(null)
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto'
+        }
     }, [inputValue, pendingAttachment, sendMessage])
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            handleSend()
+        }
     }
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -485,7 +514,7 @@ export default function AdamChatbot() {
             {/* ─── Full-height Chat Sidebar ─── */}
             <div
                 className={`
-                    fixed top-0 right-0 z-[9998] h-screen
+                    fixed top-0 right-0 z-[9998] h-full sm:h-[100dvh] lg:h-[100dvh]
                     flex flex-col bg-card
                     shadow-[-12px_0_50px_-8px_rgba(0,0,0,0.15),_-2px_0_8px_-2px_rgba(79,70,229,0.1)]
                     transition-transform [transition-duration:380ms]
@@ -539,7 +568,10 @@ export default function AdamChatbot() {
                 </div>
 
                 {/* Messages */}
-                <div className={`flex-1 overflow-y-auto py-5 bg-background custom-scrollbar ${isExpanded ? 'px-5 sm:px-7 md:px-10' : 'px-4'}`}>
+                <div 
+                    className={`flex-1 overflow-y-auto py-5 bg-background custom-scrollbar ${isExpanded ? 'px-5 sm:px-7 md:px-10' : 'px-4'}`} 
+                    style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}
+                >
                     <div className={`space-y-4 ${isExpanded ? 'mx-auto w-full max-w-4xl' : ''}`}>
                     {messages.map((msg) => (
                         <div
@@ -573,7 +605,14 @@ export default function AdamChatbot() {
                                     <DataResultRenderer payload={msg.dataPayload} />
                                 )}
                                 {msg.text && (
-                                    <div dangerouslySetInnerHTML={{ __html: formatText(msg.text) }} />
+                                    <div className="markdown-content">
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkMath, remarkGfm]}
+                                            rehypePlugins={[rehypeKatex, rehypeRaw]}
+                                        >
+                                            {preprocessLaTeX(msg.text)}
+                                        </ReactMarkdown>
+                                    </div>
                                 )}
                                 <p className={`text-[10px] mt-1.5 ${msg.sender === 'user' ? 'text-white/50' : msg.sender === 'error' ? 'text-red-400' : 'text-slate-400'}`}>
                                     {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -652,14 +691,17 @@ export default function AdamChatbot() {
                         >
                             <Plus className="w-4 h-4" />
                         </button>
-                        <input
-                            ref={inputRef}
-                            type="text"
+                        <textarea
+                            ref={textareaRef}
+                            rows={1}
                             value={inputValue}
-                            onChange={(e) => setInputValue(e.target.value)}
+                            onChange={(e) => {
+                                setInputValue(e.target.value)
+                                autoGrow(e.target)
+                            }}
                             onKeyDown={handleKeyDown}
                             placeholder={pendingAttachment ? 'Add a message or just send the doc…' : 'Message Adam…'}
-                            className="flex-1 bg-transparent text-[14px] text-white placeholder:text-white/55 outline-none focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                            className="flex-1 bg-transparent text-[14px] text-white placeholder:text-white/55 outline-none focus:outline-none resize-none py-1.5 scrollbar-hide max-h-[160px] transition-[height] duration-200"
                         />
                         <button
                             onClick={handleSend}
@@ -684,6 +726,24 @@ export default function AdamChatbot() {
 
             {/* Animations */}
             <style dangerouslySetInnerHTML={{ __html: `
+                .markdown-content {
+                    font-size: 13px;
+                    line-height: 1.6;
+                    font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+                }
+                /* Ensure KaTeX symbols are stable and use correct fonts */
+                .katex { 
+                    font-size: 1.1em !important; 
+                    font-family: 'KaTeX_Main', 'font-sans', serif !important;
+                }
+                .markdown-content p { margin-bottom: 0.5rem; }
+                .markdown-content p:last-child { margin-bottom: 0; }
+                .markdown-content strong { font-weight: 600; }
+                .markdown-content ul, .markdown-content ol { margin-left: 1.25rem; margin-bottom: 0.5rem; }
+                .markdown-content li { margin-bottom: 0.25rem; }
+                .markdown-content h1, .markdown-content h2, .markdown-content h3 { font-weight: 700; margin-top: 0.75rem; margin-bottom: 0.25rem; }
+                .markdown-content code { background: rgba(0,0,0,0.05); padding: 0.1rem 0.3rem; rounded: 0.25rem; font-family: monospace; }
+                
                 @keyframes shimmer { 100% { transform: translateX(200%); } }
                 .animate-shimmer { animation: shimmer 2s infinite; }
                 @keyframes slideUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
@@ -715,6 +775,8 @@ export default function AdamChatbot() {
                 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
                 .custom-scrollbar::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 8px; }
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
+                .scrollbar-hide::-webkit-scrollbar { display: none; }
+                .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
             ` }} />
         </>
     )

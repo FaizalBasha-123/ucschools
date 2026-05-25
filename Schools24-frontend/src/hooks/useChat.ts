@@ -92,6 +92,7 @@ export function useChat(enabled = true, sessionKey = 'default'): UseChatReturn {
 
     const wsRef = useRef<WebSocket | null>(null)
     const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+    const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const retryCountRef = useRef(0)
     // True once the user sends their first message in this session.
     // Any bot message that arrives before this is an auto-greeting from the
@@ -192,6 +193,27 @@ export function useChat(enabled = true, sessionKey = 'default'): UseChatReturn {
     }, []) // stable — reads refs only
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
+    useEffect(() => {
+        if (status === 'connected') {
+            heartbeatTimerRef.current = setInterval(() => {
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({ type: 'ping' }))
+                }
+            }, 30000) // 30s heartbeat
+        } else {
+            if (heartbeatTimerRef.current) {
+                clearInterval(heartbeatTimerRef.current)
+                heartbeatTimerRef.current = null
+            }
+        }
+        return () => {
+            if (heartbeatTimerRef.current) {
+                clearInterval(heartbeatTimerRef.current)
+                heartbeatTimerRef.current = null
+            }
+        }
+    }, [status])
+
     useEffect(() => {
         if (!enabled) { flush(); return }
         // Role/account switches must always start a fresh WS session so

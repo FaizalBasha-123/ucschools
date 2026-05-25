@@ -123,17 +123,22 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 	var docContext strings.Builder
 
 	// Per-connection WS rate limiting: 20 messages per minute max
-	const wsMaxMsgsPerMin = 20
+	const (
+		wsMaxMsgsPerMin = 20
+		pongWait        = 60 * time.Second
+	)
 	msgCount := 0
 	windowStart := time.Now()
 
 	// No server-side welcome — the frontend renders its own animated greeting.
+	conn.SetReadDeadline(time.Now().Add(pongWait))
 
 	for {
 		var msg WSMessage
 		if err := conn.ReadJSON(&msg); err != nil {
 			break
 		}
+		conn.SetReadDeadline(time.Now().Add(pongWait))
 
 		switch msg.Type {
 
@@ -214,6 +219,9 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 			}
 			history = appendHistory(history, query, reply)
 			_ = conn.WriteJSON(WSMessage{Type: MsgTypeBot, Content: reply})
+
+		case MsgTypePing:
+			// Heartbeat — do nothing, just receiving resets the idle timer
 		}
 	}
 }

@@ -222,10 +222,10 @@ export function Header() {
 
 export function HeaderShell({ hidden = false }: { hidden?: boolean }) {
     return (
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-40 h-16 overflow-hidden">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-40 h-16 overflow-hidden md:h-20">
             <div
                 className={cn(
-                    "pointer-events-auto h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 transition-transform duration-300 ease-in-out will-change-transform",
+                    "pointer-events-auto h-full bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85 transition-transform duration-300 ease-in-out will-change-transform",
                     hidden ? "-translate-y-full" : "translate-y-0"
                 )}
             >
