@@ -90,13 +90,7 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 		case <-c.Request.Context().Done():
 			return
 		case <-ticker.C:
-			// Session validation check
-			if h.sessionValidator != nil {
-				if err := h.sessionValidator(c.Request.Context(), claims); err != nil {
-					_ = conn.WriteJSON(map[string]string{"error": "Session expired"})
-					return
-				}
-			}
+			// Session validation removed from keep-alive to prevent DB hammering.
 			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

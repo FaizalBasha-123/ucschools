@@ -1250,25 +1250,18 @@ func (h *Handler) HandleClassGroupWS(c *gin.Context) {
 		}
 	}()
 
-	if h.sessionValidator != nil {
-		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-done:
-					return
-				case <-ticker.C:
-					if err := h.sessionValidator(context.Background(), claims); err != nil {
-						_ = conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "session_revoked"), time.Now().Add(5*time.Second))
-						_ = conn.Close()
-						return
-					}
-					_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
-				}
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				_ = conn.WriteControl(websocket.PingMessage, []byte("ping"), time.Now().Add(5*time.Second))
 			}
-		}()
-	}
+		}
+	}()
 
 	// ── 6. Read-pump (main goroutine) ─────────────────────────────────────────
 	// We only need to handle ping/pong and detect disconnects here.

@@ -732,28 +732,6 @@ func (h *Handler) DriverWebSocket(c *gin.Context) {
 	ack := []byte(`{"status":"ack"}`)
 
 	for {
-		if h.sessionValidator != nil {
-			if err := h.sessionValidator(context.Background(), claims); err != nil {
-				_ = conn.WriteControl(
-					websocket.CloseMessage,
-					websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "session_revoked"),
-					time.Now().Add(2*time.Second),
-				)
-				break
-			}
-		}
-
-		// Re-check tracking permission on every ping.
-		status := GetSessionStatus(tenantCtx(context.Background(), schoolID), h.cache, h.repo, schoolID)
-		if !status.TrackingAllowed {
-			_ = conn.WriteControl(
-				websocket.CloseMessage,
-				websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "outside_tracking_window"),
-				time.Now().Add(2*time.Second),
-			)
-			break
-		}
-
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
@@ -974,11 +952,7 @@ func (h *Handler) TrackRoute(c *gin.Context) {
 			flusher.Flush()
 
 		case <-keepalive.C:
-			if h.sessionValidator != nil {
-				if err := h.sessionValidator(context.Background(), claims); err != nil {
-					return
-				}
-			}
+			// Session validation removed from keepalive loop to prevent database hammering
 			// SSE comment lines are ignored by EventSource but keep the TCP connection alive.
 			fmt.Fprintf(c.Writer, ": keepalive\n\n")
 			flusher.Flush()
