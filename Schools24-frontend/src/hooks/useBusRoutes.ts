@@ -91,7 +91,6 @@ export function useBusRoutes(search: string = '', schoolId?: string, options: { 
       return lastPage.page < totalPages ? lastPage.page + 1 : undefined;
     },
     staleTime: 2 * 60_000,
-    refetchInterval: 60_000,
     enabled: options.enabled,
   });
 }

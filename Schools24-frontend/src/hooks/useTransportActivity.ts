@@ -42,7 +42,6 @@ export function useTransportActivity(schoolId?: string, options: { enabled?: boo
         // When a tracking session is live we want fresh counts quickly.
         // Backend merges the Valkey buffer so each fetch reflects the current session.
         staleTime: options.isLive ? 10_000 : 2 * 60_000,
-        refetchInterval: options.isLive ? 30_000 : 5 * 60_000,
         enabled: options.enabled !== false,
     })
 }

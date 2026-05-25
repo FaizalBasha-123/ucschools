@@ -3,6 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryProvider } from "@/components/query-provider";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { RealtimeProvider } from "@/providers/realtime-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { ConsoleWelcome } from "@/components/ConsoleWelcome"
 import { DevErrorSuppressor } from "@/components/DevErrorSuppressor";
@@ -64,14 +65,16 @@ export default function RootLayout({
         >
           <QueryProvider>
             <AuthProvider>
-              <OfflineBanner />
-              <PermissionPrompts />
-              <PushTokenRegistration />
-              <ConsoleWelcome />
-              <DevErrorSuppressor />
-              <CookieConsentBanner />
-              {children}
-              <Toaster position="top-right" richColors />
+              <RealtimeProvider>
+                <OfflineBanner />
+                <PermissionPrompts />
+                <PushTokenRegistration />
+                <ConsoleWelcome />
+                <DevErrorSuppressor />
+                <CookieConsentBanner />
+                {children}
+                <Toaster position="top-right" richColors />
+              </RealtimeProvider>
             </AuthProvider>
           </QueryProvider>
         </ThemeProvider>

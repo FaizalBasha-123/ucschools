@@ -29,7 +29,6 @@ export function useStaff(search: string = '', pageSize: number = 20, schoolId?: 
         },
         enabled: options.enabled,
         staleTime: 0,
-        refetchInterval: 30_000,
     });
 }
 

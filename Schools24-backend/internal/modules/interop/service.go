@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,16 +22,14 @@ var (
 	ErrJobNotFound      = errors.New("interop job not found")
 )
 
-type Service struct {
-	cfg    config.InteropConfig
-	client *Client
-	signer *Signer
-	repo   *Repository
+type FailureNotifier func(ctx context.Context, job *InteropJob, err error)
 
-	sweepRunsTotal     atomic.Uint64
-	sweepLockMissTotal atomic.Uint64
-	sweepRetriesTotal  atomic.Uint64
-	sweepErrorsTotal   atomic.Uint64
+type Service struct {
+	cfg             config.InteropConfig
+	client          *Client
+	signer          *Signer
+	repo            *Repository
+	failureNotifier FailureNotifier
 }
 
 func NewService(cfg *config.Config, db *database.PostgresDB) *Service {
@@ -43,6 +40,10 @@ func NewService(cfg *config.Config, db *database.PostgresDB) *Service {
 		signer: signer,
 		repo:   NewRepository(db),
 	}
+}
+
+func (s *Service) SetFailureNotifier(fn FailureNotifier) {
+	s.failureNotifier = fn
 }
 
 func (s *Service) Readiness() ReadinessReport {
@@ -115,7 +116,7 @@ func (s *Service) CreateJobWithMeta(ctx context.Context, req CreateJobRequest, r
 
 	maxRetries := s.cfg.MaxRetries
 	if maxRetries <= 0 {
-		maxRetries = 3
+		maxRetries = 5 // Increased default to 5 per new spec
 	}
 
 	// Idempotency check: if key provided, return cached job if it exists
@@ -179,11 +180,13 @@ func (s *Service) executeJob(ctx context.Context, schoolID uuid.UUID, jobUUID uu
 		_ = s.repo.MarkFailedAttempt(ctx, jobUUID, attempt, result.StatusCode, truncateLargeText(result.Body, 64*1024), truncateLargeText(err.Error(), 4*1024))
 
 		if attempt == job.MaxAttempts {
+			// Do not sleep after final failure
 			break
 		}
 		time.Sleep(backoffDuration(attempt))
 	}
 
+	finalErrReason := "all retry attempts exhausted"
 	_ = s.repo.MarkFailedFinal(
 		ctx,
 		jobUUID,
@@ -194,8 +197,12 @@ func (s *Service) executeJob(ctx context.Context, schoolID uuid.UUID, jobUUID uu
 		job.MaxAttempts,
 		0,
 		"",
-		"all retry attempts exhausted",
+		finalErrReason,
 	)
+
+	if s.failureNotifier != nil {
+		go s.failureNotifier(context.Background(), job, errors.New(finalErrReason))
+	}
 }
 
 func backoffDuration(attempt int) time.Duration {
@@ -242,67 +249,7 @@ func (s *Service) RetryJob(ctx context.Context, jobID string) (*InteropJob, erro
 	return s.retryJobByID(ctx, parsed, nil)
 }
 
-func (s *Service) SweepPendingRetries(ctx context.Context, schoolID string, limit int) (int, error) {
-	if !s.cfg.Enabled || !s.cfg.RetrySweepEnabled {
-		return 0, nil
-	}
-	s.sweepRunsTotal.Add(1)
-	if limit <= 0 {
-		limit = 5
-	}
-
-	schoolUUID, err := uuid.Parse(strings.TrimSpace(schoolID))
-	if err != nil {
-		return 0, fmt.Errorf("%w: invalid school id", ErrValidationFailed)
-	}
-
-	unlock, acquired, err := s.repo.AcquireSchoolSweepLock(ctx, schoolUUID)
-	if err != nil {
-		s.sweepErrorsTotal.Add(1)
-		return 0, err
-	}
-	if !acquired {
-		s.sweepLockMissTotal.Add(1)
-		return 0, nil
-	}
-	defer unlock()
-
-	jobIDs, err := s.repo.ListRetryCandidates(ctx, schoolUUID, limit)
-	if err != nil {
-		s.sweepErrorsTotal.Add(1)
-		return 0, err
-	}
-
-	processed := 0
-	for _, jobID := range jobIDs {
-		if ctx.Err() != nil {
-			break
-		}
-		parsedJobID, parseErr := parseJobID(jobID)
-		if parseErr != nil {
-			s.sweepErrorsTotal.Add(1)
-			continue
-		}
-		if _, retryErr := s.retryJobByID(ctx, parsedJobID, &schoolUUID); retryErr != nil {
-			s.sweepErrorsTotal.Add(1)
-			continue
-		}
-		processed++
-	}
-	s.sweepRetriesTotal.Add(uint64(processed))
-
-	return processed, nil
-}
-
-func (s *Service) SweeperStats() SweeperStats {
-	return SweeperStats{
-		RunsTotal:         s.sweepRunsTotal.Load(),
-		LockMissTotal:     s.sweepLockMissTotal.Load(),
-		RetriesTotal:      s.sweepRetriesTotal.Load(),
-		ErrorsTotal:       s.sweepErrorsTotal.Load(),
-		RetrySweepEnabled: s.cfg.RetrySweepEnabled,
-	}
-}
+// Sweeper logic removed as part of event-driven migration.
 
 func (s *Service) retryJobByID(ctx context.Context, jobID uuid.UUID, expectedSchoolID *uuid.UUID) (*InteropJob, error) {
 	if !s.cfg.Enabled {

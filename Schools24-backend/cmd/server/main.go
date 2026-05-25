@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
 	"log"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/schools24/backend/internal/config"
 	"github.com/schools24/backend/internal/modules/academic"
 	"github.com/schools24/backend/internal/modules/admin"
@@ -16,6 +16,7 @@ import (
 	"github.com/schools24/backend/internal/modules/blog"
 	"github.com/schools24/backend/internal/modules/chat"
 	"github.com/schools24/backend/internal/modules/demo"
+	"github.com/schools24/backend/internal/modules/events"
 	"github.com/schools24/backend/internal/modules/interop"
 	"github.com/schools24/backend/internal/modules/models3d"
 	"github.com/schools24/backend/internal/modules/operations"
@@ -244,9 +245,13 @@ func main() {
 	interopService := interop.NewService(cfg, db)
 	interopHandler := interop.NewHandler(interopService)
 
+	// Events Module (Realtime sync)
+	eventsService := events.NewService(appCache)
+	eventsHandler := events.NewHandler(eventsService, cfg.JWT.Secret, authService.ValidateAccessSession)
+
 	// Admin Module
 	adminRepo := admin.NewRepository(db, store)
-	adminService := admin.NewService(adminRepo, cfg, interopService)
+	adminService := admin.NewService(adminRepo, cfg, interopService, eventsService)
 
 	// Shared real-time admission hub (broadcast from public module → admin WS)
 	admHub := admissionhub.New()
@@ -279,6 +284,39 @@ func main() {
 	supportRepo := support.NewRepository(db)
 	supportService := support.NewService(supportRepo)
 	supportHandler := support.NewHandler(supportService, cfg.JWT.Secret, authService.ValidateAccessSession)
+
+	interopService.SetFailureNotifier(func(ctx context.Context, job *interop.InteropJob, err error) {
+		schoolID, parseErr := uuid.Parse(job.SchoolID)
+		if parseErr != nil {
+			log.Printf("interop: SetFailureNotifier failed to parse schoolID %q: %v", job.SchoolID, parseErr)
+			return
+		}
+
+		s, getErr := schoolRepo.GetByID(ctx, schoolID)
+		if getErr != nil || s == nil {
+			log.Printf("interop: SetFailureNotifier failed to find school %s: %v", schoolID, getErr)
+			return
+		}
+
+		contactEmail := "N/A"
+		if s.ContactEmail != nil {
+			contactEmail = *s.ContactEmail
+		}
+
+		req := support.CreateTicketRequest{
+			Subject:     fmt.Sprintf("Interop Sync Failed for School %s", s.Name),
+			Description: fmt.Sprintf("An interop job has permanently failed after max retries.\n\nSchool: %s\nContact Email: %s\nSystem: %s\nOperation: %s\nError: %s\n\nPayload:\n%v", s.Name, contactEmail, job.System, job.Operation, err.Error(), job.Payload),
+			Category:    "Integration",
+			Priority:    "high",
+		}
+
+		_, createErr := supportService.CreateTicket(ctx, req, uuid.Nil, "system", "Interop Validator", "system@schools24.com", &schoolID, &s.Name)
+		if createErr != nil {
+			log.Printf("interop: SetFailureNotifier failed to create ticket for school %s: %v", schoolID, createErr)
+		} else {
+			log.Printf("interop: created support ticket for permanently failed job %s (school %s)", job.ID, schoolID)
+		}
+	})
 
 	// Demo Request Module
 	demoRepo := demo.NewRepository(db)
@@ -495,8 +533,9 @@ func main() {
 		publicBlogs.GET("/:slug", blogHandler.GetPublishedBySlug)
 	}
 
-	// Chat WebSocket (Handles its own auth via Query Param)
+	// AI Chat & Events
 	v1.GET("/chat/ws", chatHandler.HandleWebSocket)
+	v1.GET("/events/ws", eventsHandler.HandleWebSocket)
 
 	// Teacher class-group WebSocket (auth via ?token= query param)
 	v1.GET("/teacher/ws", teacherHandler.HandleClassGroupWS)
@@ -743,7 +782,6 @@ func main() {
 			superAdminRoutes.PUT("/reconciliations/:id/review", adminHandler.ReviewLearnerReconciliation)
 			superAdminRoutes.PUT("/reconciliations/:id/unmerge", adminHandler.UnmergeLearnerReconciliation)
 			superAdminRoutes.GET("/interop/readiness", interopHandler.GetReadiness)
-			superAdminRoutes.GET("/interop/sweeper/stats", interopHandler.GetSweeperStats)
 			superAdminRoutes.GET("/interop/jobs", interopHandler.ListJobs)
 			superAdminRoutes.GET("/interop/jobs/:id", interopHandler.GetJob)
 			superAdminRoutes.POST("/interop/jobs", interopHandler.CreateJob)
@@ -899,7 +937,6 @@ func main() {
 			adminRoutes.POST("/transfers/:id/gov-sync", adminHandler.TriggerTransferGovSync)
 			adminRoutes.POST("/transfers/:id/gov-sync/retry", adminHandler.RetryTransferGovSync)
 			adminRoutes.GET("/interop/readiness", interopHandler.GetReadiness)
-			adminRoutes.GET("/interop/sweeper/stats", interopHandler.GetSweeperStats)
 			adminRoutes.GET("/interop/jobs", interopHandler.ListJobs)
 			adminRoutes.GET("/interop/jobs/:id", interopHandler.GetJob)
 			adminRoutes.POST("/interop/jobs", interopHandler.CreateJob)
@@ -1034,7 +1071,7 @@ func main() {
 
 		interval := time.Duration(cfg.Transport.IntervalSec) * time.Second
 		if interval <= 0 {
-			interval = 300 * time.Second
+			interval = 12 * time.Hour
 		}
 
 		timeout := time.Duration(cfg.Transport.PerRunTimeoutSec) * time.Second
@@ -1052,7 +1089,7 @@ func main() {
 
 		var cachedSchools []school.School
 		schoolsCacheExpiresAt := time.Time{}
-		schoolsCacheTTL := 30 * time.Minute
+		schoolsCacheTTL := 12 * time.Hour
 
 		run := func(trigger string) {
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -1127,73 +1164,7 @@ func main() {
 		}
 	}()
 
-	// Interop DLQ sweeper: retries a small capped batch per school at fixed intervals.
-	// This keeps retry pressure controlled while steadily draining transient failures.
-	go func() {
-		if !cfg.Interop.RetrySweepEnabled {
-			log.Printf("interop sweeper: disabled (INTEROP_RETRY_SWEEP_ENABLED=false)")
-			return
-		}
-
-		interval := time.Duration(cfg.Interop.RetrySweepIntervalSec) * time.Second
-		if interval <= 0 {
-			interval = 120 * time.Second
-		}
-
-		batchSize := cfg.Interop.RetrySweepBatchSize
-		if batchSize <= 0 {
-			batchSize = 5
-		}
-
-		timeoutSec := cfg.Interop.RetrySweepTimeoutSec
-		if timeoutSec <= 0 {
-			timeoutSec = 20
-		}
-
-		run := func(trigger string) {
-			if !cfg.Interop.Enabled {
-				return
-			}
-
-			listCtx, listCancel := context.WithTimeout(context.Background(), 30*time.Second)
-			activeSchools, activeErr := existingSchoolRepo.GetAll(listCtx)
-			listCancel()
-			if activeErr != nil {
-				log.Printf("interop sweeper (%s): failed to list schools: %v", trigger, activeErr)
-				return
-			}
-
-			totalRetried := 0
-			for _, s := range activeSchools {
-				time.Sleep(interopSweepJitter(s.ID.String()))
-
-				schoolCtx, schoolCancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
-				safeSchema := fmt.Sprintf("\"school_%s\"", s.ID.String())
-				schoolCtx = context.WithValue(schoolCtx, "tenant_schema", safeSchema)
-				schoolCtx = context.WithValue(schoolCtx, "school_id", s.ID.String())
-
-				retried, err := interopService.SweepPendingRetries(schoolCtx, s.ID.String(), batchSize)
-				schoolCancel()
-				if err != nil {
-					log.Printf("interop sweeper (%s): school %s error: %v", trigger, s.ID, err)
-					continue
-				}
-				totalRetried += retried
-			}
-
-			if totalRetried > 0 {
-				log.Printf("interop sweeper (%s): retried %d jobs across %d schools", trigger, totalRetried, len(activeSchools))
-			}
-		}
-
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
-		run("initial")
-		for range ticker.C {
-			run("scheduled")
-		}
-	}()
+	// Interop sweeper removed in favor of event-driven retry in execution logic
 
 	// 10. Start Server
 	port := cfg.App.Port
@@ -1203,12 +1174,4 @@ func main() {
 	if err := r.Run(":" + port); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
-}
-
-func interopSweepJitter(schoolID string) time.Duration {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(strings.TrimSpace(schoolID)))
-	// Keep jitter small: 25-149ms per school to reduce request bursts without slowing sweep significantly.
-	ms := 25 + int(h.Sum32()%125)
-	return time.Duration(ms) * time.Millisecond
 }

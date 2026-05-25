@@ -89,7 +89,6 @@ export function useTeachers(
         },
         enabled: options.enabled,
         staleTime: 30_000,
-        refetchInterval: 30_000,
     })
 }
 

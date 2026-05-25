@@ -1,16 +1,19 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play } from 'lucide-react';
+import { Play, HelpCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SceneRenderer } from '@/components/stage/scene-renderer';
 import { SceneProvider } from '@/lib/contexts/scene-context';
 import { Whiteboard } from '@/components/whiteboard';
+import { WhiteboardDoubtSession } from '@/components/whiteboard/whiteboard-doubt-session';
 import { CanvasToolbar } from '@/components/canvas/canvas-toolbar';
 import type { CanvasToolbarProps } from '@/components/canvas/canvas-toolbar';
 import type { Scene, StageMode } from '@/lib/types/stage';
 import { useI18n } from '@/lib/hooks/use-i18n';
+import { useStageStore } from '@/lib/store';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface CanvasAreaProps extends CanvasToolbarProps {
   readonly currentScene: Scene | null;
@@ -19,6 +22,12 @@ interface CanvasAreaProps extends CanvasToolbarProps {
   readonly isPendingScene?: boolean;
   readonly isGenerationFailed?: boolean;
   readonly onRetryGeneration?: () => void;
+  /** Lesson ID for the doubt session API */
+  readonly lessonId?: string;
+  /** Called when doubt panel opens — Stage should pause the engine */
+  readonly onDoubtOpen?: () => void;
+  /** Called when doubt panel closes — Stage should resume the engine */
+  readonly onDoubtClose?: () => void;
 }
 
 export function CanvasArea({
@@ -45,9 +54,28 @@ export function CanvasArea({
   isPendingScene,
   isGenerationFailed,
   onRetryGeneration,
+  lessonId,
+  onDoubtOpen,
+  onDoubtClose,
+  ...toolbarRest
 }: CanvasAreaProps) {
   const { t } = useI18n();
-  const showControls = mode === 'playback' && !whiteboardOpen;
+  const stageId = useStageStore((s) => s.stage?.id);
+  const effectiveLessonId = lessonId ?? stageId ?? '';
+
+  const [doubtOpen, setDoubtOpen] = useState(false);
+
+  const openDoubt = () => {
+    setDoubtOpen(true);
+    onDoubtOpen?.();
+  };
+
+  const closeDoubt = () => {
+    setDoubtOpen(false);
+    onDoubtClose?.();
+  };
+
+  const showControls = mode === 'playback' && !whiteboardOpen && !doubtOpen;
   const showPlayHint =
     showControls &&
     engineState !== 'playing' &&
@@ -58,9 +86,6 @@ export function CanvasArea({
   const handleSlideClick = useCallback(
     (e: React.MouseEvent) => {
       if (!showControls || isLiveSession || currentScene?.type !== 'slide') return;
-      // Don't trigger page play/pause when clicking inside a video element's visual area.
-      // Video elements may be visually covered by other slide elements (e.g. text),
-      // so we check click coordinates against all video element bounding rects.
       const container = e.currentTarget as HTMLElement;
       const videoEls = container.querySelectorAll('[data-video-element]');
       for (const el of videoEls) {
@@ -81,7 +106,7 @@ export function CanvasArea({
 
   return (
     <div className="w-full h-full flex flex-col bg-gray-50 dark:bg-gray-900 group/canvas">
-      {/* Slide area — takes remaining space */}
+      {/* Slide area */}
       <div
         className={cn(
           'flex-1 min-h-0 relative overflow-hidden flex items-center justify-center p-2 transition-colors duration-500',
@@ -108,13 +133,24 @@ export function CanvasArea({
               </div>
             )}
 
-            {/* Whiteboard Layer */}
+            {/* Whiteboard Layer (z-110) */}
             <div className="absolute inset-0 z-[110] pointer-events-none">
               <Whiteboard isOpen={whiteboardOpen} onClose={onWhiteboardClose} />
             </div>
+
+            {/* Whiteboard Doubt Session Layer (z-130) */}
+              <div className="absolute inset-0 z-[130] pointer-events-none">
+                <WhiteboardDoubtSession
+                  isOpen={doubtOpen}
+                  onClose={closeDoubt}
+                  lessonId={effectiveLessonId}
+                  sceneIndex={currentSceneIndex}
+                  sceneTitle={currentScene?.title ?? ''}
+                />
+              </div>
           </SceneProvider>
 
-          {/* Pending Scene Loading Overlay */}
+          {/* Pending / loading overlay */}
           <AnimatePresence>
             {isPendingScene && !currentScene && (
               <motion.div
@@ -127,18 +163,8 @@ export function CanvasArea({
                 {isGenerationFailed ? (
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
-                      <svg
-                        className="w-6 h-6 text-red-400 dark:text-red-500"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={1.5}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-                        />
+                      <svg className="w-6 h-6 text-red-400 dark:text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                       </svg>
                     </div>
                     <span className="text-sm text-red-500 dark:text-red-400 font-medium">
@@ -155,12 +181,10 @@ export function CanvasArea({
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-4">
-                    {/* Spinner */}
                     <div className="relative w-12 h-12">
                       <div className="absolute inset-0 rounded-full border-2 border-gray-100 dark:border-gray-700" />
                       <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-primary dark:border-t-primary animate-spin" />
                     </div>
-                    {/* Text */}
                     <motion.span
                       initial={{ opacity: 0, y: 4 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -175,14 +199,14 @@ export function CanvasArea({
             )}
           </AnimatePresence>
 
-          {/* Scene Number Badge */}
+          {/* Scene number badge */}
           {currentScene && (
             <div className="absolute top-4 right-4 text-gray-200 dark:text-gray-700 font-black text-4xl opacity-50 pointer-events-none select-none mix-blend-multiply dark:mix-blend-screen">
               {(currentSceneIndex + 1).toString().padStart(2, '0')}
             </div>
           )}
 
-          {/* Play hint — breathing button when idle or paused (slides only) */}
+          {/* Play hint */}
           <AnimatePresence>
             {showPlayHint && (
               <motion.div
@@ -195,10 +219,7 @@ export function CanvasArea({
                 <motion.div
                   className="opacity-50 group-hover/canvas:opacity-100 transition-opacity duration-300 pointer-events-auto cursor-pointer"
                   exit={{ pointerEvents: 'none' }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPlayPause();
-                  }}
+                  onClick={(e) => { e.stopPropagation(); onPlayPause(); }}
                 >
                   <motion.div
                     initial={{ scale: 0.85 }}
@@ -206,26 +227,58 @@ export function CanvasArea({
                     exit={{ scale: 1.15, opacity: 0 }}
                     transition={{
                       default: { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
-                      scale: {
-                        repeat: Infinity,
-                        repeatType: 'mirror',
-                        duration: 1,
-                        ease: 'easeInOut',
-                      },
+                      scale: { repeat: Infinity, repeatType: 'mirror', duration: 1, ease: 'easeInOut' },
                     }}
-                    className="w-20 h-20 rounded-full bg-white/95 dark:bg-gray-800/95 flex items-center justify-center shadow-[0_4px_30px_rgba(22,163,74,0.15),inset_0_0_0_1px_rgba(22,163,74,0.1)] dark:shadow-[0_4px_30px_rgba(22,163,74,0.3),inset_0_0_0_1px_rgba(22,163,74,0.1)]"
+                    className="w-20 h-20 rounded-full bg-white/95 dark:bg-gray-800/95 flex items-center justify-center shadow-[0_4px_30px_rgba(22,163,74,0.15),inset_0_0_0_1px_rgba(22,163,74,0.1)]"
                     style={{ willChange: 'transform' }}
                   >
-                    <Play className="w-7 h-7 text-primary dark:text-primary fill-primary/90 dark:fill-primary/90 ml-0.5" />
+                    <Play className="w-7 h-7 text-primary fill-primary/90 ml-0.5" />
                   </motion.div>
                 </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* "Ask a doubt" floating button — visible when a scene is playing and doubt is not open */}
+          <AnimatePresence>
+            {currentScene && !doubtOpen && !whiteboardOpen && effectiveLessonId && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                transition={{ duration: 0.2 }}
+                className="absolute bottom-4 right-4 z-[115] pointer-events-auto"
+              >
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        id="ask-doubt-btn"
+                        onClick={(e) => { e.stopPropagation(); openDoubt(); }}
+                        className={cn(
+                          'w-9 h-9 rounded-full flex items-center justify-center',
+                          'bg-violet-600 hover:bg-violet-700 text-white',
+                          'shadow-[0_4px_16px_rgba(124,58,237,0.4)]',
+                          'hover:shadow-[0_6px_20px_rgba(124,58,237,0.55)]',
+                          'transition-all active:scale-95',
+                        )}
+                        aria-label="Ask a doubt"
+                      >
+                        <HelpCircle className="w-4 h-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="text-xs">
+                      Ask a doubt
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
       </div>
 
-      {/* ── Canvas Toolbar — in document flow, only when not merged into roundtable ── */}
+      {/* Canvas Toolbar */}
       {!hideToolbar && (
         <CanvasToolbar
           className={cn(
@@ -250,6 +303,7 @@ export function CanvasArea({
           onTogglePresentation={onTogglePresentation}
           showStopDiscussion={showStopDiscussion}
           onStopDiscussion={onStopDiscussion}
+          {...toolbarRest}
         />
       )}
     </div>

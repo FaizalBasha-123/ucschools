@@ -184,7 +184,6 @@ export default function SuperAdminQuizSchedulerPage() {
     getNextPageParam: (lastPage) => lastPage.has_more ? lastPage.next_page : undefined,
     initialPageParam: 1,
     staleTime: 30_000,
-    refetchInterval: 30_000,
   });
 
   useEffect(() => {

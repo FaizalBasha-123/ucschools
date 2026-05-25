@@ -1566,9 +1566,9 @@ func (h *Handler) CreateTrackingSchedule(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": createErr.Error()})
 			return
 		}
-		h.UpsertTrackingScheduleInQueue(c.Request.Context(), schoolID, item)
 		created = append(created, item)
 	}
+	_ = h.RebuildTrackingScheduleQueueForSchool(c.Request.Context(), schoolID)
 	InvalidateSessionStatusCache(c.Request.Context(), h.cache, schoolID)
 
 	resp := gin.H{"schedules": created}
@@ -1605,7 +1605,7 @@ func (h *Handler) UpdateTrackingSchedule(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	h.UpsertTrackingScheduleInQueue(c.Request.Context(), schoolID, item)
+	_ = h.RebuildTrackingScheduleQueueForSchool(c.Request.Context(), schoolID)
 	InvalidateSessionStatusCache(c.Request.Context(), h.cache, schoolID)
 	c.JSON(http.StatusOK, gin.H{"schedule": item})
 }
@@ -1630,7 +1630,7 @@ func (h *Handler) DeleteTrackingSchedule(c *gin.Context) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
-	h.RemoveTrackingScheduleFromQueue(c.Request.Context(), schoolID, scheduleID.String())
+	_ = h.RebuildTrackingScheduleQueueForSchool(c.Request.Context(), schoolID)
 	InvalidateSessionStatusCache(c.Request.Context(), h.cache, schoolID)
 	c.JSON(http.StatusOK, gin.H{"message": "tracking schedule deleted"})
 }

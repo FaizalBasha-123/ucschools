@@ -91,7 +91,6 @@ export function useStudents(
         },
         enabled: options.enabled ?? canLoad,
         staleTime: 30_000,
-        refetchInterval: 30_000,
         refetchOnWindowFocus: true,
         refetchOnReconnect: true,
     });

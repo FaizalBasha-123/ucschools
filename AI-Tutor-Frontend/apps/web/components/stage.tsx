@@ -1069,6 +1069,20 @@ export function Stage({
                 ? () => onRetryOutline(generatingOutlines[0].id)
                 : undefined
             }
+            onDoubtOpen={() => {
+              // Pause lesson playback when student opens the doubt panel
+              const engine = engineRef.current;
+              if (engine && (engine.getMode() === 'playing' || engine.getMode() === 'live')) {
+                engine.pause();
+              }
+            }}
+            onDoubtClose={() => {
+              // Resume lesson only if it was playing before (not manually paused)
+              const engine = engineRef.current;
+              if (engine && engine.getMode() === 'paused') {
+                engine.resume();
+              }
+            }}
           />
         </div>
 

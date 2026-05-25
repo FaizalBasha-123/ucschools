@@ -19,7 +19,6 @@ type Handler struct {
 
 type interopService interface {
 	Readiness() ReadinessReport
-	SweeperStats() SweeperStats
 	CreateJobWithMeta(ctx context.Context, req CreateJobRequest, requestedBy, requestedRole, schoolID string) (*InteropJob, bool, error)
 	ListJobs(ctx context.Context, limit int, filter ListJobsFilter) ([]InteropJob, error)
 	GetJob(ctx context.Context, jobID string) (*InteropJob, error)
@@ -34,9 +33,6 @@ func (h *Handler) GetReadiness(c *gin.Context) {
 	c.JSON(http.StatusOK, h.service.Readiness())
 }
 
-func (h *Handler) GetSweeperStats(c *gin.Context) {
-	c.JSON(http.StatusOK, h.service.SweeperStats())
-}
 
 func (h *Handler) CreateJob(c *gin.Context) {
 	ctx, schoolID, ok := resolveSchoolScopeContext(c)

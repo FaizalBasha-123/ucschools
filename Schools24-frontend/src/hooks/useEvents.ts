@@ -213,7 +213,6 @@ export function useInfiniteEvents(
         initialPageParam: 1,
         enabled,
         staleTime: 2 * 60_000,
-        refetchInterval: 60_000,
     })
 }
 

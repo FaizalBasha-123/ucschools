@@ -421,6 +421,26 @@ func (c *Cache) ListKeysByPrefix(ctx context.Context, prefix string) ([]string, 
 	return keys, nil
 }
 
+// Publish publishes a JSON-serialized message to a Redis channel.
+func (c *Cache) Publish(ctx context.Context, channel string, message interface{}) error {
+	if !c.IsEnabled() {
+		return nil
+	}
+	msgBytes, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	return c.client.Publish(ctx, channel, msgBytes).Err()
+}
+
+// Subscribe returns a Redis PubSub instance for the given channel.
+func (c *Cache) Subscribe(ctx context.Context, channel string) *redis.PubSub {
+	if !c.IsEnabled() {
+		return nil
+	}
+	return c.client.Subscribe(ctx, channel)
+}
+
 // Close closes the cache connection.
 func (c *Cache) Close() error {
 	if c == nil || c.client == nil {

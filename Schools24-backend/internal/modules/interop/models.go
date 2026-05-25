@@ -74,10 +74,3 @@ type ListJobsFilter struct {
 	System ExternalSystem
 }
 
-type SweeperStats struct {
-	RunsTotal         uint64 `json:"runs_total"`
-	LockMissTotal     uint64 `json:"lock_miss_total"`
-	RetriesTotal      uint64 `json:"retries_total"`
-	ErrorsTotal       uint64 `json:"errors_total"`
-	RetrySweepEnabled bool   `json:"retry_sweep_enabled"`
-}

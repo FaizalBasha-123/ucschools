@@ -1608,43 +1608,26 @@ fn map_visual_type(raw: Option<&str>) -> Option<VisualType> {
 /// Builds a context-aware image prompt for AI image generation.
 /// Only called when the LLM explicitly chose visual_type = Image.
 fn build_smart_image_prompt(title: &str, description: &str, key_points: &[String]) -> String {
-    let kp = if key_points.is_empty() {
+    let kp_text = if key_points.is_empty() {
         String::new()
     } else {
-        format!(". Key concepts: {}", key_points.join(", "))
+        format!(" Key components visible as labeled annotations: {}.", key_points.join(", "))
     };
 
-    // Detect domain to tailor the prompt style
-    let title_lc = title.to_ascii_lowercase();
-    let style = if title_lc.contains("mitochondria") || title_lc.contains("cell")
-        || title_lc.contains("anatomy") || title_lc.contains("organ")
-        || title_lc.contains("dna") || title_lc.contains("protein")
-    {
-        "Highly detailed scientific illustration, cross-section view, labelled with arrows, white background, educational textbook style"
-    } else if title_lc.contains("circuit") || title_lc.contains("electric")
-        || title_lc.contains("magnet") || title_lc.contains("physics")
-    {
-        "Technical diagram, clean vector art, educational physics style, white background, clearly labelled components"
-    } else if title_lc.contains("history") || title_lc.contains("war")
-        || title_lc.contains("ancient") || title_lc.contains("civiliz")
-    {
-        "Photorealistic historical scene, warm lighting, cinematic composition, educational context"
-    } else if title_lc.contains("map") || title_lc.contains("geograph")
-        || title_lc.contains("country") || title_lc.contains("continent")
-    {
-        "Clean educational map illustration, flat design, clearly labelled regions, educational atlas style"
-    } else {
-        "Clear educational illustration, clean and professional, classroom-appropriate, white background"
-    };
-
+    // Always use white background + bold text labels. This ensures images are legible
+    // on both the lesson canvas and the whiteboard. No fragile keyword matching —
+    // the title + description already encode the domain context the model needs.
     format!(
-        "{style}. Subject: {title}. Context: {description}{kp}.",
-        style = style,
+        "White background. Clean educational diagram. Bold black sans-serif text labels \
+         clearly identifying each part. Simple flat vector-art style, no photorealistic \
+         textures, no decorative gradients. High contrast, classroom-quality, textbook style. \
+         Subject: {title}. {description}.{kp}",
         title = title,
         description = description,
-        kp = kp,
+        kp = kp_text,
     )
 }
+
 
 fn attach_media_placeholders(
     mut elements: Vec<SlideElement>,
@@ -1736,19 +1719,23 @@ fn repair_media_elements(
 }
 
 fn build_fallback_image_prompt(title: &str, description: &str, key_points: &[String]) -> String {
-    let key_points = if key_points.is_empty() {
-        "Focus on the main teaching concept and make it classroom-friendly.".to_string()
+    let kp_text = if key_points.is_empty() {
+        String::new()
     } else {
-        format!("Key points: {}.", key_points.join(", "))
+        format!(" Key components: {}.", key_points.join(", "))
     };
 
     format!(
-        "Create a clear educational illustration for a teaching slide titled '{}'. Scene summary: {}. {} Use a clean classroom visual style and avoid decorative clutter.",
-        title,
-        description,
-        key_points
+        "White background. Clean educational diagram. Bold black sans-serif text labels \
+         clearly identifying each part. Simple flat vector-art style, no photorealistic \
+         textures. High contrast, classroom-quality. \
+         Teaching slide titled '{title}'. {description}.{kp}",
+        title = title,
+        description = description,
+        kp = kp_text,
     )
 }
+
 
 fn build_scene_action_prompt(
     request: &LessonGenerationRequest,

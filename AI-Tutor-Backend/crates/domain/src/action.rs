@@ -177,6 +177,25 @@ pub enum LessonAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         points: Option<[String; 2]>,
     },
+    /// Place an AI-generated image on the whiteboard (whiteboard doubt sessions only).
+    /// `url` is the ephemeral R2 URL; deleted when the doubt session is stopped.
+    WhiteboardDrawImage {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        element_id: Option<String>,
+        /// Ephemeral public URL from asset store (R2 or local).
+        url: String,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        alt: Option<String>,
+    },
     WhiteboardClear {
         id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -77,7 +77,6 @@ export function useUsers(role: string = 'all', search: string = '', pageSize: nu
         },
         enabled,
         staleTime: 0,
-        refetchInterval: 30_000,
     });
 }
 
@@ -86,7 +85,6 @@ export function useUserStats() {
         queryKey: ['user-stats'],
         queryFn: () => api.get<UserStats>('/admin/stats/users'),
         staleTime: 30_000,
-        refetchInterval: 30_000,
     });
 }
 

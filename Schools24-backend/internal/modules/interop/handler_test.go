@@ -22,10 +22,6 @@ func (f *fakeInteropService) Readiness() ReadinessReport {
 	return ReadinessReport{}
 }
 
-func (f *fakeInteropService) SweeperStats() SweeperStats {
-	return SweeperStats{}
-}
-
 func (f *fakeInteropService) CreateJobWithMeta(ctx context.Context, req CreateJobRequest, requestedBy, requestedRole, schoolID string) (*InteropJob, bool, error) {
 	return f.job, f.idempotencyHit, f.createErr
 }

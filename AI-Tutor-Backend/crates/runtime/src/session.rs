@@ -264,6 +264,7 @@ pub fn action_execution_metadata(action: &LessonAction) -> ActionExecutionMetada
         | LessonAction::WhiteboardDrawLine { .. }
         | LessonAction::WhiteboardClear { .. }
         | LessonAction::WhiteboardDelete { .. }
+        | LessonAction::WhiteboardDrawImage { .. }
         | LessonAction::WhiteboardClose { .. } => ActionExecutionMetadata {
             surface: ActionExecutionSurface::Whiteboard,
             blocks_slide_canvas: true,
@@ -295,7 +296,7 @@ pub fn action_execution_metadata_for_name(action_name: &str) -> Option<ActionExe
             requires_focus_target: true,
         }),
         "wb_open" | "wb_draw_text" | "wb_draw_shape" | "wb_draw_chart" | "wb_draw_latex"
-        | "wb_draw_table" | "wb_draw_line" | "wb_clear" | "wb_delete" | "wb_close" => {
+        | "wb_draw_table" | "wb_draw_line" | "wb_draw_image" | "wb_clear" | "wb_delete" | "wb_close" => {
             Some(ActionExecutionMetadata {
                 surface: ActionExecutionSurface::Whiteboard,
                 blocks_slide_canvas: true,
@@ -451,6 +452,7 @@ fn action_id(action: &LessonAction) -> &str {
         | LessonAction::WhiteboardDrawLine { id, .. }
         | LessonAction::WhiteboardClear { id, .. }
         | LessonAction::WhiteboardDelete { id, .. }
+        | LessonAction::WhiteboardDrawImage { id, .. }
         | LessonAction::WhiteboardClose { id, .. } => id,
     }
 }
@@ -469,6 +471,7 @@ fn action_type(action: &LessonAction) -> &'static str {
         LessonAction::WhiteboardDrawLatex { .. } => "whiteboard_draw_latex",
         LessonAction::WhiteboardDrawTable { .. } => "whiteboard_draw_table",
         LessonAction::WhiteboardDrawLine { .. } => "whiteboard_draw_line",
+        LessonAction::WhiteboardDrawImage { .. } => "whiteboard_draw_image",
         LessonAction::WhiteboardClear { .. } => "whiteboard_clear",
         LessonAction::WhiteboardDelete { .. } => "whiteboard_delete",
         LessonAction::WhiteboardClose { .. } => "whiteboard_close",
@@ -501,6 +504,10 @@ fn action_summary(action: &LessonAction) -> String {
         }
         LessonAction::WhiteboardDrawTable { .. } => "Draw whiteboard table".to_string(),
         LessonAction::WhiteboardDrawLine { .. } => "Draw whiteboard line".to_string(),
+        LessonAction::WhiteboardDrawImage { url, alt, .. } => {
+            let label = alt.as_deref().unwrap_or("image");
+            format!("Draw whiteboard image: {} ({})", label, url)
+        }
         LessonAction::WhiteboardClear { .. } => "Clear whiteboard".to_string(),
         LessonAction::WhiteboardDelete { element_id, .. } => {
             format!("Delete whiteboard element {}", element_id)

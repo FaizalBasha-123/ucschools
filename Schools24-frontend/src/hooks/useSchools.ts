@@ -60,7 +60,6 @@ export function useSchools(enabled: boolean = true) {
         },
         enabled,
         staleTime: 2 * 60_000,
-        refetchInterval: 30_000,
     });
 }
 
@@ -77,7 +76,6 @@ export function useInfiniteSchools(enabled: boolean = true) {
         initialPageParam: 1,
         enabled,
         staleTime: 2 * 60_000,
-        refetchInterval: 30_000,
     });
 }
 
@@ -90,7 +88,6 @@ export function useSchool(idOrSlug: string, enabled: boolean = true) {
         },
         enabled: !!idOrSlug && enabled,
         staleTime: 20_000,
-        refetchInterval: 30_000,
     });
 }
 
@@ -307,7 +304,6 @@ export function useDeletedSchools(enabled: boolean = true) {
         },
         enabled,
         staleTime: 25_000,
-        refetchInterval: 30_000,
     });
 }
 

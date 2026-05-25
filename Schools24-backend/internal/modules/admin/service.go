@@ -37,6 +37,11 @@ type Service struct {
 	repo           *Repository
 	config         *config.Config
 	interopService *interop.Service
+	eventsService  EventPublisher
+}
+
+type EventPublisher interface {
+	Publish(ctx context.Context, tenantID, eventType string, payload interface{}) error
 }
 
 func (s *Service) resolveAcademicYearForSchool(ctx context.Context, schoolID uuid.UUID) string {
@@ -86,12 +91,12 @@ var (
 	ErrReconciliationConflict = errors.New("reconciliation case conflict")
 )
 
-// NewService creates a new admin service
-func NewService(repo *Repository, cfg *config.Config, interopService *interop.Service) *Service {
+func NewService(repo *Repository, cfg *config.Config, interopService *interop.Service, eventsService EventPublisher) *Service {
 	return &Service{
 		repo:           repo,
 		config:         cfg,
 		interopService: interopService,
+		eventsService:  eventsService,
 	}
 }
 
@@ -291,6 +296,9 @@ func (s *Service) CreateUser(ctx context.Context, req *CreateUserRequest) (uuid.
 	id, err := s.repo.CreateUser(ctx, req)
 	if err == nil {
 		s.LogActivity(ctx, nil, "create", "user", &id, "", "Created user "+req.Email)
+		if s.eventsService != nil && req.SchoolID != "" {
+			s.eventsService.Publish(context.Background(), req.SchoolID, "USER_UPDATED", nil)
+		}
 	}
 	return id, err
 }
@@ -320,6 +328,9 @@ func (s *Service) UpdateUser(ctx context.Context, userID uuid.UUID, req *UpdateU
 	err = s.repo.UpdateUser(ctx, userID, req)
 	if err == nil {
 		s.LogActivity(ctx, nil, "update", "user", &userID, "", "Updated user details")
+		if s.eventsService != nil && existing.SchoolID != nil {
+			s.eventsService.Publish(context.Background(), existing.SchoolID.String(), "USER_UPDATED", nil)
+		}
 	}
 	return err
 }
@@ -360,6 +371,9 @@ func (s *Service) DeleteUser(ctx context.Context, userID uuid.UUID, requesterSch
 	err = s.repo.DeleteUser(ctx, userID)
 	if err == nil {
 		s.LogActivity(ctx, nil, "delete", "user", &userID, "", "Permanently deleted user")
+		if s.eventsService != nil && existing.SchoolID != nil {
+			s.eventsService.Publish(context.Background(), existing.SchoolID.String(), "USER_UPDATED", nil)
+		}
 	}
 	return err
 }
@@ -396,6 +410,16 @@ func (s *Service) CreateStudent(ctx context.Context, req *CreateStudentRequest) 
 	id, err := s.repo.CreateStudentWithProfile(ctx, req)
 	if err == nil {
 		s.LogActivity(ctx, nil, "create", "student", &id, "", "Created student "+req.Email)
+		if s.eventsService != nil {
+			var schoolID string
+			if val, ok := ctx.Value("school_id").(string); ok {
+				schoolID = val
+			}
+			if schoolID != "" {
+				s.eventsService.Publish(context.Background(), schoolID, "STUDENT_UPDATED", nil)
+				s.eventsService.Publish(context.Background(), schoolID, "USER_UPDATED", nil)
+			}
+		}
 	}
 	return id, err
 }
@@ -542,6 +566,10 @@ func (s *Service) CreateTeacherDetail(ctx context.Context, req *CreateTeacherDet
 	id, err := s.repo.CreateTeacherDetail(ctx, req, schoolID)
 	if err == nil {
 		s.LogActivity(ctx, nil, "create", "teacher", &id, "", "Created teacher "+req.Email)
+		if s.eventsService != nil {
+			s.eventsService.Publish(context.Background(), schoolID.String(), "TEACHER_UPDATED", nil)
+			s.eventsService.Publish(context.Background(), schoolID.String(), "USER_UPDATED", nil)
+		}
 	}
 	return id, err
 }

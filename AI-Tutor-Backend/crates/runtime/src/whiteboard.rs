@@ -7,6 +7,7 @@ use ai_tutor_domain::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 /// Whiteboard runtime state model.
 ///
@@ -68,6 +69,16 @@ pub enum WhiteboardObject {
         end: Point2D,
         color: String,
         stroke_width: f32,
+    },
+    /// AI-generated image placed on the board (doubt session only).
+    /// URL is ephemeral — deleted when the doubt session is stopped.
+    Image {
+        id: String,
+        url: String,
+        position: Point2D,
+        width: f32,
+        height: f32,
+        alt: Option<String>,
     },
 }
 
@@ -187,7 +198,8 @@ impl WhiteboardObject {
             | WhiteboardObject::Rectangle { id, .. }
             | WhiteboardObject::Circle { id, .. }
             | WhiteboardObject::Highlight { id, .. }
-            | WhiteboardObject::Arrow { id, .. } => id,
+            | WhiteboardObject::Arrow { id, .. }
+            | WhiteboardObject::Image { id, .. } => id,
         }
     }
 }
@@ -199,6 +211,26 @@ pub fn whiteboard_action_from_lesson_action(action: &LessonAction) -> Option<Whi
         LessonAction::WhiteboardClear { .. } => Some(WhiteboardAction::Clear),
         LessonAction::WhiteboardDelete { element_id, .. } => Some(WhiteboardAction::Delete {
             object_id: element_id.clone(),
+        }),
+        LessonAction::WhiteboardDrawImage {
+            element_id,
+            id,
+            url,
+            x,
+            y,
+            width,
+            height,
+            alt,
+            ..
+        } => Some(WhiteboardAction::Draw {
+            object: WhiteboardObject::Image {
+                id: element_id.clone().unwrap_or_else(|| id.clone()),
+                url: url.clone(),
+                position: Point2D { x: *x, y: *y },
+                width: *width,
+                height: *height,
+                alt: alt.clone(),
+            },
         }),
         LessonAction::WhiteboardDrawText {
             element_id,
@@ -403,6 +435,20 @@ pub fn whiteboard_action_from_runtime_parts(
         "wb_clear" => Some(WhiteboardAction::Clear),
         "wb_delete" => Some(WhiteboardAction::Delete {
             object_id: string_param(params, &["elementId", "element_id"])?,
+        }),
+        "wb_draw_image" => Some(WhiteboardAction::Draw {
+            object: WhiteboardObject::Image {
+                id: string_param(params, &["elementId", "element_id", "id"])
+                    .unwrap_or_else(|| format!("wb-img-{}", uuid::Uuid::new_v4())),
+                url: string_param(params, &["url"]).unwrap_or_default(),
+                position: Point2D {
+                    x: float_param(params, &["x"]).unwrap_or(10.0),
+                    y: float_param(params, &["y"]).unwrap_or(10.0),
+                },
+                width: float_param(params, &["width"]).unwrap_or(360.0),
+                height: float_param(params, &["height"]).unwrap_or(240.0),
+                alt: string_param(params, &["alt"]),
+            },
         }),
         "wb_draw_text" => Some(WhiteboardAction::Draw {
             object: WhiteboardObject::Text {
@@ -737,6 +783,21 @@ fn persisted_whiteboard_object_from_runtime(object: WhiteboardObject) -> Persist
             color,
             stroke_width,
         },
+        WhiteboardObject::Image {
+            id,
+            url,
+            position,
+            width,
+            height,
+            alt,
+        } => PersistedWhiteboardObject::Image {
+            id,
+            url,
+            position: persisted_point_from_runtime(position),
+            width,
+            height,
+            alt,
+        },
     }
 }
 
@@ -829,6 +890,21 @@ fn runtime_whiteboard_object_from_persisted(object: PersistedWhiteboardObject) -
             color,
             stroke_width,
         },
+        PersistedWhiteboardObject::Image {
+            id,
+            url,
+            position,
+            width,
+            height,
+            alt,
+        } => WhiteboardObject::Image {
+            id,
+            url,
+            position: runtime_point_from_persisted(position),
+            width,
+            height,
+            alt,
+        },
     }
 }
 
@@ -846,7 +922,66 @@ fn runtime_point_from_persisted(point: PersistedPoint2D) -> Point2D {
     }
 }
 
-#[cfg(test)]
+/// Ephemeral whiteboard doubt session.
+///
+/// Stored ONLY in Redis (TTL 2h). Never written to Postgres.
+/// When the user clicks "Stop Session", the handler:
+///   1. Deletes all R2 objects under `wb/{id}/`
+///   2. Deletes this Redis key
+/// The parent lesson is NOT affected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WhiteboardDoubtSession {
+    /// Unique session identifier. Prefix: `wb_`.
+    pub id: String,
+    pub lesson_id: String,
+    pub runtime_session_id: String,
+    /// Original user question that triggered this session.
+    pub question: String,
+    /// Which scene the user was on (0-indexed). Used for context in follow-ups.
+    pub scene_index: usize,
+    /// Scene title for LLM context.
+    pub scene_title: String,
+    /// Quality mode inherited from the lesson generation request.
+    pub quality_mode: String,
+    /// Whether image generation is enabled for this session.
+    pub enable_image_generation: bool,
+    /// Asset keys uploaded to R2 during this session (for cleanup on stop).
+    pub uploaded_asset_keys: Vec<String>,
+    /// Total credits deducted so far (images only — not the flat per-question charge).
+    pub credits_used: f64,
+    /// Monotonically increasing turn counter. Incremented AFTER each successful follow-up
+    /// Redis write. Used to build a stable, idempotent credit-debit key per follow-up.
+    pub turn_index: u32,
+    pub created_at: i64,
+}
+
+impl WhiteboardDoubtSession {
+    pub fn new(
+        lesson_id: impl Into<String>,
+        runtime_session_id: impl Into<String>,
+        question: impl Into<String>,
+        scene_index: usize,
+        scene_title: impl Into<String>,
+        quality_mode: impl Into<String>,
+        enable_image_generation: bool,
+    ) -> Self {
+        Self {
+            id: format!("wb_{}", Uuid::new_v4()),
+            lesson_id: lesson_id.into(),
+            runtime_session_id: runtime_session_id.into(),
+            question: question.into(),
+            scene_index,
+            scene_title: scene_title.into(),
+            quality_mode: quality_mode.into(),
+            enable_image_generation,
+            uploaded_asset_keys: Vec::new(),
+            credits_used: 0.0,
+            turn_index: 0,
+            created_at: chrono::Utc::now().timestamp(),
+        }
+    }
+}
+
 mod tests {
     use super::*;
 

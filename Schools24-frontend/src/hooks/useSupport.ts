@@ -95,7 +95,6 @@ export function useUnreadTicketCount(enabled = true) {
     queryKey: ['support', 'unread'],
     queryFn: getUnreadTicketCount,
     enabled,
-    refetchInterval: enabled ? 60_000 : false, // refresh every minute when active
     staleTime: 30_000,
   })
 }
