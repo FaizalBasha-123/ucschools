@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/schools24/backend/internal/config"
 	"github.com/schools24/backend/internal/modules/auth"
+	"github.com/schools24/backend/internal/shared/cache"
 	"github.com/schools24/backend/internal/shared/database"
 	"github.com/schools24/backend/internal/shared/objectstore"
 	"golang.org/x/crypto/bcrypt"
@@ -41,6 +42,7 @@ type Service struct {
 	authService *auth.Service    // For password verification
 	config      *config.Config
 	store       objectstore.Store
+	cache       *cache.Cache
 }
 
 var (
@@ -76,13 +78,14 @@ func isUniqueViolation(err error) bool {
 	return false
 }
 
-func NewService(repo *Repository, userRepo *auth.Repository, authService *auth.Service, cfg *config.Config, store objectstore.Store) *Service {
+func NewService(repo *Repository, userRepo *auth.Repository, authService *auth.Service, cfg *config.Config, store objectstore.Store, appCache *cache.Cache) *Service {
 	return &Service{
 		repo:        repo,
 		userRepo:    userRepo,
 		authService: authService,
 		config:      cfg,
 		store:       store,
+		cache:       appCache,
 	}
 }
 
@@ -217,6 +220,7 @@ func (s *Service) CreateSchoolWithAdmin(ctx context.Context, superAdminID uuid.U
 		}
 	}
 
+	_ = s.cache.DeleteByPrefix(ctx, "metrics:schools:page:")
 	return school, nil
 }
 
@@ -243,6 +247,16 @@ func (s *Service) GetAllSchools(ctx context.Context) ([]SchoolResponse, error) {
 
 // GetSchoolsPaged returns a paginated list of schools with full role-based stats and the total count.
 func (s *Service) GetSchoolsPaged(ctx context.Context, page, pageSize int64) ([]SchoolResponse, int64, error) {
+	cacheKey := fmt.Sprintf("metrics:schools:page:%d:size:%d", page, pageSize)
+	type cachedData struct {
+		Responses []SchoolResponse
+		Total     int64
+	}
+	var cData cachedData
+	if err := s.cache.GetJSON(ctx, cacheKey, &cData); err == nil {
+		return cData.Responses, cData.Total, nil
+	}
+
 	schools, statsMap, total, err := s.repo.GetPagedWithStats(ctx, page, pageSize)
 	if err != nil {
 		return nil, 0, err
@@ -259,6 +273,8 @@ func (s *Service) GetSchoolsPaged(ctx context.Context, page, pageSize int64) ([]
 			Stats:  stats,
 		}
 	}
+
+	_ = s.cache.SetJSON(ctx, cacheKey, cachedData{Responses: responses, Total: total}, 15*time.Minute)
 	return responses, total, nil
 }
 
@@ -320,6 +336,8 @@ func (s *Service) UpdateSchool(ctx context.Context, schoolID uuid.UUID, name, co
 		}
 		return nil, fmt.Errorf("failed to update school: %w", err)
 	}
+	_ = s.cache.DeleteByPrefix(ctx, "metrics:schools:page:")
+	_ = s.cache.Delete(ctx, "metrics:dashboard:superadmin:"+schoolID.String())
 	return updated, nil
 }
 
@@ -345,6 +363,8 @@ func (s *Service) SoftDeleteSchool(ctx context.Context, schoolID, superAdminID u
 		return fmt.Errorf("failed to delete school: %w", err)
 	}
 
+	_ = s.cache.DeleteByPrefix(ctx, "metrics:schools:page:")
+	_ = s.cache.Delete(ctx, "metrics:dashboard:superadmin:"+schoolID.String())
 	fmt.Printf("School soft-deleted: %s (ID: %s) by super admin %s\n", school.Name, schoolID, superAdminID)
 	return nil
 }
@@ -388,6 +408,8 @@ func (s *Service) RestoreSchool(ctx context.Context, schoolID, superAdminID uuid
 		return fmt.Errorf("failed to restore school: %w", err)
 	}
 
+	_ = s.cache.DeleteByPrefix(ctx, "metrics:schools:page:")
+	_ = s.cache.Delete(ctx, "metrics:dashboard:superadmin:"+schoolID.String())
 	fmt.Printf("School restored: %s (ID: %s) by super admin %s\n", targetSchool.Name, schoolID, superAdminID)
 	return nil
 }
@@ -428,6 +450,8 @@ func (s *Service) PermanentlyDeleteSchool(ctx context.Context, schoolID uuid.UUI
 		fmt.Printf("Warning: Failed to drop tenant schema for school %s: %v\n", school.Name, err)
 	}
 
+	_ = s.cache.DeleteByPrefix(ctx, "metrics:schools:page:")
+	_ = s.cache.Delete(ctx, "metrics:dashboard:superadmin:"+schoolID.String())
 	fmt.Printf("School permanently deleted: %s (ID: %s)\n", school.Name, schoolID)
 	return nil
 }

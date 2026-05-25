@@ -223,7 +223,7 @@ func main() {
 	// 7. Initialize Modules
 	// Auth Module
 	authRepo := auth.NewRepository(db)
-	authService := auth.NewService(authRepo, cfg)
+	authService := auth.NewService(authRepo, cfg, appCache)
 	authHandler := auth.NewHandler(authService)
 
 	// Student Module
@@ -251,7 +251,7 @@ func main() {
 
 	// Admin Module
 	adminRepo := admin.NewRepository(db, store)
-	adminService := admin.NewService(adminRepo, cfg, interopService, eventsService)
+	adminService := admin.NewService(adminRepo, cfg, interopService, eventsService, appCache)
 
 	// Shared real-time admission hub (broadcast from public module → admin WS)
 	admHub := admissionhub.New()
@@ -265,7 +265,7 @@ func main() {
 
 	// School Module
 	schoolRepo := school.NewRepository(db)
-	schoolService := school.NewService(schoolRepo, authRepo, authService, cfg, store)
+	schoolService := school.NewService(schoolRepo, authRepo, authService, cfg, store, appCache)
 	schoolHandler := school.NewHandler(schoolService)
 
 	// Chat Module (Adam)
@@ -983,7 +983,7 @@ func main() {
 
 	// Start background cleanup job for deleted schools (runs every hour)
 	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
+		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 
 		runCleanup := func(trigger string) {
@@ -1005,7 +1005,7 @@ func main() {
 	}()
 
 	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
+		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
 
 		runCleanup := func(trigger string) {

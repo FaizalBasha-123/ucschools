@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/schools24/backend/internal/config"
 	"github.com/schools24/backend/internal/modules/interop"
+	"github.com/schools24/backend/internal/shared/cache"
 	sharedsecurity "github.com/schools24/backend/internal/shared/security"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -32,12 +33,12 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// Service handles admin business logic
 type Service struct {
 	repo           *Repository
 	config         *config.Config
 	interopService *interop.Service
 	eventsService  EventPublisher
+	cache          *cache.Cache
 }
 
 type EventPublisher interface {
@@ -91,12 +92,13 @@ var (
 	ErrReconciliationConflict = errors.New("reconciliation case conflict")
 )
 
-func NewService(repo *Repository, cfg *config.Config, interopService *interop.Service, eventsService EventPublisher) *Service {
+func NewService(repo *Repository, cfg *config.Config, interopService *interop.Service, eventsService EventPublisher, appCache *cache.Cache) *Service {
 	return &Service{
 		repo:           repo,
 		config:         cfg,
 		interopService: interopService,
 		eventsService:  eventsService,
+		cache:          appCache,
 	}
 }
 
@@ -168,7 +170,19 @@ func (s *Service) GetStaffSchoolID(ctx context.Context, staffID uuid.UUID, staff
 
 // GetDashboard returns admin dashboard data for a school
 func (s *Service) GetDashboard(ctx context.Context, schoolID uuid.UUID) (*AdminDashboard, error) {
-	return s.repo.GetDashboardStats(ctx, schoolID)
+	cacheKey := "metrics:dashboard:superadmin:" + schoolID.String()
+	var dashboard AdminDashboard
+	if err := s.cache.GetJSON(ctx, cacheKey, &dashboard); err == nil {
+		return &dashboard, nil
+	}
+
+	data, err := s.repo.GetDashboardStats(ctx, schoolID)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = s.cache.SetJSON(ctx, cacheKey, data, 15*time.Minute)
+	return data, nil
 }
 
 // GetInventoryItems returns inventory items for a school with optional filters

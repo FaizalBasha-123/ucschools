@@ -57,8 +57,8 @@ func NewPostgresDB(databaseURL string) (*PostgresDB, error) {
 	// Idle timeout must be shorter than Neon's own idle disconnect (~10 min).
 	config.MaxConnIdleTime = 2 * time.Minute
 
-	// Health checks should not fight Neon suspension.
-	config.HealthCheckPeriod = 90 * time.Second
+	// Health checks should not fight Neon suspension (Neon suspends after 5 min idle).
+	config.HealthCheckPeriod = 10 * time.Minute
 
 	// BeforeAcquire: CRITICAL for Neon / PgBouncer transaction-pooling mode.
 	// When pgxpool recycles a connection, it may still have a prior tenant's

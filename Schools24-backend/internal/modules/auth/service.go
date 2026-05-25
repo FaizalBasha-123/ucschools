@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/schools24/backend/internal/config"
+	"github.com/schools24/backend/internal/shared/cache"
 	"github.com/schools24/backend/internal/shared/middleware"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -16,6 +17,7 @@ import (
 type Service struct {
 	repo   *Repository
 	config *config.Config
+	cache  *cache.Cache
 }
 
 // Common errors
@@ -34,10 +36,11 @@ var (
 )
 
 // NewService creates a new auth service
-func NewService(repo *Repository, cfg *config.Config) *Service {
+func NewService(repo *Repository, cfg *config.Config, appCache *cache.Cache) *Service {
 	return &Service{
 		repo:   repo,
 		config: cfg,
+		cache:  appCache,
 	}
 }
 
@@ -446,6 +449,15 @@ func (s *Service) ValidateAccessSession(ctx context.Context, claims *middleware.
 		return fmt.Errorf("invalid session binding")
 	}
 
+	// 1. Try Redis cache first (5-minute TTL)
+	cacheKey := "auth:session:valid:" + sessionID.String()
+	var isValid bool
+	if err := s.cache.GetJSON(ctx, cacheKey, &isValid); err == nil && isValid {
+		// Cache hit: session is valid, skip DB entirely
+		return nil
+	}
+
+	// 2. Cache miss: Validate against DB
 	session, err := s.repo.GetAuthSessionByID(ctx, sessionID)
 	if err != nil {
 		return err
@@ -469,7 +481,9 @@ func (s *Service) ValidateAccessSession(ctx context.Context, claims *middleware.
 		return fmt.Errorf("session school mismatch")
 	}
 
+	// 3. Touch session in DB and set Redis cache
 	_ = s.repo.TouchAuthSession(ctx, session.ID)
+	_ = s.cache.SetJSON(ctx, cacheKey, true, 5*time.Minute)
 	return nil
 }
 
