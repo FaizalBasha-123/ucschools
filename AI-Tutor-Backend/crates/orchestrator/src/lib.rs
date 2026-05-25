@@ -13,4 +13,5 @@ pub mod router;
 pub mod state;
 pub mod telemetry;
 pub mod validator;
+pub mod whiteboard_doubt;
 pub mod workflow;

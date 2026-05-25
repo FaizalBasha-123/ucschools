@@ -10,6 +10,8 @@ use rusty_s3::{Bucket, Credentials, S3Action as _, UrlStyle};
 pub enum AssetKind {
     Audio,
     Media,
+    /// Ephemeral whiteboard doubt session images (wb/{session_id}/). Hard-deleted on session stop.
+    WhiteboardSession,
 }
 
 impl AssetKind {
@@ -17,6 +19,7 @@ impl AssetKind {
         match self {
             Self::Audio => "audio",
             Self::Media => "media",
+            Self::WhiteboardSession => "wb",
         }
     }
 }
@@ -41,6 +44,10 @@ pub trait AssetStore: Send + Sync {
 
     /// Delete all assets for a given lesson (audio + media directories).
     async fn delete_lesson_assets(&self, lesson_id: &str) -> Result<()>;
+
+    /// Delete all assets for a whiteboard doubt session (wb/{wb_session_id}/ prefix).
+    /// Called immediately when the user clicks "Stop Session" — no archive, no delay.
+    async fn delete_whiteboard_session_assets(&self, wb_session_id: &str) -> Result<()>;
 }
 
 pub type DynAssetStore = Arc<dyn AssetStore>;
@@ -111,6 +118,12 @@ impl AssetStore for LocalFileAssetStore {
             let dir = self.asset_dir(kind, lesson_id);
             let _ = tokio::fs::remove_dir_all(dir).await;
         }
+        Ok(())
+    }
+
+    async fn delete_whiteboard_session_assets(&self, wb_session_id: &str) -> Result<()> {
+        let dir = self.root.join(AssetKind::WhiteboardSession.folder_name()).join(wb_session_id);
+        let _ = tokio::fs::remove_dir_all(dir).await;
         Ok(())
     }
 }
@@ -225,25 +238,45 @@ impl AssetStore for R2AssetStore {
             } else {
                 format!("{}/{}/{}/", self.key_prefix, kind.folder_name(), lesson_id)
             };
-
-            let mut list = self.bucket.list_objects_v2(Some(&self.credentials));
-            list.with_prefix(prefix);
-            let signed_url = list.sign(Duration::from_secs(60));
-            let resp = self.client.get(signed_url.to_string()).send().await?;
-            if !resp.status().is_success() {
-                continue;
-            }
-            let body = resp.bytes().await?;
-            let parsed = rusty_s3::actions::ListObjectsV2::parse_response(&body)
-                .map_err(|e| anyhow::anyhow!("failed to parse S3 list response: {e}"))?;
-
-            for content in &parsed.contents {
-                let del = self.bucket.delete_object(Some(&self.credentials), &content.key);
-                let url = del.sign(Duration::from_secs(60));
-                let _ = self.client.delete(url.to_string()).send().await;
-            }
+            self.delete_r2_prefix(&prefix).await;
         }
         Ok(())
+    }
+
+    async fn delete_whiteboard_session_assets(&self, wb_session_id: &str) -> Result<()> {
+        let prefix = if self.key_prefix.is_empty() {
+            format!("wb/{}/", wb_session_id)
+        } else {
+            format!("{}/wb/{}/", self.key_prefix, wb_session_id)
+        };
+        self.delete_r2_prefix(&prefix).await;
+        Ok(())
+    }
+}
+
+impl R2AssetStore {
+    /// List and hard-delete every object under an R2 prefix. Ignores errors per object.
+    async fn delete_r2_prefix(&self, prefix: &str) {
+        let mut list = self.bucket.list_objects_v2(Some(&self.credentials));
+        list.with_prefix(prefix.to_string());
+        let signed_url = list.sign(Duration::from_secs(60));
+        let resp = match self.client.get(signed_url.to_string()).send().await {
+            Ok(r) if r.status().is_success() => r,
+            _ => return,
+        };
+        let body = match resp.bytes().await {
+            Ok(b) => b,
+            Err(_) => return,
+        };
+        let parsed = match rusty_s3::actions::ListObjectsV2::parse_response(&body) {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        for content in &parsed.contents {
+            let del = self.bucket.delete_object(Some(&self.credentials), &content.key);
+            let url = del.sign(Duration::from_secs(60));
+            let _ = self.client.delete(url.to_string()).send().await;
+        }
     }
 }
 

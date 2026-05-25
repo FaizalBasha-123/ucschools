@@ -49,6 +49,7 @@ use ai_tutor_domain::{
         InvoiceLineType, InvoiceStatus, InvoiceType, PaymentIntent, PaymentIntentStatus,
         PaymentOrder, PaymentOrderStatus, RetryAttempt, Subscription, SubscriptionStatus,
         DunningCase, DunningStatus, FinancialAuditLog, WebhookEvent,
+        WHITEBOARD_DOUBT_FLAT_CREDITS,
     },
     credits::{CreditEntryKind, CreditLedgerEntry, RedeemPromoCodeRequest, RedeemPromoCodeResponse},
     generation::{AgentMode, Language, LessonGenerationRequest, UserRequirements},
@@ -71,6 +72,7 @@ use ai_tutor_storage::repositories::ApiUsageRepository;
 use ai_tutor_orchestrator::{
     generation::LlmGenerationPipeline,
     pipeline::{build_queued_job, LessonGenerationOrchestrator},
+    whiteboard_doubt::{WhiteboardDoubtPipeline, WhiteboardActionEvent},
 };
 use ai_tutor_providers::{
     config::ServerProviderConfig,
@@ -87,6 +89,7 @@ use ai_tutor_runtime::session::{
     action_execution_metadata_for_name, lesson_playback_events,
     ActionAckPolicy, PlaybackEvent, TutorEventKind, TutorStreamEvent, TutorTurnStatus,
 };
+use ai_tutor_runtime::whiteboard::WhiteboardDoubtSession;
 use ai_tutor_storage::{
     filesystem::FileStorage,
     repositories::{
@@ -1803,6 +1806,32 @@ pub trait LessonAppService: Send + Sync {
     async fn run_worker_loop(&self) -> Result<()>;
     /// Processes a single queued lesson job.
     async fn process_queued_job(&self, request: QueuedLessonRequest) -> Result<()>;
+
+    // ── Whiteboard Doubt Session ──────────────────────────────────────────────
+
+    /// Start a new whiteboard doubt explanation session.
+    /// Returns action events to execute on the canvas, plus the session ID for follow-ups.
+    async fn explain_doubt(
+        &self,
+        session: &mut WhiteboardDoubtSession,
+        question: &str,
+        prior_exchange: &[(String, String)],
+    ) -> Result<Vec<WhiteboardActionEvent>>;
+
+    /// Continue an existing whiteboard doubt session with a follow-up question.
+    async fn explain_doubt_followup(
+        &self,
+        session: &mut WhiteboardDoubtSession,
+        question: &str,
+        prior_exchange: &[(String, String)],
+    ) -> Result<Vec<WhiteboardActionEvent>>;
+
+    /// Immediately destroy whiteboard doubt session assets (R2) and Redis key.
+    /// The lesson is NOT touched.
+    async fn stop_doubt_session(&self, wb_session_id: &str) -> Result<()>;
+
+    /// Get the Redis client if configured.
+    fn redis_client(&self) -> Option<&redis::Client>;
 }
 
 #[derive(Clone)]
@@ -5592,6 +5621,56 @@ impl LessonAppService for LiveLessonAppService {
         Ok(())
     }
 
+    async fn explain_doubt(
+        &self,
+        session: &mut WhiteboardDoubtSession,
+        question: &str,
+        prior_exchange: &[(String, String)],
+    ) -> Result<Vec<WhiteboardActionEvent>> {
+        let llm: Arc<dyn LlmProvider> = {
+            // Use the default configured LLM (same env vars as the orchestrator)
+            let resolved = resolve_model(&self.provider_config, None, None, None, None, None)?;
+            Arc::from(self.provider_factory.build(resolved.model_config)?)
+        };
+        let image_provider: Option<Arc<dyn ImageProvider>> = {
+            let resolved = resolve_model(&self.provider_config, None, None, None, None, None).ok();
+            resolved.and_then(|r| self.image_provider_factory.build(r.model_config).ok())
+                .map(|p| Arc::from(p) as Arc<dyn ImageProvider>)
+        };
+        let pipeline = WhiteboardDoubtPipeline::new(llm, image_provider, Arc::clone(&self.asset_store));
+        pipeline.explain(session, question, prior_exchange).await
+    }
+
+    async fn explain_doubt_followup(
+        &self,
+        session: &mut WhiteboardDoubtSession,
+        question: &str,
+        prior_exchange: &[(String, String)],
+    ) -> Result<Vec<WhiteboardActionEvent>> {
+        // Same implementation — the pipeline handles history via prior_exchange
+        let llm: Arc<dyn LlmProvider> = {
+            let resolved = resolve_model(&self.provider_config, None, None, None, None, None)?;
+            Arc::from(self.provider_factory.build(resolved.model_config)?)
+        };
+        let image_provider: Option<Arc<dyn ImageProvider>> = {
+            let resolved = resolve_model(&self.provider_config, None, None, None, None, None).ok();
+            resolved.and_then(|r| self.image_provider_factory.build(r.model_config).ok())
+                .map(|p| Arc::from(p) as Arc<dyn ImageProvider>)
+        };
+        let pipeline = WhiteboardDoubtPipeline::new(llm, image_provider, Arc::clone(&self.asset_store));
+        pipeline.explain(session, question, prior_exchange).await
+    }
+
+    async fn stop_doubt_session(&self, wb_session_id: &str) -> Result<()> {
+        self.asset_store
+            .delete_whiteboard_session_assets(wb_session_id)
+            .await
+    }
+
+    fn redis_client(&self) -> Option<&redis::Client> {
+        self.redis_client.as_ref()
+    }
+
     async fn get_api_usage_costs(&self, days: Option<i64>) -> Result<OperatorApiCostsResponse> {
         let window = chrono::Utc::now() - chrono::Duration::days(days.unwrap_or(30));
 
@@ -7698,6 +7777,13 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/runtime/pbl/chat", post(runtime_pbl_chat))
         .route("/api/runtime/transcribe", post(transcribe))
         .route("/api/lessons/jobs/{id}", get(get_job))
+        // ── Whiteboard Doubt Session ──────────────────────────────────────────
+        // POST  /api/lessons/{lesson_id}/doubt        — start a new doubt session
+        // POST  /api/lessons/{lesson_id}/doubt/{wb_id} — follow-up question in existing session
+        // DELETE /api/lessons/{lesson_id}/doubt/{wb_id} — stop session, destroy R2 + Redis
+        .route("/api/lessons/{lesson_id}/doubt", post(start_whiteboard_doubt))
+        .route("/api/lessons/{lesson_id}/doubt/{wb_id}", post(followup_whiteboard_doubt))
+        .route("/api/lessons/{lesson_id}/doubt/{wb_id}", delete(stop_whiteboard_doubt))
         .route("/api/lessons/{id}", get(get_lesson))
         .route("/api/lessons/{id}/export/html", get(export_lesson_html))
         .route("/api/lessons/{id}/export/video", get(export_lesson_video))
@@ -7742,6 +7828,203 @@ async fn add_security_headers(
         HeaderValue::from_static("max-age=31536000; includeSubDomains"),
     );
     response
+}
+
+// ══ Whiteboard Doubt Session Handlers ════════════════════════════════════════
+
+#[derive(Debug, serde::Deserialize)]
+struct StartDoubtRequest {
+    question: String,
+    scene_index: usize,
+    scene_title: String,
+    /// Quality mode inherited from lesson. Defaults to "standard".
+    #[serde(default)]
+    quality_mode: Option<String>,
+    /// Whether image gen is enabled (requires R2 or local asset store).
+    #[serde(default = "default_true")]
+    enable_image_generation: bool,
+}
+
+fn default_true() -> bool { true }
+
+#[derive(Debug, serde::Deserialize)]
+struct FollowupDoubtRequest {
+    question: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct WhiteboardDoubtResponse {
+    wb_session_id: String,
+    actions: Vec<WhiteboardActionEvent>,
+    credits_used: f64,
+}
+
+/// POST /api/lessons/{lesson_id}/doubt
+/// Starts a new whiteboard doubt session. Returns actions to execute on the whiteboard canvas.
+async fn start_whiteboard_doubt(
+    State(state): State<AppState>,
+    Extension(account): Extension<AuthenticatedAccountContext>,
+    Path(lesson_id): Path<String>,
+    Json(payload): Json<StartDoubtRequest>,
+) -> Result<Json<WhiteboardDoubtResponse>, ApiError> {
+    let quality_mode = payload.quality_mode.unwrap_or_else(|| "standard".to_string());
+
+    // Create ephemeral session (no DB write)
+    let mut session = WhiteboardDoubtSession::new(
+        &lesson_id,
+        "",
+        &payload.question,
+        payload.scene_index,
+        &payload.scene_title,
+        &quality_mode,
+        payload.enable_image_generation,
+    );
+
+    let actions = state.service
+        .explain_doubt(&mut session, &payload.question, &[])
+        .await
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("whiteboard doubt pipeline failed: {e}")))?;
+
+    let credits_used = WHITEBOARD_DOUBT_FLAT_CREDITS;
+    let session_id = session.id.clone();
+
+    // Persist session to Redis for follow-up requests
+    if let Some(redis_client) = state.service.redis_client() {
+        let session_json = serde_json::to_string(&session)
+            .map_err(|e| ApiError::internal(anyhow::anyhow!("session serialize failed: {e}")))?;
+        let key = format!("wb_session:{}", session_id);
+        if let Ok(mut conn) = redis_client.get_multiplexed_tokio_connection().await {
+            let _: Result<(), _> = redis::AsyncCommands::set_ex(&mut conn, &key, &session_json, 7200u64).await;
+        }
+    }
+
+    // Always debit the flat per-question charge.
+    // Idempotency key is stable for this session start — safe to retry.
+    let idempotency_key = format!("wb-doubt-{}-start", session_id);
+    if let Err(e) = state.service
+        .debit_lesson_credits_for_account(
+            &account.account_id,
+            credits_used,
+            &idempotency_key,
+            &format!("Whiteboard doubt: {} ({})", payload.scene_title, lesson_id),
+        )
+        .await
+    {
+        tracing::warn!(
+            wb_session_id = %session_id,
+            error = %e,
+            "credit debit failed for doubt start — session still returned"
+        );
+    }
+
+    Ok(Json(WhiteboardDoubtResponse {
+        wb_session_id: session_id,
+        actions,
+        credits_used,
+    }))
+}
+
+/// POST /api/lessons/{lesson_id}/doubt/{wb_id}
+/// Follow-up question in an existing whiteboard doubt session.
+async fn followup_whiteboard_doubt(
+    State(state): State<AppState>,
+    Extension(account): Extension<AuthenticatedAccountContext>,
+    Path((lesson_id, wb_id)): Path<(String, String)>,
+    Json(payload): Json<FollowupDoubtRequest>,
+) -> Result<Json<WhiteboardDoubtResponse>, ApiError> {
+    // Load existing session from Redis
+    let mut session = {
+        let client = state.service.redis_client()
+            .ok_or_else(|| ApiError::internal(anyhow::anyhow!("Redis not configured")))?;
+        let mut conn = client.get_multiplexed_tokio_connection().await
+            .map_err(|e| ApiError::internal(anyhow::anyhow!("Redis connection failed: {e}")))?;
+        let key = format!("wb_session:{}", wb_id);
+        let raw: Option<String> = redis::AsyncCommands::get(&mut conn, &key).await
+            .map_err(|e| ApiError::internal(anyhow::anyhow!("Redis get failed: {e}")))?;
+        let raw = raw.ok_or_else(|| ApiError::not_found("whiteboard session not found or expired".to_string()))?;
+        serde_json::from_str::<WhiteboardDoubtSession>(&raw)
+            .map_err(|e| ApiError::internal(anyhow::anyhow!("session deserialize failed: {e}")))?
+    };
+
+    let prior_exchange: Vec<(String, String)> = vec![
+        (session.question.clone(), String::new()),
+    ];
+
+    let actions = state.service
+        .explain_doubt_followup(&mut session, &payload.question, &prior_exchange)
+        .await
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("whiteboard followup pipeline failed: {e}")))?;
+
+    // Increment turn counter BEFORE writing to Redis so the idempotency key
+    // is stable for the current follow-up. A network retry will reuse the same
+    // key and be deduped by the ledger's ON CONFLICT (id) DO NOTHING constraint.
+    session.turn_index += 1;
+    let turn_index = session.turn_index;
+
+    // Update session in Redis with incremented turn_index
+    if let Some(redis_client) = state.service.redis_client() {
+        let session_json = serde_json::to_string(&session).unwrap_or_default();
+        let key = format!("wb_session:{}", wb_id);
+        if let Ok(mut conn) = redis_client.get_multiplexed_tokio_connection().await {
+            let _: Result<(), _> = redis::AsyncCommands::set_ex(&mut conn, &key, &session_json, 7200u64).await;
+        }
+    }
+
+    // Always debit the flat per-question charge.
+    // Key includes turn_index — idempotent for retries of THIS turn, distinct across turns.
+    let idempotency_key = format!("wb-followup-{}-t{}", wb_id, turn_index);
+    if let Err(e) = state.service
+        .debit_lesson_credits_for_account(
+            &account.account_id,
+            WHITEBOARD_DOUBT_FLAT_CREDITS,
+            &idempotency_key,
+            &format!("Whiteboard follow-up t{}: {} ({})", turn_index, session.scene_title, lesson_id),
+        )
+        .await
+    {
+        tracing::warn!(
+            wb_session_id = %wb_id,
+            turn_index = turn_index,
+            error = %e,
+            "credit debit failed for follow-up — continuing"
+        );
+    }
+
+    Ok(Json(WhiteboardDoubtResponse {
+        wb_session_id: wb_id,
+        actions,
+        credits_used: WHITEBOARD_DOUBT_FLAT_CREDITS,
+    }))
+}
+
+/// DELETE /api/lessons/{lesson_id}/doubt/{wb_id}
+/// Stop the whiteboard session: hard-delete all R2 assets + Redis key.
+/// The lesson itself is completely untouched.
+async fn stop_whiteboard_doubt(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Path((_lesson_id, wb_id)): Path<(String, String)>,
+) -> Result<axum::http::StatusCode, ApiError> {
+    // 1. Delete R2 / local assets under wb/{wb_id}/
+    if let Err(e) = state.service.stop_doubt_session(&wb_id).await {
+        tracing::warn!(
+            wb_session_id = %wb_id,
+            error = %e,
+            "failed to delete whiteboard assets — continuing with Redis cleanup"
+        );
+    } else {
+        tracing::info!(wb_session_id = %wb_id, "whiteboard session assets hard-deleted");
+    }
+
+    // 2. Delete session from Redis
+    if let Some(redis_client) = state.service.redis_client() {
+        if let Ok(mut conn) = redis_client.get_multiplexed_tokio_connection().await {
+            let key = format!("wb_session:{}", wb_id);
+            let _: Result<(), _> = redis::AsyncCommands::del(&mut conn, &key).await;
+        }
+    }
+
+    Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
 async fn health(

@@ -493,3 +493,21 @@ pub fn image_credits(action: ImageAnalysisAction) -> f64 {
         ImageAnalysisAction::DeepExplanation => 3.0,
     }
 }
+
+/// Credits charged per AI image generated during a whiteboard doubt session.
+/// Kept for future premium-tier whiteboard pricing. NOT used for standard doubt billing.
+pub fn whiteboard_image_credits(quality: QualityMode) -> f64 {
+    match quality {
+        QualityMode::Basic    => 0.8,
+        QualityMode::Standard => 1.5,
+        QualityMode::Premium  => 2.5,
+    }
+}
+
+/// Flat credit charge per whiteboard doubt question.
+///
+/// Deducted on EVERY call: session start + each follow-up.
+/// Fixed regardless of whether image generation is triggered — ensures
+/// users cannot bypass billing by asking text-only questions.
+/// Idempotency is enforced at the ledger level (unique entry ID per turn).
+pub const WHITEBOARD_DOUBT_FLAT_CREDITS: f64 = 0.1;

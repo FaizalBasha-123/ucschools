@@ -137,6 +137,16 @@ pub enum PersistedWhiteboardObject {
         color: String,
         stroke_width: f32,
     },
+    /// AI-generated image placed on the whiteboard during a doubt session.
+    Image {
+        id: String,
+        url: String,
+        position: PersistedPoint2D,
+        width: f32,
+        height: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        alt: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
