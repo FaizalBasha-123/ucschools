@@ -6,7 +6,7 @@ import { apiFetch, authHeaders, hasAuthSessionHint } from '@/lib/auth/session';
 interface CreditsContextType {
   credits: number | null;
   planName: string;
-  refreshCredits: () => Promise<void>;
+  refreshCredits: (force?: boolean) => Promise<void>;
   loading: boolean;
 }
 
@@ -17,17 +17,15 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
   const [planName, setPlanName] = useState('Free');
   const [loading, setLoading] = useState(false);
 
-  // Cooldown ref: prevent hammering /api/billing/dashboard on every tab focus.
-  // Neon serverless compute bills per query — unbounded polling was draining the
-  // free tier. Enforce a minimum 30-second gap between background refreshes.
+  // Debounce ref to prevent multiple simultaneous requests on page load
   const lastFetchedAt = useRef<number>(0);
-  const REFRESH_COOLDOWN_MS = 30_000;
+  const DEBOUNCE_MS = 2_000;
 
-  const refreshCredits = useCallback(async () => {
+  const refreshCredits = useCallback(async (force = false) => {
     if (!hasAuthSessionHint()) return;
 
     const now = Date.now();
-    if (now - lastFetchedAt.current < REFRESH_COOLDOWN_MS) return;
+    if (!force && now - lastFetchedAt.current < DEBOUNCE_MS) return;
     lastFetchedAt.current = now;
 
     setLoading(true);
@@ -57,21 +55,9 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Fetch on mount, then refresh when user returns to tab.
-  // The cooldown above prevents redundant DB hits from rapid tab switching.
+  // Fetch on mount only
   useEffect(() => {
     refreshCredits();
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        refreshCredits();
-      }
-    };
-
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
   }, [refreshCredits]);
 
   return (
@@ -88,3 +74,4 @@ export function useCredits() {
   }
   return context;
 }
+

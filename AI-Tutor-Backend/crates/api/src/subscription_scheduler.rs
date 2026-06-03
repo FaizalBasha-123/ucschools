@@ -35,7 +35,7 @@ pub struct SubscriptionSchedulerConfig {
 impl Default for SubscriptionSchedulerConfig {
     fn default() -> Self {
         Self {
-            renewal_interval_secs: 900, // 15 minutes
+            renewal_interval_secs: 86400, // 24 hours
             batch_size: 50,
         }
     }
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn default_config_has_reasonable_intervals() {
         let config = SubscriptionSchedulerConfig::default();
-        assert_eq!(config.renewal_interval_secs, 900); // 15 min
+        assert_eq!(config.renewal_interval_secs, 86400); // 24 hours
         assert!(config.batch_size > 0);
     }
 }

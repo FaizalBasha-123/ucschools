@@ -20,6 +20,7 @@ import { useI18n } from '@/lib/hooks/use-i18n';
 import { createLogger } from '@/lib/logger';
 import { hasAuthSessionHint, getSessionToken } from '@/lib/auth/session';
 import { loadPdfBlob } from '@/lib/utils/image-storage';
+import { useCredits } from '@/lib/contexts/credits-context';
 import { type GenerationSessionState } from './types';
 
 const log = createLogger('GenerationPreview');
@@ -72,6 +73,8 @@ function GenerationPreviewContent() {
   const [consented, setConsented] = useState(false);
   // One-shot guard: fetchPreview must run exactly once per page load
   const hasFetchedPreviewRef = useRef(false);
+
+  const { refreshCredits } = useCredits();
 
   // Load session from sessionStorage
   useEffect(() => {
@@ -230,6 +233,8 @@ function GenerationPreviewContent() {
 
       // Clear stage store so the lesson loads fresh from server
       useStageStore.getState().clearStore();
+
+      refreshCredits(true);
 
       // Small delay so user sees "complete" state
       await new Promise((r) => setTimeout(r, 600));

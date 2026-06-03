@@ -66,7 +66,7 @@ pub async fn run_cleanup_loop(
         asset_ttl_hours = cfg.asset_ttl_hours,
         job_ttl_hours = cfg.job_ttl_hours,
         temp_ttl_minutes = cfg.temp_ttl_minutes,
-        "storage and database cleanup scheduler enabled"
+        "storage and database cleanup scheduler enabled (runs at midnight)"
     );
 
     loop {
@@ -84,7 +84,13 @@ pub async fn run_cleanup_loop(
             }
         }
         
-        tokio::time::sleep(cfg.interval()).await;
+        // Sleep until next midnight
+        let now = chrono::Local::now();
+        let next_midnight = (now + chrono::Duration::days(1)).date_naive().and_hms_opt(0, 0, 0).unwrap();
+        let next_midnight_dt = next_midnight.and_local_timezone(now.timezone()).unwrap();
+        let duration_until_midnight = (next_midnight_dt - now).to_std().unwrap_or(std::time::Duration::from_secs(86400));
+        
+        tokio::time::sleep(duration_until_midnight).await;
     }
 }
 

@@ -10749,7 +10749,7 @@ fn refresh_token_ttl_seconds() -> i64 {
     read_optional_env("AI_TUTOR_REFRESH_TOKEN_TTL_DAYS")
         .and_then(|v| v.parse::<i64>().ok())
         .map(|days| days * 86400)
-        .unwrap_or(90 * 86400) // 90 days default
+        .unwrap_or(28 * 86400) // 28 days default
 }
 
 fn auth_cookie_enabled() -> bool {
