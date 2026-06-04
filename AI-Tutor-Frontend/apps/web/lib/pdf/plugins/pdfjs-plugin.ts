@@ -225,7 +225,7 @@ export class PdfjsPlugin implements PDFPlugin {
     let context: any;
     try {
       // @ts-expect-error - canvas is optional; failure is caught and handled below
-      const { createCanvas } = await import('canvas');
+      const { createCanvas } = await import(/* webpackIgnore: true */ 'canvas');
       canvas = createCanvas(viewport.width, viewport.height);
       context = canvas.getContext('2d');
     } catch {
