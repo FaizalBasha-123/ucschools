@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, Loader2, Search, CreditCard, Ticket, History, X, ArrowUpRight, ArrowDownRight, Coins, Plus, Minus, Check, AlertCircle } from 'lucide-react';
+import { Users, Loader2, Search, CreditCard, Ticket, History, X, ArrowUpRight, ArrowDownRight, Coins, Plus, Minus, Check, AlertCircle, Link as LinkIcon } from 'lucide-react';
 import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { createLogger } from '@/lib/logger';
@@ -149,6 +149,148 @@ function HistoryModal({ accountId, email, onClose }: { accountId: string; email:
             Close
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TopupLinkModal({
+  user,
+  onClose,
+}: {
+  user: OperatorUser;
+  onClose: () => void;
+}) {
+  const [credits, setCredits] = useState('');
+  const [priceInr, setPriceInr] = useState('');
+  const [reason, setReason] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSend = async () => {
+    const creditsNum = parseFloat(credits);
+    const priceNum = parseInt(priceInr, 10);
+    if (!creditsNum || !priceNum || creditsNum <= 0 || priceNum <= 0) {
+      setError('Please enter valid credits and price.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const token = getOperatorToken();
+      const res = await fetch(`/api/operator/users/${user.account_id}/topup-link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          'X-Operator-Header': 'true',
+        },
+        body: JSON.stringify({
+          credits_amount: creditsNum,
+          price_inr: priceNum,
+          reason: reason || `Operator top-up for ${user.email}`,
+        }),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send link');
+      setSuccess(`Payment link sent to ${user.email}. Expires in 10 minutes.`);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-2xl max-w-md w-full p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-lg font-black text-neutral-900 dark:text-white uppercase tracking-tight">Send Top-Up Link</h2>
+            <p className="text-sm text-neutral-500 mt-0.5">{user.email}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400">
+            <X className="size-5" />
+          </button>
+        </div>
+
+        {success ? (
+          <div className="flex flex-col items-center text-center gap-4 py-4">
+            <div className="w-14 h-14 bg-emerald-100 rounded-full flex items-center justify-center">
+              <Check className="size-7 text-emerald-600" />
+            </div>
+            <p className="text-emerald-700 dark:text-emerald-400 font-medium">{success}</p>
+            <button onClick={onClose} className="px-5 py-2 bg-neutral-100 dark:bg-neutral-800 rounded-xl text-sm font-bold">Close</button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-1.5">Credits to Grant</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={credits}
+                  onChange={e => setCredits(e.target.value)}
+                  placeholder="e.g. 150"
+                  className="w-full px-4 py-3 border border-neutral-200 dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-1.5">Price (₹)</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={priceInr}
+                  onChange={e => setPriceInr(e.target.value)}
+                  placeholder="e.g. 199"
+                  className="w-full px-4 py-3 border border-neutral-200 dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-1.5">Reason (optional)</label>
+                <input
+                  type="text"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="e.g. Q2 2026 top-up"
+                  className="w-full px-4 py-3 border border-neutral-200 dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {credits && priceInr && parseFloat(credits) > 0 && parseInt(priceInr) > 0 && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-xl text-sm text-emerald-700 dark:text-emerald-400">
+                  Student will be charged <strong>₹{priceInr}</strong> for <strong>{credits} credits</strong>. Link expires in 10 minutes.
+                </div>
+              )}
+
+              {error && (
+                <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-xl text-sm text-red-600 dark:text-red-400">
+                  {error}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={onClose}
+                className="flex-1 py-3 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm font-bold text-neutral-600 dark:text-neutral-400 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSend}
+                disabled={loading}
+                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="size-4 animate-spin" /> : <LinkIcon className="size-4" />}
+                {loading ? 'Sending...' : 'Generate & Send Link'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -335,6 +477,7 @@ export default function OperatorUsersPage() {
   const [search, setSearch] = useState('');
   const [historyUser, setHistoryUser] = useState<OperatorUser | null>(null);
   const [creditUser, setCreditUser] = useState<OperatorUser | null>(null);
+  const [topupUser, setTopupUser] = useState<OperatorUser | null>(null);
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -508,6 +651,13 @@ export default function OperatorUsersPage() {
                             >
                               <History className="size-4" />
                             </button>
+                            <button
+                              onClick={() => setTopupUser(user)}
+                              className="p-2 rounded-xl hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors text-neutral-400 hover:text-emerald-600"
+                              title="Send top-up payment link"
+                            >
+                              <LinkIcon className="size-4" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -541,6 +691,13 @@ export default function OperatorUsersPage() {
           user={creditUser}
           onClose={() => setCreditUser(null)}
           onSuccess={fetchUsers}
+        />
+      )}
+
+      {topupUser && (
+        <TopupLinkModal
+          user={topupUser}
+          onClose={() => setTopupUser(null)}
         />
       )}
     </DashboardShell>

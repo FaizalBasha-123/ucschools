@@ -222,6 +222,7 @@ impl SubscriptionScheduler {
             paid_at: Some(now),
             due_at: Some(now),
             updated_at: now,
+            pdf_url: None,
         };
 
         self.storage

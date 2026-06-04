@@ -97,9 +97,17 @@ export default function BillingPage() {
             </div>
             
             <div className="flex items-center gap-3">
-              <Button variant="outline" className="gap-2" disabled={dataLoading}>
+              <Button
+                variant="outline"
+                className="gap-2"
+                disabled={dataLoading || !dashboardData?.recent_invoices?.length}
+                onClick={() => {
+                  const inv = dashboardData?.recent_invoices?.[0];
+                  if (inv) window.open(`/api/billing/invoices/${inv.id}/pdf`, '_blank');
+                }}
+              >
                 <Download className="size-4" />
-                Download Invoices
+                Download Latest Invoice
               </Button>
             </div>
           </div>
@@ -175,12 +183,13 @@ export default function BillingPage() {
                   <th className="px-6 py-4 text-left font-medium text-muted-foreground">Date</th>
                   <th className="px-6 py-4 text-left font-medium text-muted-foreground">Amount</th>
                   <th className="px-6 py-4 text-left font-medium text-muted-foreground">Status</th>
+                  <th className="px-6 py-4 text-left font-medium text-muted-foreground">PDF</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
                 {dataLoading ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
+                    <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground">
                       <Loader2 className="size-5 animate-spin mx-auto mb-3 opacity-50" />
                     </td>
                   </tr>
@@ -198,11 +207,20 @@ export default function BillingPage() {
                           {inv.status}
                         </span>
                       </td>
+                      <td className="px-6 py-4">
+                        <button
+                          className="text-primary hover:text-primary/80 transition-colors"
+                          title="Download PDF"
+                          onClick={() => window.open(`/api/billing/invoices/${inv.id}/pdf`, '_blank')}
+                        >
+                          <Download size={16} />
+                        </button>
+                      </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
+                    <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground">
                       <p>No invoices found.</p>
                     </td>
                   </tr>

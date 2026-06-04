@@ -305,7 +305,7 @@ function PricingContent() {
   const [error, setError] = useState<string | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
-  const [showComingSoon, setShowComingSoon] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Promo code state
   const [promoCode, setPromoCode] = useState('');
@@ -396,7 +396,31 @@ function PricingContent() {
   }, [allProducts, billingCycle]);
 
   const handleCheckout = async (productCode: string) => {
-    setShowComingSoon(true);
+    if (!isAuthenticated) {
+      router.push(`/auth?next=/pricing`);
+      return;
+    }
+    setCheckoutLoading(productCode);
+    setCheckoutError(null);
+    try {
+      const res = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_code: productCode }),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.message || 'Checkout failed');
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        throw new Error('No checkout URL returned');
+      }
+    } catch (err: any) {
+      setCheckoutError(err.message || 'Failed to initiate checkout. Please try again.');
+    } finally {
+      setCheckoutLoading(null);
+    }
   };
 
   const handleRedeemPromo = async (e: React.FormEvent) => {
@@ -454,41 +478,18 @@ function PricingContent() {
     <div className="min-h-screen bg-white dark:bg-neutral-950 selection:bg-emerald-100 dark:selection:bg-emerald-900/30">
       <SiteHeader variant="pricing" />
 
-      <AnimatePresence>
-        {showComingSoon && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      {/* Checkout error toast */}
+      {checkoutError && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 bg-red-50 border border-red-200 text-red-700 px-5 py-3 rounded-xl shadow-lg max-w-md w-full">
+          <span className="flex-1 text-sm font-medium">{checkoutError}</span>
+          <button
+            onClick={() => setCheckoutError(null)}
+            className="shrink-0 text-red-400 hover:text-red-600"
           >
-            <motion.div
-              initial={{ scale: 0.9, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              className="bg-white dark:bg-neutral-900 p-10 rounded-[2.5rem] shadow-2xl max-w-lg w-full text-center relative overflow-hidden"
-            >
-              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-500 to-blue-500" />
-              <div className="mb-6 flex justify-center">
-                <div className="w-20 h-20 rounded-3xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600">
-                  <Zap className="size-10" />
-                </div>
-              </div>
-              <h2 className="text-3xl font-black mb-4 text-neutral-900 dark:text-white">Coming Soon!</h2>
-              <p className="text-neutral-600 dark:text-neutral-400 mb-8 leading-relaxed">
-                We are currently finalizing our secure payment integration with Stripe & Easebuzz to provide you with a seamless experience.
-                <br /><br />
-                Your interest has been noted! We&apos;ll notify you as soon as premium plans are live.
-              </p>
-              <button
-                onClick={() => setShowComingSoon(false)}
-                className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-lg hover:bg-emerald-700 transition-all"
-              >
-                Got it, thanks!
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            ✕
+          </button>
+        </div>
+      )}
 
       <main className="relative pt-20 pb-24 overflow-hidden">
         {/* ── Background Gradients ── */}

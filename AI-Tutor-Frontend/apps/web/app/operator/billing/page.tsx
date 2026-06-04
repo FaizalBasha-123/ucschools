@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   DollarSign, Loader2, AlertTriangle, CheckCircle2,
@@ -61,9 +61,19 @@ export default function BillingPage() {
   const pieChartRef = useRef<HTMLDivElement>(null);
   const trendChartRef = useRef<HTMLDivElement>(null);
   const tokenChartRef = useRef<HTMLDivElement>(null);
+  const revenueChartRef = useRef<HTMLDivElement>(null);
   const pieInstance = useRef<echarts.ECharts | null>(null);
   const trendInstance = useRef<echarts.ECharts | null>(null);
   const tokenInstance = useRef<echarts.ECharts | null>(null);
+  const revenueInstance = useRef<echarts.ECharts | null>(null);
+
+  // Revenue vs Cost time-series data
+  const [revenueData, setRevenueData] = useState<any>(null);
+  const [revenueChartMode, setRevenueChartMode] = useState<'combined' | 'by_gateway'>('combined');
+
+  // Queue depth data
+  const [queueDepth, setQueueDepth] = useState<any>(null);
+  const [queueLoading, setQueueLoading] = useState(false);
 
   const headers = (): HeadersInit => {
     const tok = getOperatorToken();
@@ -99,6 +109,31 @@ export default function BillingPage() {
   };
 
   useEffect(() => { load(range); }, [range]);
+
+  // Fetch revenue timeseries
+  useEffect(() => {
+    const h = headers();
+    fetch(`/api/operator/stats/revenue-timeseries?days=${range}`, { headers: h, cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setRevenueData(d))
+      .catch(() => {});
+  }, [range]);
+
+  // Fetch queue depth (refresh every 30s)
+  const fetchQueueDepth = useCallback(() => {
+    setQueueLoading(true);
+    fetch('/api/operator/stats/queue-depth', { headers: headers(), cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setQueueDepth(d))
+      .catch(() => {})
+      .finally(() => setQueueLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchQueueDepth();
+    const interval = setInterval(fetchQueueDepth, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchQueueDepth]);
 
   const byComponent: any[] = data?.by_component ?? [];
   const perUser: any[] = data?.per_user ?? [];
@@ -231,10 +266,63 @@ export default function BillingPage() {
       pieInstance.current?.resize();
       trendInstance.current?.resize();
       tokenInstance.current?.resize();
+      revenueInstance.current?.resize();
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Revenue vs API cost time-series chart
+  useEffect(() => {
+    if (!revenueChartRef.current || !revenueData) return;
+    if (!revenueInstance.current) {
+      revenueInstance.current = echarts.init(revenueChartRef.current);
+    }
+
+    if (revenueChartMode === 'combined') {
+      const combined: any[] = revenueData.combined ?? [];
+      const hours = combined.map((d: any) => d.hour.replace('T', ' ').replace(':00:00Z', ''));
+      const revenues = combined.map((d: any) => (d.revenue_minor / 100).toFixed(2));
+
+      revenueInstance.current.setOption({
+        tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0].axisValue}<br/>Revenue: ₹${p[0].value}` },
+        xAxis: { type: 'category', data: hours, axisLabel: { fontSize: 10, rotate: 30 } },
+        yAxis: { type: 'value', axisLabel: { formatter: '₹{value}', fontSize: 10 } },
+        series: [{
+          name: 'Revenue (INR)',
+          type: 'line',
+          smooth: true,
+          data: revenues,
+          areaStyle: { color: 'rgba(16,185,129,0.1)' },
+          lineStyle: { color: '#10B981', width: 2 },
+          itemStyle: { color: '#10B981' },
+        }],
+        grid: { left: 60, right: 20, top: 20, bottom: 60 },
+      });
+    } else {
+      const byGateway: Record<string, Record<string, number>> = revenueData.by_gateway ?? {};
+      const allHours = [...new Set(
+        Object.values(byGateway).flatMap(g => Object.keys(g))
+      )].sort();
+      const colors: Record<string, string> = { stripe: '#6366f1', razorpay: '#f59e0b', xpay: '#ec4899', operator_topup: '#10b981' };
+      const series = Object.entries(byGateway).map(([gateway, hourMap]) => ({
+        name: gateway,
+        type: 'bar',
+        stack: 'revenue',
+        data: allHours.map(h => (((hourMap as any)[h] ?? 0) / 100).toFixed(2)),
+        itemStyle: { color: colors[gateway] || '#6B7280' },
+      }));
+
+      revenueInstance.current.setOption({
+        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+        legend: { bottom: 0, textStyle: { fontSize: 10 } },
+        xAxis: { type: 'category', data: allHours.map(h => h.replace('T', ' ').replace(':00:00Z', '')), axisLabel: { fontSize: 10, rotate: 30 } },
+        yAxis: { type: 'value', axisLabel: { formatter: '₹{value}', fontSize: 10 } },
+        series,
+        grid: { left: 60, right: 20, top: 20, bottom: 80 },
+      });
+    }
+  }, [revenueData, revenueChartMode]);
 
   return (
     <DashboardShell
@@ -439,6 +527,67 @@ export default function BillingPage() {
               )}
 
             </div>
+
+            {/* ── Revenue vs Cost Time-Series ── */}
+            <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Revenue Inflow vs API Cost Burn</h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setRevenueChartMode('combined')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${revenueChartMode === 'combined' ? 'bg-emerald-100 text-emerald-700' : 'text-neutral-400 hover:text-neutral-600'}`}
+                  >
+                    Combined
+                  </button>
+                  <button
+                    onClick={() => setRevenueChartMode('by_gateway')}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${revenueChartMode === 'by_gateway' ? 'bg-blue-100 text-blue-700' : 'text-neutral-400 hover:text-neutral-600'}`}
+                  >
+                    By Gateway
+                  </button>
+                </div>
+              </div>
+              {revenueData ? (
+                <div ref={revenueChartRef} className="w-full" style={{ height: 280 }} />
+              ) : (
+                <div className="flex items-center justify-center h-32 text-neutral-400 text-sm">
+                  No revenue data for this period
+                </div>
+              )}
+            </div>
+
+            {/* ── Queue Depth Gauges ── */}
+            <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Billing Event Queue Depth</h3>
+                <button
+                  onClick={fetchQueueDepth}
+                  disabled={queueLoading}
+                  className="flex items-center gap-2 text-xs font-bold text-neutral-400 hover:text-neutral-600 transition-colors"
+                >
+                  {queueLoading ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+                  Refresh
+                </button>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                {[
+                  { label: 'Raw Events', key: 'raw_events', color: 'text-blue-500', desc: 'Awaiting processor' },
+                  { label: 'Enriched', key: 'enriched_events', color: 'text-emerald-500', desc: 'Awaiting DB flush' },
+                  { label: 'Rejected', key: 'rejected_events', color: 'text-red-500', desc: 'Insufficient balance' },
+                  { label: 'Renewal Tasks', key: 'renewal_tasks', color: 'text-amber-500', desc: 'Pending renewals' },
+                ].map(({ label, key, color, desc }) => (
+                  <div key={key}>
+                    <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-1">{label}</p>
+                    <p className={`text-3xl font-black ${color}`}>
+                      {queueDepth ? (queueDepth[key] ?? 0).toLocaleString() : '—'}
+                    </p>
+                    <p className="text-[10px] text-neutral-400 mt-1">{desc}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-neutral-300 mt-4 uppercase tracking-wider">Refreshes every 30 seconds · Redis Streams (billing:events:*)</p>
+            </div>
+
           )}
 
         </div>

@@ -21,6 +21,7 @@ use ai_tutor_domain::{
         SubscriptionStatus, WebhookEvent,
     },
     credits::{CreditBalance, CreditEntryKind, CreditLedgerEntry, PromoCode},
+    gateway::RevenueSnapshot,
     job::{
         LessonGenerationJob, LessonGenerationJobStatus, LessonGenerationStep,
         QueuedLessonJobSnapshot,
@@ -29,14 +30,16 @@ use ai_tutor_domain::{
     lesson_shelf::{LessonShelfItem, LessonShelfStatus},
     lesson::Lesson,
     runtime::{DirectorState, RuntimeActionExecutionRecord},
+    wallet::{CreditBucket, WalletBalance},
 };
 
 use crate::repositories::{
     CreditLedgerRepository, DunningCaseRepository, FinancialAuditRepository,
     InvoiceLineRepository, InvoiceRepository, LessonAdaptiveRepository, LessonJobRepository,
     LessonRepository, LessonShelfRepository, PaymentIntentRepository, PaymentOrderRepository,
-    PromoCodeRepository, RuntimeActionExecutionRepository, RuntimeSessionRepository, SchoolRepository,
-    SubscriptionRepository, TutorAccountRepository, WebhookEventRepository,
+    PromoCodeRepository, RevenueSnapshotRepository, RuntimeActionExecutionRepository,
+    RuntimeSessionRepository, SchoolRepository, SubscriptionRepository, TutorAccountRepository,
+    WalletRepository, WebhookEventRepository,
 };
 
 const STALE_JOB_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -690,6 +693,56 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
             CREATE INDEX IF NOT EXISTS idx_api_usage_lesson_id ON api_usage_records (lesson_id);
         "#,
     },
+    PostgresMigration {
+        version: 22,
+        name: "dual_bucket_wallet_and_gateway_infra",
+        sql: r#"
+            -- ── Dual-bucket wallet ─────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS wallet_balances (
+                account_id      TEXT PRIMARY KEY REFERENCES tutor_accounts(id) ON DELETE CASCADE,
+                promo_balance   NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+                paid_balance    NUMERIC(12,2) NOT NULL DEFAULT 0.00,
+                updated_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_wallet_balances_updated
+                ON wallet_balances(updated_at DESC);
+
+            -- Backfill: existing balances go to paid_balance (promo = 0 for existing users)
+            INSERT INTO wallet_balances (account_id, promo_balance, paid_balance, updated_at)
+            SELECT account_id, 0.00, COALESCE(balance, 0.00), updated_at
+            FROM credit_balances
+            ON CONFLICT (account_id) DO NOTHING;
+
+            -- ── Bucket column on credit_ledger ──────────────────────────────────
+            ALTER TABLE credit_ledger
+                ADD COLUMN IF NOT EXISTS bucket TEXT NOT NULL DEFAULT 'paid';
+
+            -- ── PDF URL on invoices ─────────────────────────────────────────────
+            ALTER TABLE invoices
+                ADD COLUMN IF NOT EXISTS pdf_url TEXT;
+
+            -- ── Operator top-up columns on payment_orders ───────────────────────
+            ALTER TABLE payment_orders
+                ADD COLUMN IF NOT EXISTS custom_credits      NUMERIC(12,2);
+            ALTER TABLE payment_orders
+                ADD COLUMN IF NOT EXISTS custom_price_minor  BIGINT;
+            ALTER TABLE payment_orders
+                ADD COLUMN IF NOT EXISTS topup_reason        TEXT;
+
+            -- ── Revenue snapshots (pre-aggregated for time-series chart) ─────────
+            CREATE TABLE IF NOT EXISTS revenue_snapshots (
+                id              TEXT PRIMARY KEY,
+                hour            TIMESTAMPTZ NOT NULL,
+                gateway         TEXT        NOT NULL,
+                revenue_minor   BIGINT      NOT NULL DEFAULT 0,
+                currency        TEXT        NOT NULL DEFAULT 'INR',
+                order_count     INTEGER     NOT NULL DEFAULT 0,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_revenue_snapshots_hour_gw
+                ON revenue_snapshots(hour, gateway);
+        "#,
+    },
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -826,6 +879,7 @@ impl FileStorage {
             kind: CreditEntryKind::Debit,
             amount,
             reason: "manual_deduct".to_string(),
+            bucket: CreditBucket::Paid, // manual debits come from paid bucket first
             created_at: chrono::Utc::now(),
         };
         self.apply_credit_entry(&entry)
@@ -927,6 +981,12 @@ impl FileStorage {
         let created_at = row.get("created_at");
         let raw_amount: String = row.get("amount");
         let amount = raw_amount.parse::<f64>().map_err(|e| format!("failed to parse amount: {e}"))?;
+        // bucket column added in migration v22; default to 'paid' for pre-migration rows
+        let bucket_str: Option<String> = row.try_get("bucket").ok();
+        let bucket = bucket_str
+            .as_deref()
+            .and_then(CreditBucket::from_str)
+            .unwrap_or(CreditBucket::Paid);
 
         Ok(CreditLedgerEntry {
             id: row.get("id"),
@@ -934,6 +994,7 @@ impl FileStorage {
             kind,
             amount,
             reason: row.get("reason"),
+            bucket,
             created_at,
         })
     }
@@ -1126,6 +1187,7 @@ impl FileStorage {
         match invoice_type {
             InvoiceType::SubscriptionRenewal => "subscription_renewal",
             InvoiceType::AddOnCreditPurchase => "add_on_credit_purchase",
+            InvoiceType::OperatorTopup => "operator_topup",
         }
     }
 
@@ -1133,6 +1195,7 @@ impl FileStorage {
         match value {
             "subscription_renewal" => Ok(InvoiceType::SubscriptionRenewal),
             "add_on_credit_purchase" => Ok(InvoiceType::AddOnCreditPurchase),
+            "operator_topup" => Ok(InvoiceType::OperatorTopup),
             other => Err(format!("unsupported invoice type `{other}`")),
         }
     }
@@ -1314,6 +1377,9 @@ impl FileStorage {
         let due_at: Option<chrono::DateTime<Utc>> = row.get("due_at");
         let updated_at = row.get("updated_at");
 
+        // pdf_url was added in migration v22; gracefully default to None for older rows.
+        let pdf_url: Option<String> = row.try_get("pdf_url").ok().flatten();
+
         Ok(Invoice {
             id: row.get("id"),
             account_id: row.get("account_id"),
@@ -1328,6 +1394,7 @@ impl FileStorage {
             paid_at,
             due_at,
             updated_at,
+            pdf_url,
         })
     }
 
@@ -2444,7 +2511,7 @@ impl TutorAccountRepository for FileStorage {
 }
 
 #[async_trait]
-impl CreditLedgerRepository for FileStorage {
+ impl CreditLedgerRepository for FileStorage {
     async fn apply_credit_entry(&self, entry: &CreditLedgerEntry) -> Result<CreditBalance, String> {
         let postgres_url = self.postgres_url.clone();
         let entry = entry.clone();
@@ -2454,11 +2521,16 @@ impl CreditLedgerRepository for FileStorage {
 
             let mut transaction = client.transaction().map_err(|err| err.to_string())?;
             let rounded_amount = (entry.amount * 100.0).round() / 100.0;
+            let bucket_str = entry.bucket.as_str();
+
+            // INSERT into credit_ledger with bucket column (migration v22 added bucket).
+            // ON CONFLICT DO NOTHING guards idempotency via PK.
             transaction
                 .execute(
                     "
-                    INSERT INTO credit_ledger (id, account_id, kind, amount, reason, created_at)
-                    VALUES ($1, $2, $3, ROUND($4::numeric, 2), $5, $6)
+                    INSERT INTO credit_ledger (id, account_id, kind, amount, reason, bucket, created_at)
+                    VALUES ($1, $2, $3, ROUND($4::numeric, 2), $5, $6, $7)
+                    ON CONFLICT (id) DO NOTHING
                     ",
                     &[
                         &entry.id,
@@ -2466,43 +2538,66 @@ impl CreditLedgerRepository for FileStorage {
                         &Self::credit_entry_kind_to_db(&entry.kind),
                         &rounded_amount,
                         &entry.reason,
+                        &bucket_str,
                         &entry.created_at,
                     ],
                 )
-                .or_else(|err| {
-                    if let Some(db_err) = err.as_db_error() {
-                        if db_err.code().code() == "23505" {
-                            // Duplicate credit entry — already applied, skip
-                            return Ok(1u64);
-                        }
-                    }
-                    Err(err.to_string())
-                })?;
+                .map_err(|err| err.to_string())?;
 
             let delta = match entry.kind {
                 CreditEntryKind::Debit => -rounded_amount,
                 CreditEntryKind::Grant | CreditEntryKind::Refund => rounded_amount,
             };
-            let balance = transaction
-                .query_one(
+
+            // Update credit_balances (legacy compat table — total balance).
+            transaction
+                .execute(
                     "
                     INSERT INTO credit_balances (account_id, balance, updated_at)
                     VALUES ($1, ROUND($2::numeric, 2), $3)
                     ON CONFLICT (account_id) DO UPDATE SET
                         balance = ROUND((credit_balances.balance + EXCLUDED.balance)::numeric, 2),
                         updated_at = EXCLUDED.updated_at
-                    RETURNING account_id, balance, updated_at
                     ",
                     &[&entry.account_id, &delta, &entry.created_at],
                 )
                 .map_err(|err| err.to_string())?;
+
+            // Update wallet_balances (dual-bucket — the authoritative write path).
+            // Promo or paid bucket is updated based on entry.bucket.
+            let wallet_col = match entry.bucket {
+                CreditBucket::Promo => "promo_balance",
+                CreditBucket::Paid  => "paid_balance",
+            };
+            let wallet_sql = format!(
+                "
+                INSERT INTO wallet_balances (account_id, {col}, updated_at)
+                VALUES ($1, ROUND($2::numeric, 2), $3)
+                ON CONFLICT (account_id) DO UPDATE SET
+                    {col} = ROUND((wallet_balances.{col} + EXCLUDED.{col})::numeric, 2),
+                    updated_at = EXCLUDED.updated_at
+                ",
+                col = wallet_col
+            );
+            transaction
+                .execute(wallet_sql.as_str(), &[&entry.account_id, &delta, &entry.created_at])
+                .map_err(|err| err.to_string())?;
+
+            // Read back total balance from credit_balances for return value compat.
+            let balance_row = transaction
+                .query_one(
+                    "SELECT account_id, balance, updated_at FROM credit_balances WHERE account_id = $1",
+                    &[&entry.account_id],
+                )
+                .map_err(|err| err.to_string())?;
+
             transaction.commit().map_err(|err| err.to_string())?;
 
-            let raw_balance: String = balance.get("balance");
+            let raw_balance: String = balance_row.get("balance");
             Ok(CreditBalance {
-                account_id: balance.get("account_id"),
+                account_id: balance_row.get("account_id"),
                 balance: raw_balance.parse::<f64>().map_err(|e| format!("failed to parse balance: {e}"))?,
-                updated_at: balance.get("updated_at"),
+                updated_at: balance_row.get("updated_at"),
             })
         })
         .await
@@ -2563,7 +2658,9 @@ impl CreditLedgerRepository for FileStorage {
             let rows = client
                 .query(
                     "
-                    SELECT id, account_id, kind, amount, reason, created_at
+                    SELECT id, account_id, kind, amount, reason,
+                           COALESCE(bucket, 'paid') AS bucket,
+                           created_at
                     FROM credit_ledger
                     WHERE account_id = $1
                     ORDER BY created_at DESC
@@ -2589,7 +2686,9 @@ impl CreditLedgerRepository for FileStorage {
             let rows = client
                 .query(
                     "
-                    SELECT id, account_id, kind, amount, reason, created_at
+                    SELECT id, account_id, kind, amount, reason,
+                           COALESCE(bucket, 'paid') AS bucket,
+                           created_at
                     FROM credit_ledger
                     ORDER BY created_at DESC
                     LIMIT $1
@@ -4530,6 +4629,291 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
     }
 }
 
+
+// ── WalletRepository ──────────────────────────────────────────────────────────
+#[async_trait]
+impl WalletRepository for FileStorage {
+    async fn get_wallet_balance(&self, account_id: &str) -> Result<WalletBalance, String> {
+        let postgres_url = self.postgres_url.clone();
+        let account_id = account_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<WalletBalance, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            let row = client.query_opt(
+                "SELECT account_id, promo_balance, paid_balance, updated_at
+                 FROM wallet_balances WHERE account_id = $1",
+                &[&account_id],
+            ).map_err(|e| e.to_string())?;
+
+            let Some(row) = row else {
+                return Ok(WalletBalance {
+                    account_id,
+                    promo_balance: 0.0,
+                    paid_balance: 0.0,
+                    updated_at: Utc::now(),
+                });
+            };
+
+            let raw_promo: String = row.get("promo_balance");
+            let raw_paid: String  = row.get("paid_balance");
+            Ok(WalletBalance {
+                account_id: row.get("account_id"),
+                promo_balance: raw_promo.parse::<f64>().map_err(|e| format!("parse promo: {e}"))?,
+                paid_balance:  raw_paid.parse::<f64>().map_err(|e| format!("parse paid: {e}"))?,
+                updated_at: row.get("updated_at"),
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    async fn apply_wallet_grant(
+        &self,
+        account_id: &str,
+        ledger_entry_id: &str,
+        amount: f64,
+        bucket: CreditBucket,
+        reason: &str,
+    ) -> Result<WalletBalance, String> {
+        // Delegate to apply_credit_entry which already handles dual-bucket sync.
+        let entry = CreditLedgerEntry {
+            id: ledger_entry_id.to_string(),
+            account_id: account_id.to_string(),
+            kind: CreditEntryKind::Grant,
+            amount,
+            reason: reason.to_string(),
+            bucket,
+            created_at: Utc::now(),
+        };
+        self.apply_credit_entry(&entry).await?;
+        self.get_wallet_balance(account_id).await
+    }
+
+    async fn apply_wallet_debit(
+        &self,
+        account_id: &str,
+        ledger_entry_id: &str,
+        promo_amount: f64,
+        paid_amount: f64,
+        reason: &str,
+    ) -> Result<WalletBalance, String> {
+        let postgres_url = self.postgres_url.clone();
+        let account_id = account_id.to_string();
+        let ledger_id  = ledger_entry_id.to_string();
+        let reason_str = reason.to_string();
+        let now = Utc::now();
+
+        tokio::task::spawn_blocking(move || -> Result<WalletBalance, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            let mut tx = client.transaction().map_err(|e| e.to_string())?;
+
+            // Acquire a row-level lock on wallet_balances to prevent race conditions.
+            tx.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))",
+                &[&account_id],
+            ).map_err(|e| e.to_string())?;
+
+            // Read current balances inside the transaction.
+            let row = tx.query_opt(
+                "SELECT promo_balance, paid_balance FROM wallet_balances WHERE account_id = $1",
+                &[&account_id],
+            ).map_err(|e| e.to_string())?;
+
+            let (current_promo, current_paid) = match row {
+                Some(r) => {
+                    let p: String = r.get("promo_balance");
+                    let d: String = r.get("paid_balance");
+                    (
+                        p.parse::<f64>().unwrap_or(0.0),
+                        d.parse::<f64>().unwrap_or(0.0),
+                    )
+                }
+                None => (0.0, 0.0),
+            };
+
+            let total_needed = promo_amount + paid_amount;
+            let total_available = current_promo + current_paid;
+            if total_available < total_needed - 0.001 {
+                return Err(format!(
+                    "insufficient balance: need {:.2}, have {:.2} (promo={:.2} paid={:.2})",
+                    total_needed, total_available, current_promo, current_paid
+                ));
+            }
+
+            // Insert promo ledger entry (if promo debit > 0).
+            if promo_amount > 0.001 {
+                tx.execute(
+                    "INSERT INTO credit_ledger (id, account_id, kind, amount, reason, bucket, created_at)
+                     VALUES ($1, $2, 'debit', ROUND($3::numeric, 2), $4, 'promo', $5)
+                     ON CONFLICT (id) DO NOTHING",
+                    &[&format!("{}:promo", ledger_id), &account_id,
+                      &promo_amount, &reason_str, &now],
+                ).map_err(|e| e.to_string())?;
+            }
+
+            // Insert paid ledger entry (if paid debit > 0).
+            if paid_amount > 0.001 {
+                tx.execute(
+                    "INSERT INTO credit_ledger (id, account_id, kind, amount, reason, bucket, created_at)
+                     VALUES ($1, $2, 'debit', ROUND($3::numeric, 2), $4, 'paid', $5)
+                     ON CONFLICT (id) DO NOTHING",
+                    &[&format!("{}:paid", ledger_id), &account_id,
+                      &paid_amount, &reason_str, &now],
+                ).map_err(|e| e.to_string())?;
+            }
+
+            // Update wallet_balances (atomic deduction from both buckets).
+            tx.execute(
+                "UPDATE wallet_balances
+                 SET promo_balance = ROUND((promo_balance - $2)::numeric, 2),
+                     paid_balance  = ROUND((paid_balance  - $3)::numeric, 2),
+                     updated_at    = $4
+                 WHERE account_id = $1",
+                &[&account_id, &promo_amount, &paid_amount, &now],
+            ).map_err(|e| e.to_string())?;
+
+            // Update legacy credit_balances (total deduction).
+            let total_debit = promo_amount + paid_amount;
+            tx.execute(
+                "UPDATE credit_balances
+                 SET balance = ROUND((balance - $2)::numeric, 2), updated_at = $3
+                 WHERE account_id = $1",
+                &[&account_id, &total_debit, &now],
+            ).map_err(|e| e.to_string())?;
+
+            // Read back updated wallet.
+            let updated = tx.query_one(
+                "SELECT account_id, promo_balance, paid_balance, updated_at
+                 FROM wallet_balances WHERE account_id = $1",
+                &[&account_id],
+            ).map_err(|e| e.to_string())?;
+
+            tx.commit().map_err(|e| e.to_string())?;
+
+            let raw_promo: String = updated.get("promo_balance");
+            let raw_paid: String  = updated.get("paid_balance");
+            Ok(WalletBalance {
+                account_id,
+                promo_balance: raw_promo.parse::<f64>().map_err(|e| format!("parse promo: {e}"))?,
+                paid_balance:  raw_paid.parse::<f64>().map_err(|e| format!("parse paid: {e}"))?,
+                updated_at: updated.get("updated_at"),
+            })
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    async fn set_invoice_pdf_url(&self, invoice_id: &str, pdf_url: &str) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        let invoice_id = invoice_id.to_string();
+        let pdf_url = pdf_url.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            client.execute(
+                "UPDATE invoices SET pdf_url = $2, updated_at = NOW() WHERE id = $1",
+                &[&invoice_id, &pdf_url],
+            ).map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    async fn advance_subscription_period(
+        &self,
+        subscription_id: &str,
+        last_payment_order_id: &str,
+    ) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        let subscription_id = subscription_id.to_string();
+        let last_payment_order_id = last_payment_order_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            // Advance by the billing_interval (monthly = 30 days, yearly = 365 days).
+            client.execute(
+                "UPDATE subscriptions
+                 SET current_period_start  = current_period_end,
+                     current_period_end    = CASE
+                         WHEN billing_interval = 'monthly' THEN current_period_end + INTERVAL '30 days'
+                         ELSE current_period_end + INTERVAL '365 days'
+                     END,
+                     next_renewal_at       = CASE
+                         WHEN billing_interval = 'monthly' THEN current_period_end + INTERVAL '30 days'
+                         ELSE current_period_end + INTERVAL '365 days'
+                     END,
+                     last_payment_order_id = $2,
+                     updated_at            = NOW()
+                 WHERE id = $1",
+                &[&subscription_id, &last_payment_order_id],
+            ).map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+}
+
+// ── RevenueSnapshotRepository ─────────────────────────────────────────────────
+#[async_trait]
+impl RevenueSnapshotRepository for FileStorage {
+    async fn upsert_revenue_snapshot(&self, snapshot: &RevenueSnapshot) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        let snapshot = snapshot.clone();
+        tokio::task::spawn_blocking(move || -> Result<(), String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            client.execute(
+                "INSERT INTO revenue_snapshots (id, hour, gateway, revenue_minor, currency, order_count, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT (hour, gateway) DO UPDATE SET
+                     revenue_minor = revenue_snapshots.revenue_minor + EXCLUDED.revenue_minor,
+                     order_count   = revenue_snapshots.order_count   + EXCLUDED.order_count",
+                &[
+                    &snapshot.id,
+                    &snapshot.hour,
+                    &snapshot.gateway,
+                    &snapshot.revenue_minor,
+                    &snapshot.currency,
+                    &snapshot.order_count,
+                    &snapshot.created_at,
+                ],
+            ).map_err(|e| e.to_string())?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
+    async fn list_revenue_snapshots(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<RevenueSnapshot>, String> {
+        let postgres_url = self.postgres_url.clone();
+        tokio::task::spawn_blocking(move || -> Result<Vec<RevenueSnapshot>, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            let rows = client.query(
+                "SELECT id, hour, gateway, revenue_minor, currency, order_count, created_at
+                 FROM revenue_snapshots
+                 WHERE hour >= $1 AND hour < $2
+                 ORDER BY hour ASC",
+                &[&since, &until],
+            ).map_err(|e| e.to_string())?;
+
+            rows.into_iter().map(|row| {
+                Ok(RevenueSnapshot {
+                    id:            row.get("id"),
+                    hour:          row.get("hour"),
+                    gateway:       row.get("gateway"),
+                    revenue_minor: row.get("revenue_minor"),
+                    currency:      row.get("currency"),
+                    order_count:   row.get("order_count"),
+                    created_at:    row.get("created_at"),
+                })
+            }).collect()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+}
 
 #[cfg(test)]
 mod tests {

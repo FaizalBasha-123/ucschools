@@ -8,11 +8,13 @@ use ai_tutor_domain::{
         WebhookEvent,
     },
     credits::{CreditBalance, CreditLedgerEntry, PromoCode},
+    gateway::RevenueSnapshot,
     job::LessonGenerationJob,
     lesson_adaptive::LessonAdaptiveState,
     lesson_shelf::{LessonShelfItem, LessonShelfStatus},
     lesson::Lesson,
     runtime::{DirectorState, RuntimeActionExecutionRecord},
+    wallet::WalletBalance,
 };
 
 #[async_trait]
@@ -314,5 +316,69 @@ pub trait ApiUsageRepository: Send + Sync {
         &self,
         since: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String>;
+}
+
+/// Repository for the dual-bucket wallet (promo + paid credits).
+/// This is the write-authoritative source for credit balances.
+/// `credit_balances` is kept in sync for backward compatibility.
+#[async_trait]
+pub trait WalletRepository: Send + Sync {
+    /// Get the wallet balance for an account.
+    /// Returns a zeroed WalletBalance if no row exists yet.
+    async fn get_wallet_balance(&self, account_id: &str) -> Result<WalletBalance, String>;
+
+    /// Apply a credit grant to the specified bucket.
+    /// Idempotent: the `ledger_entry_id` is the PK in credit_ledger.
+    /// Duplicate entries are silently ignored (ON CONFLICT DO NOTHING on the PK).
+    async fn apply_wallet_grant(
+        &self,
+        account_id: &str,
+        ledger_entry_id: &str,
+        amount: f64,
+        bucket: ai_tutor_domain::wallet::CreditBucket,
+        reason: &str,
+    ) -> Result<WalletBalance, String>;
+
+    /// Apply a dual-bucket debit (promo first, then paid).
+    /// `promo_amount` and `paid_amount` are computed by `WalletBalance::compute_debit_split`.
+    /// Idempotent: the ledger_entry_id prefix is the PK base.
+    /// Returns Err if insufficient balance (should not happen if caller pre-checked cache).
+    async fn apply_wallet_debit(
+        &self,
+        account_id: &str,
+        ledger_entry_id: &str,
+        promo_amount: f64,
+        paid_amount: f64,
+        reason: &str,
+    ) -> Result<WalletBalance, String>;
+
+    /// Set the pdf_url on an invoice after PDF generation.
+    async fn set_invoice_pdf_url(&self, invoice_id: &str, pdf_url: &str) -> Result<(), String>;
+
+    /// Advance a subscription's period dates after a successful renewal.
+    /// Sets current_period_start=now, current_period_end=now+interval, next_renewal_at=now+interval.
+    async fn advance_subscription_period(
+        &self,
+        subscription_id: &str,
+        last_payment_order_id: &str,
+    ) -> Result<(), String>;
+}
+
+/// Repository for revenue snapshots used in the operator time-series chart.
+#[async_trait]
+pub trait RevenueSnapshotRepository: Send + Sync {
+    /// Upsert a revenue snapshot for the given hour and gateway.
+    /// Increments revenue_minor and order_count atomically on conflict.
+    async fn upsert_revenue_snapshot(
+        &self,
+        snapshot: &RevenueSnapshot,
+    ) -> Result<(), String>;
+
+    /// List revenue snapshots between two timestamps.
+    async fn list_revenue_snapshots(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<RevenueSnapshot>, String>;
 }
 

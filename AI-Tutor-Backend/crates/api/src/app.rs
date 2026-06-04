@@ -275,8 +275,9 @@ fn required_role_for_request(method: &axum::http::Method, path: &str) -> Option<
     }
     // Truly public routes (no auth at all)
     if path == "/api/billing/catalog"
-        || path == "/api/billing/easebuzz/callback"
+        || path == "/api/billing/webhook"   // payment gateway webhook (signature-verified internally)
         || path == "/api/public/contact-enterprise"
+        || path.starts_with("/api/billing/topup/") // topup token validation and checkout (token is the auth)
     {
         return None;
     }
@@ -1832,6 +1833,54 @@ pub trait LessonAppService: Send + Sync {
 
     /// Get the Redis client if configured.
     fn redis_client(&self) -> Option<&redis::Client>;
+
+    // ── New billing infrastructure methods ────────────────────────────────────
+
+    /// Apply a credit ledger entry from a webhook (bypasses the event queue for direct grants).
+    async fn apply_credit_entry_for_webhook(
+        &self,
+        entry: &ai_tutor_domain::credits::CreditLedgerEntry,
+    ) -> Result<()>;
+
+    /// Check if a webhook event has already been processed (idempotency check).
+    async fn get_webhook_event(
+        &self,
+        event_identifier: &str,
+    ) -> Result<Option<ai_tutor_domain::billing::WebhookEvent>>;
+
+    /// Record a webhook event for idempotency.
+    async fn record_webhook_event(
+        &self,
+        event_identifier: &str,
+        event_type: &str,
+        payload: serde_json::Value,
+    ) -> Result<()>;
+
+    /// Get invoice PDF bytes (generates on demand if not yet generated).
+    async fn get_invoice_pdf(
+        &self,
+        account_id: &str,
+        invoice_id: &str,
+    ) -> Result<(Vec<u8>, String)>;
+
+    /// Get an invoice by ID (operator use — any account).
+    async fn get_invoice_by_id(
+        &self,
+        invoice_id: &str,
+    ) -> Result<Option<ai_tutor_domain::billing::Invoice>>;
+
+    /// Get account by ID (used by operator top-up link handler).
+    async fn get_account_by_id(
+        &self,
+        account_id: &str,
+    ) -> Result<Option<TutorAccount>>;
+
+    /// Get revenue snapshots for the operator time-series chart.
+    async fn get_revenue_snapshots(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ai_tutor_domain::gateway::RevenueSnapshot>>;
 }
 
 #[derive(Clone)]
@@ -2794,6 +2843,7 @@ impl LiveLessonAppService {
                 amount: order.credits_to_grant,
                 reason: format!("payment_order:{}:{}", order.product_code, order.gateway_txn_id),
                 created_at: chrono::Utc::now(),
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             };
             self.storage
                 .apply_credit_entry(&credit_entry)
@@ -2986,6 +3036,7 @@ impl LiveLessonAppService {
                 amount: order.credits_to_grant,
                 reason: format!("payment_order:{}:{}", order.product_code, order.gateway_txn_id),
                 created_at: chrono::Utc::now(),
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             };
             self.storage
                 .apply_credit_entry(&credit_entry)
@@ -3160,6 +3211,7 @@ impl LiveLessonAppService {
                 order.product_code, order.gateway_txn_id
             ),
             created_at: chrono::Utc::now(),
+            bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
         };
 
         match self.storage.apply_credit_entry(&debit_entry).await {
@@ -3474,6 +3526,7 @@ impl LiveLessonAppService {
                 paid_at: None,
                 due_at: None,
                 updated_at: now,
+                pdf_url: None,
             })
             .await
             .map_err(|err| anyhow!(err))
@@ -3596,6 +3649,7 @@ impl LiveLessonAppService {
                 amount: subscription.credits_per_cycle,
                 reason: format!("subscription_renewal:{}", subscription.plan_code),
                 created_at: now,
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             };
 
             match self.storage.apply_credit_entry(&renewal_entry).await {
@@ -3969,6 +4023,7 @@ impl LiveLessonAppService {
             amount: policy.starter_grant_credits,
             reason: "starter_grant".to_string(),
             created_at: chrono::Utc::now(),
+            bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
         };
         self.storage
             .apply_credit_entry(&entry)
@@ -4024,6 +4079,7 @@ impl LiveLessonAppService {
                     lesson.id, usage.voice, usage.multiplier, precharged
                 ),
                 created_at: chrono::Utc::now(),
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             };
             self.storage
                 .apply_credit_entry(&entry)
@@ -4041,6 +4097,7 @@ impl LiveLessonAppService {
                     lesson.id, precharged, usage.total
                 ),
                 created_at: chrono::Utc::now(),
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             };
             self.storage
                 .apply_credit_entry(&entry)
@@ -4113,6 +4170,7 @@ impl LiveLessonAppService {
                     amount: precharged,
                     reason: format!("lesson:{} precharge_refund", lesson_id),
                     created_at: chrono::Utc::now(),
+                    bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
                 };
                 let _ = self.storage.apply_credit_entry(&entry).await;
             }
@@ -4954,6 +5012,7 @@ impl LessonAppService for LiveLessonAppService {
             amount: order.credits_to_grant,
             reason: format!("free_payment_order:{}", order.product_code),
             created_at: chrono::Utc::now(),
+            bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
         };
         self.storage
             .apply_credit_entry(&credit_entry)
@@ -5154,6 +5213,7 @@ impl LessonAppService for LiveLessonAppService {
             kind: CreditEntryKind::Debit,
             amount,
             reason: reason.to_string(),
+            bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             created_at: chrono::Utc::now(),
         };
         self.storage
@@ -5331,6 +5391,7 @@ impl LessonAppService for LiveLessonAppService {
                     amount: plan.credits,
                     reason: format!("subscription_initial:{}", subscription.plan_code),
                     created_at: now,
+                    bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
                 };
                 if let Err(err) = self.storage.apply_credit_entry(&initial_credit).await {
                     warn!(
@@ -5560,6 +5621,7 @@ impl LessonAppService for LiveLessonAppService {
             amount: abs_amount,
             reason: reason_str,
             created_at: now,
+            bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
         };
         let balance = self.storage.apply_credit_entry(&entry).await.map_err(|e| anyhow!(e))?;
         Ok(AdjustCreditsResponse {
@@ -6398,6 +6460,7 @@ impl LessonAppService for LiveLessonAppService {
                         estimated_generation_duration_secs()
                     ),
                     created_at: chrono::Utc::now(),
+                    bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
                 };
                 self.storage
                     .apply_credit_entry(&entry)
@@ -7232,6 +7295,7 @@ impl LessonAppService for LiveLessonAppService {
             amount: promo.grant_credits,
             reason: format!("Promo code redeemed: {}", code),
             created_at: chrono::Utc::now(),
+            bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
         };
 
         self
@@ -7249,6 +7313,143 @@ impl LessonAppService for LiveLessonAppService {
 
     async fn get_system_status(&self) -> Result<SystemStatusResponse> {
         self.system_status().await
+    }
+
+    // ── New billing infrastructure implementations ────────────────────────────
+
+    async fn apply_credit_entry_for_webhook(
+        &self,
+        entry: &ai_tutor_domain::credits::CreditLedgerEntry,
+    ) -> Result<()> {
+        use ai_tutor_storage::repositories::CreditLedgerRepository;
+        self.storage
+            .apply_credit_entry(entry)
+            .await
+            .map(|_| ())
+            .map_err(|e| anyhow!("apply credit entry: {}", e))
+    }
+
+    async fn get_webhook_event(
+        &self,
+        event_identifier: &str,
+    ) -> Result<Option<ai_tutor_domain::billing::WebhookEvent>> {
+        use ai_tutor_storage::repositories::WebhookEventRepository;
+        self.storage
+            .get_webhook_event(event_identifier)
+            .await
+            .map_err(|e| anyhow!("get webhook event: {}", e))
+    }
+
+    async fn record_webhook_event(
+        &self,
+        event_identifier: &str,
+        event_type: &str,
+        payload: serde_json::Value,
+    ) -> Result<()> {
+        use ai_tutor_storage::repositories::WebhookEventRepository;
+        use ai_tutor_domain::billing::WebhookEvent;
+        use chrono::Utc;
+        let now = Utc::now();
+        let event = WebhookEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            event_identifier: event_identifier.to_string(),
+            event_type: event_type.to_string(),
+            payload,
+            processed_at: now,
+            created_at: now,
+        };
+        self.storage
+            .create_webhook_event(&event)
+            .await
+            .map_err(|e| anyhow!("record webhook event: {}", e))
+    }
+
+    async fn get_invoice_pdf(
+        &self,
+        account_id: &str,
+        invoice_id: &str,
+    ) -> Result<(Vec<u8>, String)> {
+        use crate::invoice_renderer::{InvoiceRenderer, read_invoice_pdf_from_storage, upload_invoice_pdf_to_storage};
+        use ai_tutor_storage::repositories::{InvoiceRepository, InvoiceLineRepository, WalletRepository};
+
+        // Check if PDF already generated.
+        let invoice = self.storage
+            .get_invoice(invoice_id)
+            .await
+            .map_err(|e| anyhow!("get invoice: {}", e))?
+            .ok_or_else(|| anyhow!("invoice {} not found", invoice_id))?;
+
+        // Try to read existing PDF.
+        match read_invoice_pdf_from_storage(&self.storage, invoice_id, account_id).await {
+            Ok(bytes) => return Ok((bytes, invoice_id.to_string())),
+            Err(_) => {} // Not yet generated — generate now
+        }
+
+        // Generate on demand.
+        let lines = self.storage
+            .list_lines_for_invoice(invoice_id)
+            .await
+            .map_err(|e| anyhow!("get invoice lines: {}", e))?;
+
+        let account = self.storage
+            .get_tutor_account_by_id(account_id)
+            .await
+            .map_err(|e| anyhow!("get account: {}", e))?
+            .ok_or_else(|| anyhow!("account {} not found", account_id))?;
+
+        let renderer = InvoiceRenderer::new();
+        let invoice_clone = invoice.clone();
+        let lines_clone = lines.clone();
+        let account_clone = account.clone();
+
+        let pdf_bytes = tokio::task::spawn_blocking(move || {
+            renderer.render_invoice(&invoice_clone, &lines_clone, &account_clone, None, None)
+        })
+        .await
+        .map_err(|e| anyhow!("spawn PDF: {}", e))?
+        .map_err(|e| anyhow!("render PDF: {}", e))?;
+
+        // Upload and cache the URL.
+        let pdf_url = upload_invoice_pdf_to_storage(&self.storage, invoice_id, account_id, pdf_bytes.clone())
+            .await
+            .map_err(|e| anyhow!("upload PDF: {}", e))?;
+
+        let _ = self.storage.set_invoice_pdf_url(invoice_id, &pdf_url).await;
+
+        Ok((pdf_bytes, invoice_id.to_string()))
+    }
+
+    async fn get_invoice_by_id(
+        &self,
+        invoice_id: &str,
+    ) -> Result<Option<ai_tutor_domain::billing::Invoice>> {
+        use ai_tutor_storage::repositories::InvoiceRepository;
+        self.storage
+            .get_invoice(invoice_id)
+            .await
+            .map_err(|e| anyhow!("get invoice by id: {}", e))
+    }
+
+    async fn get_account_by_id(
+        &self,
+        account_id: &str,
+    ) -> Result<Option<TutorAccount>> {
+        self.storage
+            .get_tutor_account_by_id(account_id)
+            .await
+            .map_err(|e| anyhow!("get account: {}", e))
+    }
+
+    async fn get_revenue_snapshots(
+        &self,
+        since: chrono::DateTime<chrono::Utc>,
+        until: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<ai_tutor_domain::gateway::RevenueSnapshot>> {
+        use ai_tutor_storage::repositories::RevenueSnapshotRepository;
+        self.storage
+            .list_revenue_snapshots(since, until)
+            .await
+            .map_err(|e| anyhow!("get revenue snapshots: {}", e))
     }
 }
 
@@ -7704,41 +7905,47 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/operator/auth/request-otp", post(request_operator_otp))
         .route("/api/operator/auth/verify-otp", post(verify_operator_otp))
         .route("/api/operator/auth/logout", post(logout_operator_otp))
-        .route("/api/billing/catalog", get(get_billing_catalog))
-        .route("/api/billing/checkout", post(create_checkout))
-        .route("/api/billing/orders", get(list_payment_orders))
-        .route("/api/billing/dashboard", get(get_billing_dashboard))
-        .route("/api/billing/report", get(get_billing_report))
-        .route(
-            "/api/billing/easebuzz/callback",
-            post(easebuzz_callback).get(easebuzz_callback_get),
-        )
-        .route(
-            "/api/billing/stripe/callback",
-            get(stripe_callback_get),
-        )
-        .route(
-            "/api/billing/stripe/webhook",
-            post(stripe_webhook),
-        )
-        .route(
-            "/api/billing/free/callback",
-            get(get_free_callback_handler),
-        )
-        .route("/api/credits/me", get(get_credit_balance))
-        .route("/api/credits/ledger", get(get_credit_ledger))
-        .route("/api/credits/redeem", post(redeem_promo_code))
-        .route("/api/credits/debit", post(debit_lesson_credits))
-        .route("/api/operator/overview", get(get_operator_overview))
-        .route("/api/operator/system-metrics", get(get_system_metrics))
-        .route("/api/operator/stats/users", get(get_operator_user_stats))
-        .route("/api/operator/stats/subscriptions", get(get_operator_subscription_stats))
-        .route("/api/operator/stats/payments", get(get_operator_payment_stats))
-        .route("/api/operator/stats/promo-codes", get(get_operator_promo_code_stats))
-        .route("/api/operator/promo-codes", get(get_operator_promo_codes).post(create_operator_promo_code))
-        .route("/api/operator/users", get(get_operator_users))
-        .route("/api/operator/users/{account_id}/ledger", get(get_operator_user_ledger))
-        .route("/api/operator/users/{account_id}/credits", post(adjust_user_credits))
+         .route("/api/billing/catalog", get(get_billing_catalog))
+         .route("/api/billing/checkout", post(create_checkout))
+         .route("/api/billing/orders", get(list_payment_orders))
+         .route("/api/billing/dashboard", get(get_billing_dashboard))
+         .route("/api/billing/report", get(get_billing_report))
+         // ── Unified payment gateway webhook (replaces Easebuzz-specific route) ──
+         .route("/api/billing/webhook", post(unified_payment_webhook))
+         // ── Invoice PDF download ──
+         .route("/api/billing/invoices/{id}/pdf", get(download_invoice_pdf))
+         // ── Operator top-up payment links ──
+         .route("/api/billing/topup/{token}/validate", get(validate_topup_token))
+         .route("/api/billing/topup/{token}/checkout", post(topup_checkout))
+         // ── Async billing event ingestion (Lago Kafka → Redis Streams) ──
+         .route("/api/billing/events", post(ingest_billing_event))
+         // ── Stripe callback (kept for Stripe redirect flow) ──
+         .route(
+             "/api/billing/stripe/callback",
+             get(stripe_callback_get),
+         )
+         .route(
+             "/api/billing/free/callback",
+             get(get_free_callback_handler),
+         )
+         .route("/api/credits/me", get(get_credit_balance))
+         .route("/api/credits/ledger", get(get_credit_ledger))
+         .route("/api/credits/redeem", post(redeem_promo_code))
+         .route("/api/credits/debit", post(debit_lesson_credits))
+         .route("/api/operator/overview", get(get_operator_overview))
+         .route("/api/operator/system-metrics", get(get_system_metrics))
+         .route("/api/operator/stats/users", get(get_operator_user_stats))
+         .route("/api/operator/stats/subscriptions", get(get_operator_subscription_stats))
+         .route("/api/operator/stats/payments", get(get_operator_payment_stats))
+         .route("/api/operator/stats/promo-codes", get(get_operator_promo_code_stats))
+         .route("/api/operator/stats/revenue-timeseries", get(get_revenue_timeseries))
+         .route("/api/operator/stats/queue-depth", get(get_queue_depth))
+         .route("/api/operator/promo-codes", get(get_operator_promo_codes).post(create_operator_promo_code))
+         .route("/api/operator/users", get(get_operator_users))
+         .route("/api/operator/users/{account_id}/ledger", get(get_operator_user_ledger))
+         .route("/api/operator/users/{account_id}/credits", post(adjust_user_credits))
+         .route("/api/operator/users/{account_id}/topup-link", post(send_operator_topup_link))
+         .route("/api/operator/billing/invoices/{id}/pdf", get(operator_download_invoice_pdf))
         .route("/api/operator/settings", get(get_operator_settings))
         .route("/api/operator/jobs", get(get_operator_jobs))
         .route("/api/operator/audit-logs", get(get_operator_audit_logs))
@@ -8519,6 +8726,526 @@ async fn get_free_callback_handler(
         .await
         .map(Json)
         .map_err(ApiError::internal)
+}
+
+// ── New billing infrastructure handlers ──────────────────────────────────────
+
+/// Async billing event ingestion endpoint — the "Lago Kafka drop-and-200" pattern.
+/// Drops the debit event into the Redis Stream and returns immediately.
+/// The BillingProcessor task picks it up asynchronously.
+async fn ingest_billing_event(
+    State(state): State<AppState>,
+    Extension(account): Extension<AuthenticatedAccountContext>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use crate::billing_event_queue::RawBillingEvent;
+    use crate::billing_processor::enqueue_lesson_debit;
+    use chrono::Utc;
+
+    let lesson_id = body["lesson_id"].as_str().unwrap_or("unknown");
+    let credits = body["credits_amount"].as_f64().unwrap_or(0.0);
+    let quality = body["quality"].as_str().unwrap_or("standard");
+    let learning_mode = body["learning_mode"].as_str().unwrap_or("explain");
+
+    if credits <= 0.0 {
+        return Err(ApiError::bad_request("credits_amount must be > 0".to_string()));
+    }
+
+    // Access the BillingEventQueue from the service (stored in AppState via trait).
+    // For simplicity, we construct a new event queue connection here.
+    // In production, this would be stored in AppState.
+    let redis_url = std::env::var("AI_TUTOR_AIVEN_REDIS_URL")
+        .or_else(|_| std::env::var("AI_TUTOR_REDIS_URL"))
+        .or_else(|_| std::env::var("REDIS_URL"))
+        .unwrap_or_default();
+
+    if redis_url.is_empty() {
+        return Err(ApiError::internal("Redis not configured".to_string()));
+    }
+
+    let queue = match crate::billing_event_queue::BillingEventQueue::new(&redis_url) {
+        Ok(q) => q,
+        Err(e) => return Err(ApiError::internal(format!("queue connect: {}", e))),
+    };
+
+    enqueue_lesson_debit(
+        &queue,
+        &account.account_id,
+        lesson_id,
+        credits,
+        quality,
+        learning_mode,
+    )
+    .await
+    .map_err(|e| ApiError::internal(format!("enqueue debit: {}", e)))?;
+
+    Ok(Json(serde_json::json!({ "ok": true, "queued": true })))
+}
+
+/// Unified payment gateway webhook handler.
+/// Verifies the signature using the active gateway, then processes the event.
+async fn unified_payment_webhook(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use crate::payment_gateway::resolve_payment_gateway;
+    use ai_tutor_domain::gateway::GatewayWebhookEvent;
+
+    let gateway = resolve_payment_gateway();
+
+    let event = gateway
+        .parse_webhook(&headers, &body)
+        .await
+        .map_err(|e| {
+            tracing::warn!(error = %e, "webhook signature verification failed");
+            ApiError::bad_request(format!("invalid webhook: {}", e))
+        })?;
+
+    let Some(event) = event else {
+        return Ok(Json(serde_json::json!({ "ok": true, "action": "ignored" })));
+    };
+
+    match event {
+        GatewayWebhookEvent::PaymentSucceeded {
+            ref gateway_txn_id,
+            ref gateway_payment_id,
+            amount_minor,
+            ref currency,
+            ref metadata,
+        } => {
+            let order_id = metadata.get("order_id").cloned().unwrap_or_default();
+            let account_id = metadata.get("account_id").cloned().unwrap_or_default();
+            let product_code = metadata.get("product_code").cloned().unwrap_or_default();
+            let credits: f64 = metadata.get("credits_to_grant")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0);
+
+            // Check idempotency.
+            let event_id = event.idempotency_key(gateway.name());
+            if let Ok(Some(_)) = state.service.get_webhook_event(&event_id).await {
+                tracing::info!(event_id, "duplicate webhook, skipping");
+                return Ok(Json(serde_json::json!({ "ok": true, "action": "duplicate" })));
+            }
+
+            // Grant credits to the paid bucket.
+            if !account_id.is_empty() && credits > 0.0 {
+                use ai_tutor_domain::{credits::{CreditEntryKind, CreditLedgerEntry}, wallet::CreditBucket};
+                use chrono::Utc;
+                let entry = CreditLedgerEntry {
+                    id: format!("payment-order-{}", order_id),
+                    account_id: account_id.clone(),
+                    kind: CreditEntryKind::Grant,
+                    amount: credits,
+                    reason: format!("payment_success:{}", gateway.name()),
+                    bucket: CreditBucket::Paid,
+                    created_at: Utc::now(),
+                };
+                let _ = state.service.apply_credit_entry_for_webhook(&entry).await;
+            }
+
+            // Record the webhook event.
+            let _ = state.service.record_webhook_event(
+                &event_id,
+                &format!("{}.payment_succeeded", gateway.name()),
+                serde_json::to_value(&metadata).unwrap_or_default(),
+            ).await;
+
+            tracing::info!(
+                gateway = gateway.name(),
+                order_id = %order_id,
+                account_id = %account_id,
+                credits,
+                "payment webhook processed"
+            );
+
+            Ok(Json(serde_json::json!({ "ok": true, "action": "credit_granted" })))
+        }
+        GatewayWebhookEvent::PaymentFailed { gateway_txn_id, reason, .. } => {
+            tracing::warn!(gateway_txn_id, reason, "payment failed webhook received");
+            Ok(Json(serde_json::json!({ "ok": true, "action": "payment_failed_noted" })))
+        }
+        GatewayWebhookEvent::Refunded { gateway_txn_id, refund_amount_minor, .. } => {
+            tracing::info!(gateway_txn_id, refund_amount_minor, "refund webhook received");
+            Ok(Json(serde_json::json!({ "ok": true, "action": "refund_noted" })))
+        }
+        GatewayWebhookEvent::PaymentLinkPaid { ref gateway_link_id, ref gateway_payment_id, amount_minor, ref currency, ref metadata } => {
+            // Operator top-up payment link paid.
+            let link_id = metadata.get("link_id").cloned().unwrap_or_default();
+            let account_id = metadata.get("account_id").cloned().unwrap_or_default();
+            let credits: f64 = metadata.get("credits_to_grant")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0.0);
+
+            if !account_id.is_empty() && credits > 0.0 {
+                use ai_tutor_domain::{credits::{CreditEntryKind, CreditLedgerEntry}, wallet::CreditBucket};
+                use chrono::Utc;
+                let entry = CreditLedgerEntry {
+                    id: format!("topup-link-{}", link_id),
+                    account_id: account_id.clone(),
+                    kind: CreditEntryKind::Grant,
+                    amount: credits,
+                    reason: format!("operator_topup:{}", gateway_link_id),
+                    bucket: CreditBucket::Paid,
+                    created_at: Utc::now(),
+                };
+                let _ = state.service.apply_credit_entry_for_webhook(&entry).await;
+                tracing::info!(
+                    link_id, account_id, credits,
+                    "operator top-up payment link credited"
+                );
+            }
+            Ok(Json(serde_json::json!({ "ok": true, "action": "topup_credited" })))
+        }
+        GatewayWebhookEvent::Unhandled { event_type } => {
+            tracing::debug!(event_type, "unhandled webhook event type");
+            Ok(Json(serde_json::json!({ "ok": true, "action": "unhandled" })))
+        }
+    }
+}
+
+/// Download an invoice PDF for the authenticated user.
+async fn download_invoice_pdf(
+    State(state): State<AppState>,
+    Extension(account): Extension<AuthenticatedAccountContext>,
+    axum::extract::Path(invoice_id): axum::extract::Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    use axum::http::header;
+
+    let (pdf_bytes, invoice_id_display) = state
+        .service
+        .get_invoice_pdf(&account.account_id, &invoice_id)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/pdf".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"invoice-{}.pdf\"", &invoice_id_display[..12.min(invoice_id_display.len())])),
+        ],
+        pdf_bytes,
+    ).into_response())
+}
+
+/// Validate an operator-issued top-up token (public endpoint — token is the auth).
+async fn validate_topup_token(
+    axum::extract::Path(token): axum::extract::Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+    use serde::{Deserialize, Serialize};
+    use chrono::Utc;
+
+    #[derive(Debug, Deserialize, Serialize)]
+    struct TopupClaims {
+        order_id: String,
+        account_id: String,
+        credits: f64,
+        price_minor: i64,
+        reason: String,
+        exp: i64,
+    }
+
+    let secret = std::env::var("AI_TUTOR_API_SECRET").unwrap_or_default();
+    if secret.is_empty() {
+        return Err(ApiError::internal("server not configured for topup links".to_string()));
+    }
+
+    let token_data = decode::<TopupClaims>(
+        &token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    ).map_err(|e| ApiError::bad_request(format!("invalid or expired token: {}", e)))?;
+
+    let claims = token_data.claims;
+    if claims.exp < Utc::now().timestamp() {
+        return Err(ApiError::bad_request("token expired".to_string()));
+    }
+
+    Ok(Json(serde_json::json!({
+        "valid": true,
+        "order_id": claims.order_id,
+        "credits": claims.credits,
+        "price_minor": claims.price_minor,
+        "reason": claims.reason,
+    })))
+}
+
+/// Initiate checkout for a top-up link.
+async fn topup_checkout(
+    State(state): State<AppState>,
+    axum::extract::Path(token): axum::extract::Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
+    use serde::{Deserialize, Serialize};
+    use ai_tutor_domain::gateway::GatewayCheckoutRequest;
+    use crate::payment_gateway::resolve_payment_gateway;
+    use std::collections::HashMap;
+
+    #[derive(Debug, Deserialize, Serialize)]
+    struct TopupClaims {
+        order_id: String,
+        account_id: String,
+        credits: f64,
+        price_minor: i64,
+        reason: String,
+        exp: i64,
+    }
+
+    let secret = std::env::var("AI_TUTOR_API_SECRET").unwrap_or_default();
+    let token_data = decode::<TopupClaims>(
+        &token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::new(Algorithm::HS256),
+    ).map_err(|e| ApiError::bad_request(format!("invalid token: {}", e)))?;
+
+    let claims = token_data.claims;
+    let gateway = resolve_payment_gateway();
+    let base_url = std::env::var("AI_TUTOR_BASE_URL").unwrap_or_default();
+
+    let mut metadata = HashMap::new();
+    metadata.insert("order_id".to_string(), claims.order_id.clone());
+    metadata.insert("account_id".to_string(), claims.account_id.clone());
+    metadata.insert("credits_to_grant".to_string(), claims.credits.to_string());
+    metadata.insert("link_id".to_string(), claims.order_id.clone());
+
+    let checkout_req = GatewayCheckoutRequest {
+        order_id: claims.order_id.clone(),
+        account_id: claims.account_id.clone(),
+        email: body["email"].as_str().unwrap_or("").to_string(),
+        phone: None,
+        product_code: "operator_topup".to_string(),
+        product_title: format!("{} credits (top-up)", claims.credits as i64),
+        amount_minor: claims.price_minor,
+        currency: "INR".to_string(),
+        credits_to_grant: claims.credits,
+        success_url: format!("{}/billing/topup/success", base_url),
+        failure_url: format!("{}/billing/topup/failed", base_url),
+        metadata,
+    };
+
+    let response = gateway.create_checkout(&checkout_req).await
+        .map_err(|e| ApiError::internal(format!("checkout failed: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "checkout_url": response.checkout_url,
+        "gateway": gateway.name(),
+    })))
+}
+
+/// Operator: send a top-up payment link to a specific user via email.
+async fn send_operator_topup_link(
+    State(state): State<AppState>,
+    axum::extract::Path(account_id): axum::extract::Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use jsonwebtoken::{encode, EncodingKey, Header, Algorithm};
+    use serde::{Deserialize, Serialize};
+    use chrono::Utc;
+
+    #[derive(Debug, Serialize)]
+    struct TopupClaims {
+        order_id: String,
+        account_id: String,
+        credits: f64,
+        price_minor: i64,
+        reason: String,
+        exp: i64,
+    }
+
+    let credits = body["credits_amount"].as_f64()
+        .ok_or_else(|| ApiError::bad_request("credits_amount required".to_string()))?;
+    let price_inr: i64 = body["price_inr"].as_i64()
+        .ok_or_else(|| ApiError::bad_request("price_inr required".to_string()))?;
+    let reason = body["reason"].as_str().unwrap_or("operator top-up").to_string();
+
+    if credits <= 0.0 || price_inr <= 0 {
+        return Err(ApiError::bad_request("credits_amount and price_inr must be > 0".to_string()));
+    }
+
+    // Look up the account.
+    let account = state.service
+        .get_account_by_id(&account_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::not_found(format!("account {} not found", account_id)))?;
+
+    let order_id = format!("topup-{}", uuid::Uuid::new_v4().simple());
+    let expires_at = Utc::now().timestamp() + 600; // 10 minutes
+
+    let secret = std::env::var("AI_TUTOR_API_SECRET").unwrap_or_default();
+    if secret.is_empty() {
+        return Err(ApiError::internal("AI_TUTOR_API_SECRET not configured".to_string()));
+    }
+
+    let claims = TopupClaims {
+        order_id: order_id.clone(),
+        account_id: account_id.clone(),
+        credits,
+        price_minor: price_inr * 100,
+        reason: reason.clone(),
+        exp: expires_at,
+    };
+
+    let token = encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    ).map_err(|e| ApiError::internal(format!("token sign: {}", e)))?;
+
+    let frontend_url = std::env::var("AI_TUTOR_FRONTEND_URL")
+        .or_else(|_| std::env::var("NEXT_PUBLIC_AI_TUTOR_BASE_URL"))
+        .unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let topup_link = format!("{}/billing/topup/{}", frontend_url, token);
+
+    // Send email via the Next.js nodemailer route.
+    let internal_secret = std::env::var("AI_TUTOR_INTERNAL_SECRET")
+        .unwrap_or_else(|_| "uc-school-internal-fallback-secret-2026".to_string());
+
+    let email_html = format!(
+        r#"
+        <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px">
+          <h2>AI-Tutor Credit Top-Up</h2>
+          <p>Your administrator has sent you a credit top-up link.</p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0">
+            <tr><td style="color:#666;padding:8px 0">Credits</td><td style="font-weight:600;text-align:right">{credits:.0} credits</td></tr>
+            <tr><td style="color:#666;padding:8px 0">Amount</td><td style="font-weight:600;text-align:right">₹{price:.2}</td></tr>
+            <tr><td style="color:#666;padding:8px 0">Reason</td><td style="text-align:right">{reason}</td></tr>
+            <tr><td style="color:#dc2626;padding:8px 0">Expires</td><td style="color:#dc2626;text-align:right">10 minutes from now</td></tr>
+          </table>
+          <a href="{link}" style="background:#000;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">
+            Pay &amp; Add Credits
+          </a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">
+            This link expires in 10 minutes. If you did not expect this, ignore this email.
+          </p>
+        </div>
+        "#,
+        credits = credits,
+        price = price_inr as f64,
+        reason = reason,
+        link = topup_link,
+    );
+
+    let client = reqwest::Client::new();
+    let _email_resp = client
+        .post(format!("{}/api/internal/send-email", frontend_url))
+        .header("x-internal-secret", &internal_secret)
+        .json(&serde_json::json!({
+            "to_email": account.email,
+            "subject": format!("Action required: Add {:.0} credits to your AI-Tutor account", credits),
+            "html": email_html,
+        }))
+        .send()
+        .await
+        .map_err(|e| ApiError::internal(format!("email send: {}", e)))?;
+
+    tracing::info!(
+        account_id, credits, price_inr, reason,
+        "operator top-up link sent"
+    );
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "expires_at": expires_at,
+        "link": topup_link,
+        "email_sent_to": account.email,
+    })))
+}
+
+/// Revenue time-series data for the operator billing chart.
+async fn get_revenue_timeseries(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use chrono::{Utc, Duration as ChronoDuration};
+
+    let days: i64 = params.get("days").and_then(|s| s.parse().ok()).unwrap_or(30);
+    let since = Utc::now() - ChronoDuration::days(days);
+    let until = Utc::now();
+
+    let snapshots = state.service
+        .get_revenue_snapshots(since, until)
+        .await
+        .map_err(ApiError::internal)?;
+
+    // Build two series: combined and per-gateway.
+    let mut combined: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut by_gateway: std::collections::HashMap<String, std::collections::HashMap<String, i64>> = std::collections::HashMap::new();
+
+    for snap in &snapshots {
+        let hour_key = snap.hour.format("%Y-%m-%dT%H:00:00Z").to_string();
+        *combined.entry(hour_key.clone()).or_default() += snap.revenue_minor;
+        by_gateway.entry(snap.gateway.clone()).or_default()
+            .entry(hour_key).or_default()
+            .clone_from(&snap.revenue_minor);
+    }
+
+    let mut combined_series: Vec<serde_json::Value> = combined.into_iter()
+        .map(|(h, r)| serde_json::json!({ "hour": h, "revenue_minor": r }))
+        .collect();
+    combined_series.sort_by(|a, b| a["hour"].as_str().cmp(&b["hour"].as_str()));
+
+    Ok(Json(serde_json::json!({
+        "period_days": days,
+        "combined": combined_series,
+        "by_gateway": by_gateway,
+    })))
+}
+
+/// Queue depth metrics for the operator panel.
+async fn get_queue_depth(
+    State(_state): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    use crate::billing_event_queue::BillingEventQueue;
+
+    let redis_url = std::env::var("AI_TUTOR_AIVEN_REDIS_URL")
+        .or_else(|_| std::env::var("AI_TUTOR_REDIS_URL"))
+        .or_else(|_| std::env::var("REDIS_URL"))
+        .unwrap_or_default();
+
+    let queue = BillingEventQueue::new(&redis_url)
+        .map_err(|e| ApiError::internal(format!("queue: {}", e)))?;
+
+    let depths = queue.get_stream_depths().await
+        .map_err(|e| ApiError::internal(format!("get depths: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "raw_events": depths.raw,
+        "enriched_events": depths.enriched,
+        "rejected_events": depths.rejected,
+        "renewal_tasks": depths.renewal_tasks,
+    })))
+}
+
+/// Operator: download any user's invoice PDF.
+async fn operator_download_invoice_pdf(
+    State(state): State<AppState>,
+    axum::extract::Path(invoice_id): axum::extract::Path<String>,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    use axum::http::header;
+
+    // Look up the invoice to get the account_id.
+    let invoice = state.service
+        .get_invoice_by_id(&invoice_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::not_found(format!("invoice {} not found", invoice_id)))?;
+
+    let (pdf_bytes, _) = state.service
+        .get_invoice_pdf(&invoice.account_id, &invoice_id)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "application/pdf".to_string()),
+            (header::CONTENT_DISPOSITION, format!("attachment; filename=\"invoice-{}.pdf\"", &invoice_id[..12.min(invoice_id.len())])),
+        ],
+        pdf_bytes,
+    ).into_response())
 }
 
 async fn get_credit_balance(
@@ -12945,6 +13672,47 @@ mod tests {
                 },
             })
         }
+
+        async fn apply_credit_entry_for_webhook(
+            &self,
+            _entry: &ai_tutor_domain::credits::CreditLedgerEntry,
+        ) -> Result<()> { Ok(()) }
+
+        async fn get_webhook_event(
+            &self,
+            _event_identifier: &str,
+        ) -> Result<Option<ai_tutor_domain::billing::WebhookEvent>> { Ok(None) }
+
+        async fn record_webhook_event(
+            &self,
+            _event_identifier: &str,
+            _event_type: &str,
+            _payload: serde_json::Value,
+        ) -> Result<()> { Ok(()) }
+
+        async fn get_invoice_pdf(
+            &self,
+            _account_id: &str,
+            invoice_id: &str,
+        ) -> Result<(Vec<u8>, String)> {
+            Ok((b"%PDF-1.4 mock".to_vec(), invoice_id.to_string()))
+        }
+
+        async fn get_invoice_by_id(
+            &self,
+            _invoice_id: &str,
+        ) -> Result<Option<ai_tutor_domain::billing::Invoice>> { Ok(None) }
+
+        async fn get_account_by_id(
+            &self,
+            _account_id: &str,
+        ) -> Result<Option<TutorAccount>> { Ok(None) }
+
+        async fn get_revenue_snapshots(
+            &self,
+            _since: chrono::DateTime<chrono::Utc>,
+            _until: chrono::DateTime<chrono::Utc>,
+        ) -> Result<Vec<ai_tutor_domain::gateway::RevenueSnapshot>> { Ok(vec![]) }
     }
 
     #[async_trait]
@@ -13940,6 +14708,7 @@ mod tests {
                     succeeded_order.product_code, succeeded_order.gateway_txn_id
                 ),
                 created_at: now,
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             })
             .await
             .unwrap();
@@ -14012,6 +14781,7 @@ mod tests {
                     succeeded_order.product_code, succeeded_order.gateway_txn_id
                 ),
                 created_at: now,
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             })
             .await
             .unwrap();
@@ -14382,6 +15152,7 @@ mod tests {
                 paid_at: None,
                 due_at: Some(now - chrono::Duration::days(1)),
                 updated_at: now - chrono::Duration::days(2),
+                pdf_url: None,
             })
             .await
             .unwrap();
@@ -14514,6 +15285,7 @@ mod tests {
                 paid_at: None,
                 due_at: Some(now - chrono::Duration::days(1)),
                 updated_at: now - chrono::Duration::days(2),
+                pdf_url: None,
             })
             .await
             .unwrap();
@@ -17523,6 +18295,7 @@ mod tests {
                 paid_at: None,
                 due_at: Some(now - chrono::Duration::days(1)),
                 updated_at: now - chrono::Duration::days(2),
+                pdf_url: None,
             })
             .await
             .unwrap();
@@ -17643,6 +18416,7 @@ mod tests {
                 paid_at: None,
                 due_at: Some(now - chrono::Duration::days(1)),
                 updated_at: now - chrono::Duration::days(2),
+                pdf_url: None,
             })
             .await
             .unwrap();

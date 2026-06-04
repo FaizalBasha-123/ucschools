@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+pub use crate::wallet::CreditBucket;
+
 pub fn round_credits(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
@@ -20,6 +22,10 @@ pub struct CreditLedgerEntry {
     pub kind: CreditEntryKind,
     pub amount: f64,
     pub reason: String,
+    /// Which wallet bucket this entry touched (promo or paid).
+    /// Defaults to Paid for backward compatibility with existing entries.
+    #[serde(default)]
+    pub bucket: CreditBucket,
     pub created_at: DateTime<Utc>,
 }
 

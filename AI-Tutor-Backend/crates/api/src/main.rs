@@ -5,6 +5,11 @@ use reqwest::Url;
 use tracing::{error, info};
 
 use ai_tutor_api::app::{build_router, LiveLessonAppService};
+use ai_tutor_api::billing_event_queue::BillingEventQueue;
+use ai_tutor_api::billing_processor::BillingProcessor;
+use ai_tutor_api::billing_scheduler::BillingScheduler;
+use ai_tutor_api::payment_gateway::resolve_payment_gateway;
+use ai_tutor_api::redis_balance_cache::RedisBalanceCache;
 use ai_tutor_routing::{operator_emails, overrides};
 use ai_tutor_api::llm_proxy::{llm_proxy_router, LlmProxyState};
 use ai_tutor_api::queue::LessonQueue;
@@ -346,6 +351,57 @@ async fn main() -> Result<()> {
     ));
     
     let app = build_router(service.clone());
+
+    // ── Start billing infrastructure ──────────────────────────────────────────
+    // Lago-inspired: Redis Streams event queue + processor + renewal scheduler.
+    {
+        let billing_redis_client = redis::Client::open(redis_url.as_str())
+            .expect("billing Redis client");
+
+        let billing_queue = Arc::new(
+            BillingEventQueue::new(&redis_url)
+                .expect("billing event queue")
+        );
+
+        // Ensure all consumer groups exist (idempotent — safe to call on every startup).
+        if let Err(e) = billing_queue.ensure_consumer_groups().await {
+            tracing::warn!("billing consumer groups: {} (non-fatal on first start)", e);
+        }
+
+        let balance_cache = Arc::new(RedisBalanceCache::new(
+            billing_redis_client,
+            Arc::clone(&storage),
+        ));
+
+        // BillingProcessor — Lago events-processor equivalent.
+        let processor = BillingProcessor::new(
+            Arc::clone(&billing_queue),
+            Arc::clone(&balance_cache),
+            Arc::clone(&storage),
+        );
+        let _processor_handle = processor.start();
+        info!("BillingProcessor started (Redis Streams consumer loop)");
+
+        // BillingScheduler — AlarmClock + RenewalBatchWorker + N RenewalTaskWorkers.
+        let internal_secret = std::env::var("AI_TUTOR_INTERNAL_SECRET")
+            .unwrap_or_else(|_| "uc-school-internal-fallback-secret-2026".to_string());
+        let frontend_url = std::env::var("AI_TUTOR_FRONTEND_URL")
+            .or_else(|_| std::env::var("NEXT_PUBLIC_AI_TUTOR_BASE_URL"))
+            .unwrap_or_else(|_| "http://localhost:3000".to_string());
+
+        let scheduler = BillingScheduler::new(
+            Arc::clone(&billing_queue),
+            Arc::clone(&storage),
+            internal_secret,
+            frontend_url,
+        );
+        let _scheduler_handles = scheduler.start();
+        info!("BillingScheduler started (AlarmClock + RenewalWorkers)");
+
+        // Resolve active payment gateway from env vars.
+        let _gateway = resolve_payment_gateway();
+        info!("Payment gateway resolved and ready");
+    }
 
     let proxy_state = LlmProxyState {
         provider_factory: Arc::new(DefaultLlmProviderFactory::new((*provider_config).clone())),

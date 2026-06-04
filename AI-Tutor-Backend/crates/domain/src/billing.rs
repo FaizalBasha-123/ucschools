@@ -160,6 +160,8 @@ pub enum DunningStatus {
 pub enum InvoiceType {
     SubscriptionRenewal,
     AddOnCreditPurchase,
+    /// One-time top-up credit purchase initiated by an operator payment link.
+    OperatorTopup,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -201,6 +203,9 @@ pub struct Invoice {
     pub paid_at: Option<DateTime<Utc>>,
     pub due_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+    /// URL of the generated PDF in R2 / local storage.
+    /// Null until the PDF has been generated and uploaded.
+    pub pdf_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
