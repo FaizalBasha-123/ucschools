@@ -3,6 +3,31 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react';
 import { apiFetch, authHeaders, hasAuthSessionHint } from '@/lib/auth/session';
 
+/** Round credits to 1 decimal place and format consistent with the display context.
+ *
+ *  - < 1,000      →  `999.9`      (1 dp)
+ *  - ≥ 1,000      →  `1,234`      (integer w/ locale commas)
+ *  - ≥ 1,000,000  →  `1.2M`       (compact millions)
+ */
+export function formatCredits(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  if (rounded >= 1_000_000) {
+    return (rounded / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  if (rounded >= 1_000) {
+    return Math.round(rounded).toLocaleString('en-US');
+  }
+  return rounded.toFixed(1);
+}
+
+/** Full locale-formatted credit value for tooltips (e.g. `"1,000,000.0 credits"`). */
+export function formatCreditsFull(value: number): string {
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }) + ' credits';
+}
+
 interface CreditsContextType {
   credits: number | null;
   planName: string;
@@ -43,7 +68,7 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
         const entitlement = (data.data || data)?.entitlement;
         const balance = entitlement?.credit_balance ?? null;
         if (balance !== null) {
-          setCredits(balance);
+          setCredits(Math.round(balance * 10) / 10);
         }
         const plan = entitlement?.active_subscription?.plan_code?.split('_')[0] || 'Free';
         setPlanName(plan);

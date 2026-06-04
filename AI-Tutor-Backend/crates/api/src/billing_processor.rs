@@ -282,8 +282,8 @@ impl BillingProcessor {
             let entry = account_debits
                 .entry(event.account_id.clone())
                 .or_insert((0.0, 0.0));
-            entry.0 += event.promo_debited;
-            entry.1 += event.paid_debited;
+            entry.0 = ((entry.0 + event.promo_debited) * 10.0).round() / 10.0;
+            entry.1 = ((entry.1 + event.paid_debited) * 10.0).round() / 10.0;
         }
 
         // Flush each account's debits to the DB.

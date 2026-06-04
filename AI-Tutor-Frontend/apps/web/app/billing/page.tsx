@@ -12,6 +12,7 @@ import { verifyAuthSession, hasAuthSessionHint, clearAuthSession, authHeaders } 
 import { Header } from '@/components/header';
 import { UserMenu } from '@/components/layout/user-menu';
 import { CreditsDisplay } from '@/components/layout/credits-display';
+import { formatCredits, formatCreditsFull } from '@/lib/contexts/credits-context';
 import { SettingsDialog } from '@/components/settings';
 
 export default function BillingPage() {
@@ -152,7 +153,7 @@ export default function BillingPage() {
                 {dataLoading ? (
                   <Loader2 className="size-5 animate-spin mx-auto text-teal-500" />
                 ) : (
-                  <p className="text-4xl font-extrabold text-foreground">{entitlement?.credit_balance ?? 0}</p>
+                  <p className="text-4xl font-extrabold text-foreground" title={formatCreditsFull(entitlement?.credit_balance ?? 0)}>{formatCredits(entitlement?.credit_balance ?? 0)}</p>
                 )}
               </div>
             </div>

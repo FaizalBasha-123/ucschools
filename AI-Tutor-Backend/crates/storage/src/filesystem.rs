@@ -2534,7 +2534,7 @@ impl TutorAccountRepository for FileStorage {
                 get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
 
             let mut transaction = client.transaction().map_err(|err| err.to_string())?;
-            let rounded_amount = (entry.amount * 100.0).round() / 100.0;
+            let rounded_amount = (entry.amount * 10.0).round() / 10.0;
             let bucket_str = entry.bucket.as_str();
 
             // INSERT into credit_ledger with bucket column (migration v22 added bucket).
@@ -2543,7 +2543,7 @@ impl TutorAccountRepository for FileStorage {
                 .execute(
                     "
                     INSERT INTO credit_ledger (id, account_id, kind, amount, reason, bucket, created_at)
-                    VALUES ($1, $2, $3, ROUND($4::numeric, 2), $5, $6, $7)
+                    VALUES ($1, $2, $3, ROUND($4::numeric, 1), $5, $6, $7)
                     ON CONFLICT (id) DO NOTHING
                     ",
                     &[
@@ -2568,9 +2568,9 @@ impl TutorAccountRepository for FileStorage {
                 .execute(
                     "
                     INSERT INTO credit_balances (account_id, balance, updated_at)
-                    VALUES ($1, ROUND($2::numeric, 2), $3)
+                    VALUES ($1, ROUND($2::numeric, 1), $3)
                     ON CONFLICT (account_id) DO UPDATE SET
-                        balance = ROUND((credit_balances.balance + EXCLUDED.balance)::numeric, 2),
+                        balance = ROUND((credit_balances.balance + EXCLUDED.balance)::numeric, 1),
                         updated_at = EXCLUDED.updated_at
                     ",
                     &[&entry.account_id, &delta, &entry.created_at],
@@ -2586,9 +2586,9 @@ impl TutorAccountRepository for FileStorage {
             let wallet_sql = format!(
                 "
                 INSERT INTO wallet_balances (account_id, {col}, updated_at)
-                VALUES ($1, ROUND($2::numeric, 2), $3)
+                VALUES ($1, ROUND($2::numeric, 1), $3)
                 ON CONFLICT (account_id) DO UPDATE SET
-                    {col} = ROUND((wallet_balances.{col} + EXCLUDED.{col})::numeric, 2),
+                    {col} = ROUND((wallet_balances.{col} + EXCLUDED.{col})::numeric, 1),
                     updated_at = EXCLUDED.updated_at
                 ",
                 col = wallet_col
@@ -4747,7 +4747,7 @@ impl WalletRepository for FileStorage {
             if promo_amount > 0.001 {
                 tx.execute(
                     "INSERT INTO credit_ledger (id, account_id, kind, amount, reason, bucket, created_at)
-                     VALUES ($1, $2, 'debit', ROUND($3::numeric, 2), $4, 'promo', $5)
+                     VALUES ($1, $2, 'debit', ROUND($3::numeric, 1), $4, 'promo', $5)
                      ON CONFLICT (id) DO NOTHING",
                     &[&format!("{}:promo", ledger_id), &account_id,
                       &promo_amount, &reason_str, &now],
@@ -4758,7 +4758,7 @@ impl WalletRepository for FileStorage {
             if paid_amount > 0.001 {
                 tx.execute(
                     "INSERT INTO credit_ledger (id, account_id, kind, amount, reason, bucket, created_at)
-                     VALUES ($1, $2, 'debit', ROUND($3::numeric, 2), $4, 'paid', $5)
+                     VALUES ($1, $2, 'debit', ROUND($3::numeric, 1), $4, 'paid', $5)
                      ON CONFLICT (id) DO NOTHING",
                     &[&format!("{}:paid", ledger_id), &account_id,
                       &paid_amount, &reason_str, &now],
@@ -4768,8 +4768,8 @@ impl WalletRepository for FileStorage {
             // Update wallet_balances (atomic deduction from both buckets).
             tx.execute(
                 "UPDATE wallet_balances
-                 SET promo_balance = ROUND((promo_balance - $2)::numeric, 2),
-                     paid_balance  = ROUND((paid_balance  - $3)::numeric, 2),
+                 SET promo_balance = ROUND((promo_balance - $2)::numeric, 1),
+                     paid_balance  = ROUND((paid_balance  - $3)::numeric, 1),
                      updated_at    = $4
                  WHERE account_id = $1",
                 &[&account_id, &promo_amount, &paid_amount, &now],
@@ -4779,7 +4779,7 @@ impl WalletRepository for FileStorage {
             let total_debit = promo_amount + paid_amount;
             tx.execute(
                 "UPDATE credit_balances
-                 SET balance = ROUND((balance - $2)::numeric, 2), updated_at = $3
+                 SET balance = ROUND((balance - $2)::numeric, 1), updated_at = $3
                  WHERE account_id = $1",
                 &[&account_id, &total_debit, &now],
             ).map_err(|e| e.to_string())?;

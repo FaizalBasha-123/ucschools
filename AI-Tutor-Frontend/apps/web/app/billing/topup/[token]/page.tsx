@@ -109,7 +109,7 @@ export default function TopupPage() {
                 <span className="text-neutral-500">Credits to Add</span>
                 <span className="font-bold text-emerald-600 text-lg">
                   <Zap className="size-4 inline mr-1" />
-                  {info.credits?.toFixed(0)} credits
+                  {info.credits?.toFixed(1)} credits
                 </span>
               </div>
               <div className="flex justify-between items-center py-3 border-b border-neutral-100 dark:border-neutral-800">

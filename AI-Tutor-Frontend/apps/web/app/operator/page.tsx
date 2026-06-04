@@ -404,7 +404,7 @@ export default function OperatorPage() {
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Credits</span>
-                            <span className="text-lg font-black text-[#10B981]">{school.credit_pool?.toFixed(0)}</span>
+                            <span className="text-lg font-black text-[#10B981]">{school.credit_pool?.toFixed(1)}</span>
                           </div>
                           <div className="flex flex-col">
                             <span className="text-[10px] font-black text-neutral-400 uppercase tracking-widest mb-1">Plan</span>

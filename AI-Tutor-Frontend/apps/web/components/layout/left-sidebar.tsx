@@ -28,7 +28,7 @@ import {
   X,
 } from 'lucide-react';
 import { clearAuthSession } from '@/lib/auth/session';
-import { useCredits } from '@/lib/contexts/credits-context';
+import { useCredits, formatCredits, formatCreditsFull } from '@/lib/contexts/credits-context';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface LeftSidebarProps {
@@ -216,8 +216,8 @@ export function LeftSidebar({ onSignOut, variant = 'user' }: LeftSidebarProps) {
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
                   <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-bold text-sidebar-foreground group-hover:text-sidebar-primary transition-colors">
-                      {displayCredits.toFixed(0)}
+                    <span className="text-2xl font-bold text-sidebar-foreground group-hover:text-sidebar-primary transition-colors truncate max-w-[140px]" title={formatCreditsFull(displayCredits)}>
+                      {formatCredits(displayCredits)}
                     </span>
                     <span className="text-[10px] font-bold uppercase tracking-widest text-sidebar-foreground/30">
                       Credits

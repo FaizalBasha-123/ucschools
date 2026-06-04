@@ -4049,8 +4049,8 @@ impl LiveLessonAppService {
             return Ok(());
         }
 
-        let precharged = (request.precharged_credits.unwrap_or(0.0).max(0.0) * 100.0).round() / 100.0;
-        let delta = ((usage.total - precharged) * 100.0).round() / 100.0;
+        let precharged = (request.precharged_credits.unwrap_or(0.0).max(0.0) * 10.0).round() / 10.0;
+        let delta = ((usage.total - precharged) * 10.0).round() / 10.0;
         if delta.abs() < 0.01 {
             return Ok(());
         }
@@ -4086,7 +4086,7 @@ impl LiveLessonAppService {
                 .await
                 .map_err(|err| anyhow!(err))?;
         } else {
-            let refund = (-delta * 100.0).round() / 100.0;
+            let refund = (-delta * 10.0).round() / 10.0;
             let entry = CreditLedgerEntry {
                 id: format!("refund-{}-{}", account_id, lesson.id),
                 account_id: account_id.to_string(),
@@ -5285,7 +5285,7 @@ impl LessonAppService for LiveLessonAppService {
             }
         });
 
-        let credit_balance = (balance.balance * 100.0).round() / 100.0;
+        let credit_balance = (balance.balance * 10.0).round() / 10.0;
         let mut context = BillingContext::new(credit_balance, active_subscription);
 
         let has_blocking_unpaid_invoice = unpaid_invoices.iter().any(|invoice| {
@@ -6448,7 +6448,7 @@ impl LessonAppService for LiveLessonAppService {
                         balance.balance
                     );
                 }
-                let est_rounded = (estimated_credits * 100.0).round() / 100.0;
+                let est_rounded = (estimated_credits * 10.0).round() / 10.0;
                 let entry = CreditLedgerEntry {
                     id: format!("precharge-{}-{}", account_id, lesson_id),
                     account_id: account_id.to_string(),
@@ -11937,7 +11937,7 @@ fn min_generation_credits() -> f64 {
     read_optional_env("AI_TUTOR_MIN_GENERATION_CREDITS")
         .and_then(|v| v.parse::<f64>().ok())
         .filter(|v| *v >= 0.0)
-        .map(|v| (v * 100.0).round() / 100.0)
+        .map(|v| (v * 10.0).round() / 10.0)
         .unwrap_or(2.0)
 }
 
@@ -12229,7 +12229,7 @@ fn calculate_credit_usage(
     
     // Fixed lesson credit cost + voice credit cost
     let lesson_portion = lesson_credits_fixed(quality, learning);
-    let voice_portion = ((duration_secs / 60.0) * quality.credits_per_minute() * 100.0).round() / 100.0;
+    let voice_portion = ((duration_secs / 60.0) * quality.credits_per_minute() * 10.0).round() / 10.0;
 
     CreditUsage {
         total: lesson_portion + voice_portion,

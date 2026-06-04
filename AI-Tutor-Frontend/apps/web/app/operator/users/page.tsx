@@ -131,7 +131,7 @@ function HistoryModal({ accountId, email, onClose }: { accountId: string; email:
                       <td className={cn("py-3.5 pr-4 text-right font-black text-sm whitespace-nowrap", isCredit ? "text-emerald-600" : "text-rose-600")}>
                         <span className="inline-flex items-center gap-1">
                           {isCredit ? <ArrowUpRight className="size-3" /> : <ArrowDownRight className="size-3" />}
-                          {isCredit ? '+' : '-'}{entry.amount.toFixed(2)}
+                          {isCredit ? '+' : '-'}{entry.amount.toFixed(1)}
                         </span>
                       </td>
                       <td className="py-3.5 text-neutral-500 text-xs max-w-[200px] truncate" title={entry.reason}>

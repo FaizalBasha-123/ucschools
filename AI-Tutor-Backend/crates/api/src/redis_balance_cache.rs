@@ -88,6 +88,8 @@ impl RedisBalanceCache {
                 promo_str.parse::<f64>(),
                 paid_str.parse::<f64>(),
             ) {
+                let promo = (promo * 10.0).round() / 10.0;
+                let paid = (paid * 10.0).round() / 10.0;
                 debug!(account_id, promo, paid, "balance cache hit");
                 return Ok(WalletBalance {
                     account_id: account_id.to_string(),
@@ -103,12 +105,17 @@ impl RedisBalanceCache {
         let balance = self.storage.get_wallet_balance(account_id).await
             .map_err(|e| anyhow!("get wallet balance: {}", e))?;
 
+        // Round to 1dp before caching.
+        let mut rounded = balance.clone();
+        rounded.promo_balance = (rounded.promo_balance * 10.0).round() / 10.0;
+        rounded.paid_balance = (rounded.paid_balance * 10.0).round() / 10.0;
+
         // Warm the cache.
-        if let Err(e) = self.warm_cache(account_id, &balance).await {
+        if let Err(e) = self.warm_cache(account_id, &rounded).await {
             warn!(account_id, error = %e, "failed to warm balance cache (non-fatal)");
         }
 
-        Ok(balance)
+        Ok(rounded)
     }
 
     /// Update the Redis cache after a debit (without going to DB).
@@ -124,26 +131,48 @@ impl RedisBalanceCache {
 
         // Use HINCRBYFLOAT to atomically decrement both fields.
         // These are negative increments (deduction).
+        // Apply the debit and re-round the stored value to prevent drift.
         let _: f64 = redis::cmd("HINCRBYFLOAT")
             .arg(&key).arg("promo").arg(-promo_debited)
             .query_async(&mut conn)
             .await
             .map_err(|e| anyhow!("HINCRBYFLOAT promo: {}", e))?;
+        let result: f64 = redis::cmd("HGET")
+            .arg(&key).arg("promo")
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| anyhow!("HGET promo after debit: {}", e))?;
+        let _: f64 = redis::cmd("HSET")
+            .arg(&key).arg("promo")
+            .arg(&format!("{:.1}", result))
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| anyhow!("HSET promo after debit: {}", e))?;
 
         let _: f64 = redis::cmd("HINCRBYFLOAT")
             .arg(&key).arg("paid").arg(-paid_debited)
             .query_async(&mut conn)
             .await
             .map_err(|e| anyhow!("HINCRBYFLOAT paid: {}", e))?;
+        let result: f64 = redis::cmd("HGET")
+            .arg(&key).arg("paid")
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| anyhow!("HGET paid after debit: {}", e))?;
+        let _: f64 = redis::cmd("HSET")
+            .arg(&key).arg("paid")
+            .arg(&format!("{:.1}", result))
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| anyhow!("HSET paid after debit: {}", e))?;
 
-        // Reset TTL after modification.
+        // Reset TTL.
         let _: bool = conn.expire(&key, CACHE_TTL_SECS as i64).await
             .map_err(|e| anyhow!("EXPIRE balance cache: {}", e))?;
 
         Ok(())
     }
 
-    /// Apply a grant to the cache (after a successful payment webhook or promo redemption).
     pub async fn apply_grant_to_cache(
         &self,
         account_id: &str,
@@ -154,19 +183,33 @@ impl RedisBalanceCache {
         let mut conn = self.conn().await?;
 
         if promo_amount > 0.0 {
-            let _: f64 = redis::cmd("HINCRBYFLOAT")
-                .arg(&key).arg("promo").arg(promo_amount)
+            let promo_rounded = (promo_amount * 10.0).round() / 10.0;
+            let result: f64 = redis::cmd("HINCRBYFLOAT")
+                .arg(&key).arg("promo").arg(promo_rounded)
                 .query_async(&mut conn)
                 .await
                 .map_err(|e| anyhow!("HINCRBYFLOAT promo grant: {}", e))?;
+            let _: f64 = redis::cmd("HSET")
+                .arg(&key).arg("promo")
+                .arg(&format!("{:.1}", result))
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| anyhow!("HSET promo after grant: {}", e))?;
         }
 
         if paid_amount > 0.0 {
-            let _: f64 = redis::cmd("HINCRBYFLOAT")
-                .arg(&key).arg("paid").arg(paid_amount)
+            let paid_rounded = (paid_amount * 10.0).round() / 10.0;
+            let result: f64 = redis::cmd("HINCRBYFLOAT")
+                .arg(&key).arg("paid").arg(paid_rounded)
                 .query_async(&mut conn)
                 .await
                 .map_err(|e| anyhow!("HINCRBYFLOAT paid grant: {}", e))?;
+            let _: f64 = redis::cmd("HSET")
+                .arg(&key).arg("paid")
+                .arg(&format!("{:.1}", result))
+                .query_async(&mut conn)
+                .await
+                .map_err(|e| anyhow!("HSET paid after grant: {}", e))?;
         }
 
         let _: bool = conn.expire(&key, CACHE_TTL_SECS as i64).await
@@ -201,15 +244,19 @@ impl RedisBalanceCache {
     }
 
     /// Warm the cache with a freshly-fetched WalletBalance.
+    /// Rounds both balances to 1 decimal place before storing.
     async fn warm_cache(&self, account_id: &str, balance: &WalletBalance) -> Result<()> {
         let key = Self::cache_key(account_id);
         let mut conn = self.conn().await?;
         let now = Utc::now().timestamp().to_string();
 
+        let promo = format!("{:.1}", (balance.promo_balance * 10.0).round() / 10.0);
+        let paid = format!("{:.1}", (balance.paid_balance * 10.0).round() / 10.0);
+
         redis::cmd("HSET")
             .arg(&key)
-            .arg("promo").arg(balance.promo_balance.to_string())
-            .arg("paid").arg(balance.paid_balance.to_string())
+            .arg("promo").arg(&promo)
+            .arg("paid").arg(&paid)
             .arg("at").arg(&now)
             .query_async::<i64>(&mut conn)
             .await

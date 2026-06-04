@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Zap, Loader2 } from 'lucide-react';
-import { useCredits } from '@/lib/contexts/credits-context';
+import { useCredits, formatCredits, formatCreditsFull } from '@/lib/contexts/credits-context';
 import { cn } from '@/lib/utils';
 
 export function CreditsDisplay() {
@@ -27,9 +27,11 @@ export function CreditsDisplay() {
           </div>
         )}
       </div>
-      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-        {credits} Credits
-      </span>
+        {credits !== null && (
+          <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 truncate max-w-[120px]" title={formatCreditsFull(credits)}>
+            {formatCredits(credits)} Credits
+          </span>
+        )}
     </div>
   );
 }
