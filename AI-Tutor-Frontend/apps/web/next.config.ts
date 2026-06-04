@@ -36,6 +36,7 @@ const nextConfig: NextConfig = {
         net: false,
         tls: false,
         child_process: false,
+        canvas: false,
       };
     }
     return config;
