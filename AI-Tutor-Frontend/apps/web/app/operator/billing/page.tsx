@@ -526,66 +526,66 @@ export default function BillingPage() {
                 </div>
               )}
 
-            </div>
-
-            {/* ── Revenue vs Cost Time-Series ── */}
-            <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Revenue Inflow vs API Cost Burn</h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setRevenueChartMode('combined')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${revenueChartMode === 'combined' ? 'bg-emerald-100 text-emerald-700' : 'text-neutral-400 hover:text-neutral-600'}`}
-                  >
-                    Combined
-                  </button>
-                  <button
-                    onClick={() => setRevenueChartMode('by_gateway')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${revenueChartMode === 'by_gateway' ? 'bg-blue-100 text-blue-700' : 'text-neutral-400 hover:text-neutral-600'}`}
-                  >
-                    By Gateway
-                  </button>
-                </div>
-              </div>
-              {revenueData ? (
-                <div ref={revenueChartRef} className="w-full" style={{ height: 280 }} />
-              ) : (
-                <div className="flex items-center justify-center h-32 text-neutral-400 text-sm">
-                  No revenue data for this period
-                </div>
-              )}
-            </div>
-
-            {/* ── Queue Depth Gauges ── */}
-            <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-sm">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Billing Event Queue Depth</h3>
-                <button
-                  onClick={fetchQueueDepth}
-                  disabled={queueLoading}
-                  className="flex items-center gap-2 text-xs font-bold text-neutral-400 hover:text-neutral-600 transition-colors"
-                >
-                  {queueLoading ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
-                  Refresh
-                </button>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                {[
-                  { label: 'Raw Events', key: 'raw_events', color: 'text-blue-500', desc: 'Awaiting processor' },
-                  { label: 'Enriched', key: 'enriched_events', color: 'text-emerald-500', desc: 'Awaiting DB flush' },
-                  { label: 'Rejected', key: 'rejected_events', color: 'text-red-500', desc: 'Insufficient balance' },
-                  { label: 'Renewal Tasks', key: 'renewal_tasks', color: 'text-amber-500', desc: 'Pending renewals' },
-                ].map(({ label, key, color, desc }) => (
-                  <div key={key}>
-                    <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-1">{label}</p>
-                    <p className={`text-3xl font-black ${color}`}>
-                      {queueDepth ? (queueDepth[key] ?? 0).toLocaleString() : '—'}
-                    </p>
-                    <p className="text-[10px] text-neutral-400 mt-1">{desc}</p>
+              {/* ── Revenue vs Cost Time-Series ── */}
+              <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Revenue Inflow vs API Cost Burn</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setRevenueChartMode('combined')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${revenueChartMode === 'combined' ? 'bg-emerald-100 text-emerald-700' : 'text-neutral-400 hover:text-neutral-600'}`}
+                    >
+                      Combined
+                    </button>
+                    <button
+                      onClick={() => setRevenueChartMode('by_gateway')}
+                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${revenueChartMode === 'by_gateway' ? 'bg-blue-100 text-blue-700' : 'text-neutral-400 hover:text-neutral-600'}`}
+                    >
+                      By Gateway
+                    </button>
                   </div>
-                ))}
+                </div>
+                {revenueData ? (
+                  <div ref={revenueChartRef} className="w-full" style={{ height: 280 }} />
+                ) : (
+                  <div className="flex items-center justify-center h-32 text-neutral-400 text-sm">
+                    No revenue data for this period
+                  </div>
+                )}
               </div>
-              <p className="text-[10px] text-neutral-300 mt-4 uppercase tracking-wider">Refreshes every 30 seconds · Redis Streams (billing:events:*)</p>
+
+              {/* ── Queue Depth Gauges ── */}
+              <div className="rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-950 p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-black uppercase tracking-tight text-[#0F172A] dark:text-white">Billing Event Queue Depth</h3>
+                  <button
+                    onClick={fetchQueueDepth}
+                    disabled={queueLoading}
+                    className="flex items-center gap-2 text-xs font-bold text-neutral-400 hover:text-neutral-600 transition-colors"
+                  >
+                    {queueLoading ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+                    Refresh
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  {[
+                    { label: 'Raw Events', key: 'raw_events', color: 'text-blue-500', desc: 'Awaiting processor' },
+                    { label: 'Enriched', key: 'enriched_events', color: 'text-emerald-500', desc: 'Awaiting DB flush' },
+                    { label: 'Rejected', key: 'rejected_events', color: 'text-red-500', desc: 'Insufficient balance' },
+                    { label: 'Renewal Tasks', key: 'renewal_tasks', color: 'text-amber-500', desc: 'Pending renewals' },
+                  ].map(({ label, key, color, desc }) => (
+                    <div key={key}>
+                      <p className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest mb-1">{label}</p>
+                      <p className={`text-3xl font-black ${color}`}>
+                        {queueDepth ? (queueDepth[key] ?? 0).toLocaleString() : '—'}
+                      </p>
+                      <p className="text-[10px] text-neutral-400 mt-1">{desc}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-neutral-300 mt-4 uppercase tracking-wider">Refreshes every 30 seconds · Redis Streams (billing:events:*)</p>
+              </div>
+
             </div>
 
           )}
