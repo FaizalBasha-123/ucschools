@@ -4,9 +4,9 @@ import { backendUrl } from '@/lib/server/backend-url';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  const invoiceId = params.id;
+  const { id: invoiceId } = await params;
 
   try {
     const res = await fetch(

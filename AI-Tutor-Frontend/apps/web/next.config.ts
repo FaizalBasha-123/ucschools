@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
       ? undefined
       : 'standalone',
   transpilePackages: ['mathml2omml', 'pptxgenjs'],
-  serverExternalPackages: ['nodemailer', 'pdfjs-dist', 'tesseract.js'],
+  serverExternalPackages: ['nodemailer', 'pdfjs-dist', 'tesseract.js', 'canvas'],
   experimental: {
     proxyClientMaxBodySize: '200mb'
   },
