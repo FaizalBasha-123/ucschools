@@ -164,7 +164,11 @@ impl RenewalBatchWorker {
                 {
                     Ok(t) => t,
                     Err(e) => {
-                        error!(error = %e, "RenewalBatchWorker: consume ticks failed, sleeping 5s");
+                        let err_msg = e.to_string();
+                        if self.queue.recover_from_nogroup(&err_msg).await {
+                            continue;
+                        }
+                        warn!(error = %err_msg, "consume ticks failed, sleeping 5s");
                         sleep(Duration::from_secs(5)).await;
                         continue;
                     }
@@ -297,7 +301,11 @@ impl RenewalTaskWorker {
                 let tasks = match self.queue.consume_renewal_task(&consumer_name).await {
                     Ok(t) => t,
                     Err(e) => {
-                        error!(worker_id, error = %e, "consume renewal task failed, sleeping 5s");
+                        let err_msg = e.to_string();
+                        if self.queue.recover_from_nogroup(&err_msg).await {
+                            continue;
+                        }
+                        warn!(worker_id, error = %err_msg, "consume renewal task failed, sleeping 5s");
                         sleep(Duration::from_secs(5)).await;
                         continue;
                     }

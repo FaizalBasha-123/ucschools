@@ -158,9 +158,6 @@ impl BillingEventQueue {
         ];
 
         for (stream, group) in &groups {
-            // XGROUP CREATE stream group $ MKSTREAM
-            // '$' means start from the latest message (don't replay history).
-            // MKSTREAM creates the stream if it doesn't exist.
             let result: RedisResult<()> = redis::cmd("XGROUP")
                 .arg("CREATE")
                 .arg(stream)
@@ -176,11 +173,41 @@ impl BillingEventQueue {
                     debug!(stream, group, "consumer group already exists");
                 }
                 Err(e) => {
-                    warn!(stream, group, error = %e, "failed to create consumer group (non-fatal)");
+                    warn!(stream, group, error = %e, "failed to create consumer group");
+                    return Err(anyhow!("XGROUP CREATE {} {}: {}", stream, group, e));
                 }
             }
         }
         Ok(())
+    }
+
+    /// Try to ensure consumer groups exist, returning Ok even if Redis is down.
+    /// Used during startup so the server can start without Redis.
+    pub async fn ensure_consumer_groups_best_effort(&self) {
+        match self.ensure_consumer_groups().await {
+            Ok(_) => info!("billing consumer groups ready"),
+            Err(e) => warn!("billing consumer groups not available (non-fatal): {}", e),
+        }
+    }
+
+    /// Check if an error string contains NOGROUP and attempt to recreate groups.
+    /// Returns true if the error was NOGROUP (caller should retry the consume).
+    pub async fn recover_from_nogroup(&self, error_msg: &str) -> bool {
+        if error_msg.contains("NOGROUP") {
+            warn!("NOGROUP detected — attempting to recreate consumer groups");
+            match self.ensure_consumer_groups().await {
+                Ok(_) => {
+                    info!("consumer groups recreated successfully");
+                    true
+                }
+                Err(e) => {
+                    warn!("failed to recreate consumer groups: {}", e);
+                    false
+                }
+            }
+        } else {
+            false
+        }
     }
 
     // ── PRODUCER: Raw billing event ingestion ─────────────────────────────────

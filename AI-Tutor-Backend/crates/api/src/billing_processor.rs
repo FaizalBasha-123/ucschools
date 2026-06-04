@@ -90,7 +90,11 @@ impl BillingProcessor {
                 let batch = match self.queue.consume_raw_events(&self.worker_id, BATCH_SIZE).await {
                     Ok(b) => b,
                     Err(e) => {
-                        error!(error = %e, "consume raw events failed, sleeping 1s");
+                        let err_msg = e.to_string();
+                        if self.queue.recover_from_nogroup(&err_msg).await {
+                            continue;
+                        }
+                        warn!(error = %err_msg, "consume raw events failed, sleeping 1s");
                         sleep(Duration::from_secs(1)).await;
                         continue;
                     }

@@ -363,10 +363,8 @@ async fn main() -> Result<()> {
                 .expect("billing event queue")
         );
 
-        // Ensure all consumer groups exist (idempotent — safe to call on every startup).
-        if let Err(e) = billing_queue.ensure_consumer_groups().await {
-            tracing::warn!("billing consumer groups: {} (non-fatal on first start)", e);
-        }
+        // Ensure all consumer groups exist (best-effort — non-fatal).
+        billing_queue.ensure_consumer_groups_best_effort().await;
 
         let balance_cache = Arc::new(RedisBalanceCache::new(
             billing_redis_client,

@@ -979,8 +979,7 @@ impl FileStorage {
     fn postgres_row_to_credit_entry(row: postgres::Row) -> Result<CreditLedgerEntry, String> {
         let kind = Self::credit_entry_kind_from_db(row.get::<_, String>("kind").as_str())?;
         let created_at = row.get("created_at");
-        let raw_amount: String = row.get("amount");
-        let amount = raw_amount.parse::<f64>().map_err(|e| format!("failed to parse amount: {e}"))?;
+        let amount: f64 = row.get("amount");
         // bucket column added in migration v22; default to 'paid' for pre-migration rows
         let bucket_str: Option<String> = row.try_get("bucket").ok();
         let bucket = bucket_str
@@ -1311,10 +1310,7 @@ impl FileStorage {
             gateway_payment_id: row.get("gateway_payment_id"),
             amount_minor: row.get("amount_minor"),
             currency: row.get("currency"),
-            credits_to_grant: {
-                let raw: String = row.get("credits_to_grant");
-                raw.parse::<f64>().map_err(|e| format!("failed to parse credits_to_grant: {e}"))?
-            },
+            credits_to_grant: row.get("credits_to_grant"),
             status,
             checkout_url: row.get("checkout_url"),
             udf1: row.get("udf1"),
@@ -2593,10 +2589,9 @@ impl TutorAccountRepository for FileStorage {
 
             transaction.commit().map_err(|err| err.to_string())?;
 
-            let raw_balance: String = balance_row.get("balance");
             Ok(CreditBalance {
                 account_id: balance_row.get("account_id"),
-                balance: raw_balance.parse::<f64>().map_err(|e| format!("failed to parse balance: {e}"))?,
+                balance: balance_row.get("balance"),
                 updated_at: balance_row.get("updated_at"),
             })
         })
@@ -2632,11 +2627,9 @@ impl TutorAccountRepository for FileStorage {
 
             let updated_at = row.get("updated_at");
 
-            let raw_balance: String = row.get("balance");
-
             Ok(CreditBalance {
                 account_id: row.get("account_id"),
-                balance: raw_balance.parse::<f64>().map_err(|e| format!("failed to parse balance: {e}"))?,
+                balance: row.get("balance"),
                 updated_at,
             })
         })
@@ -4653,12 +4646,10 @@ impl WalletRepository for FileStorage {
                 });
             };
 
-            let raw_promo: String = row.get("promo_balance");
-            let raw_paid: String  = row.get("paid_balance");
             Ok(WalletBalance {
                 account_id: row.get("account_id"),
-                promo_balance: raw_promo.parse::<f64>().map_err(|e| format!("parse promo: {e}"))?,
-                paid_balance:  raw_paid.parse::<f64>().map_err(|e| format!("parse paid: {e}"))?,
+                promo_balance: row.get("promo_balance"),
+                paid_balance:  row.get("paid_balance"),
                 updated_at: row.get("updated_at"),
             })
         })
