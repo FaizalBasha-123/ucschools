@@ -42,7 +42,9 @@ export default function CheckBillingPage() {
         });
 
         if (!res.ok) {
-          throw new Error(`Billing check failed: ${res.status}`);
+          let detail = '';
+          try { const body = await res.json(); detail = body.details || body.error || ''; } catch {}
+          throw new Error(`Billing check failed: ${res.status}${detail ? ` — ${detail}` : ''}`);
         }
 
         const data = await res.json();
