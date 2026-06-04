@@ -4,9 +4,10 @@ import { backendUrl } from '@/lib/server/backend-url';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: userId } = await params;
     const cookieStore = await cookies();
     const sessionId = cookieStore.get('ai_tutor_ops_session');
 
@@ -17,7 +18,7 @@ export async function POST(
     const body = await request.json();
 
     const res = await fetch(
-      `${backendUrl()}/api/operator/users/${params.id}/topup-link`,
+      `${backendUrl()}/api/operator/users/${userId}/topup-link`,
       {
         method: 'POST',
         headers: {

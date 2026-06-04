@@ -4,17 +4,16 @@ import { backendUrl } from '@/lib/server/backend-url';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id: invoiceId } = await params;
     const cookieStore = await cookies();
     const sessionId = cookieStore.get('ai_tutor_ops_session');
 
     if (!sessionId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
-    const invoiceId = params.id;
 
     const res = await fetch(
       `${backendUrl()}/api/operator/billing/invoices/${invoiceId}/pdf`,
