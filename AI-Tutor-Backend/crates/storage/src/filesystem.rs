@@ -743,6 +743,24 @@ const POSTGRES_MIGRATIONS: &[PostgresMigration] = &[
                 ON revenue_snapshots(hour, gateway);
         "#,
     },
+    PostgresMigration {
+        version: 23,
+        name: "revert_numeric_to_double_precision",
+        sql: r#"
+            ALTER TABLE credit_ledger
+                ALTER COLUMN amount TYPE DOUBLE PRECISION USING amount::double precision;
+            ALTER TABLE credit_balances
+                ALTER COLUMN balance TYPE DOUBLE PRECISION USING balance::double precision;
+            ALTER TABLE payment_orders
+                ALTER COLUMN credits_to_grant TYPE DOUBLE PRECISION USING credits_to_grant::double precision;
+            ALTER TABLE payment_orders
+                ALTER COLUMN custom_credits TYPE DOUBLE PRECISION USING custom_credits::double precision;
+            ALTER TABLE wallet_balances
+                ALTER COLUMN promo_balance TYPE DOUBLE PRECISION USING promo_balance::double precision;
+            ALTER TABLE wallet_balances
+                ALTER COLUMN paid_balance TYPE DOUBLE PRECISION USING paid_balance::double precision;
+        "#,
+    },
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4711,12 +4729,7 @@ impl WalletRepository for FileStorage {
 
             let (current_promo, current_paid) = match row {
                 Some(r) => {
-                    let p: String = r.get("promo_balance");
-                    let d: String = r.get("paid_balance");
-                    (
-                        p.parse::<f64>().unwrap_or(0.0),
-                        d.parse::<f64>().unwrap_or(0.0),
-                    )
+                    (r.get("promo_balance"), r.get("paid_balance"))
                 }
                 None => (0.0, 0.0),
             };
@@ -4780,12 +4793,10 @@ impl WalletRepository for FileStorage {
 
             tx.commit().map_err(|e| e.to_string())?;
 
-            let raw_promo: String = updated.get("promo_balance");
-            let raw_paid: String  = updated.get("paid_balance");
             Ok(WalletBalance {
                 account_id,
-                promo_balance: raw_promo.parse::<f64>().map_err(|e| format!("parse promo: {e}"))?,
-                paid_balance:  raw_paid.parse::<f64>().map_err(|e| format!("parse paid: {e}"))?,
+                promo_balance: updated.get("promo_balance"),
+                paid_balance:  updated.get("paid_balance"),
                 updated_at: updated.get("updated_at"),
             })
         })
