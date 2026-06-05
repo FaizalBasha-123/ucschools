@@ -100,8 +100,11 @@ mod tests {
     #[test]
     fn basic_normal_scene_budget() {
         let budget = compute_scene_budget(QualityTier::Basic, TopicComplexity::Normal);
-        assert_eq!(budget.target_scenes, 5);
-        assert_eq!(budget.hard_max_scenes, 5);
+        // domain tier_limits(Basic).max_slides = 7
+        // base_scene_count(Normal, Basic) = 7 (Normal → base)
+        // hard_max_scenes(Normal, Basic) = 7 (Normal → base)
+        assert_eq!(budget.target_scenes, 7);
+        assert_eq!(budget.hard_max_scenes, 7);
         assert_eq!(budget.extra_scene_allowance, 0);
         assert_eq!(budget.max_interactions, 2);
     }
@@ -109,20 +112,22 @@ mod tests {
     #[test]
     fn premium_extreme_scene_budget() {
         let budget = compute_scene_budget(QualityTier::Premium, TopicComplexity::Extreme);
-        // base_scene_count(Premium, Extreme) = 15 + 3 = 18
-        assert_eq!(budget.target_scenes, 18);
-        // hard_max_scenes(Premium, Extreme) = ceil(15 * 2.0) = 30
-        assert_eq!(budget.hard_max_scenes, 30);
+        // domain tier_limits(Premium).max_slides = 14
+        // base_scene_count(Premium, Extreme) = 14 + 3 = 17
+        assert_eq!(budget.target_scenes, 17);
+        // hard_max_scenes(Premium, Extreme) = ceil(14 * 2.0) = 28
+        assert_eq!(budget.hard_max_scenes, 28);
         assert_eq!(budget.extra_scene_allowance, 3);
     }
 
     #[test]
     fn low_complexity_reduces_scenes() {
         let budget = compute_scene_budget(QualityTier::Standard, TopicComplexity::Low);
-        // base_scene_count(Standard, Low) = 8 - 2 = 6
-        assert_eq!(budget.target_scenes, 6);
-        // hard_max_scenes(Standard, Low) = 8
-        assert_eq!(budget.hard_max_scenes, 8);
+        // domain tier_limits(Standard).max_slides = 10
+        // base_scene_count(Standard, Low) = 10 - 2 = 8
+        assert_eq!(budget.target_scenes, 8);
+        // hard_max_scenes(Standard, Low) = 10 (Low → base)
+        assert_eq!(budget.hard_max_scenes, 10);
     }
 
     #[test]
@@ -134,16 +139,18 @@ mod tests {
     #[test]
     fn interaction_effective_count_basic() {
         let budget = compute_scene_budget(QualityTier::Basic, TopicComplexity::Normal);
-        // target=5, min_gap=2, no final quiz → (5-1)/3 = 1
+        // target=7 (domain Basic Normal), min_gap=2, no final quiz
+        // paced_max = (7-1) / (2+1) = 6/3 = 2
         let count = effective_interaction_count(&budget);
-        assert_eq!(count, 1);
+        assert_eq!(count, 2);
     }
 
     #[test]
     fn interaction_effective_count_premium() {
         let budget = compute_scene_budget(QualityTier::Premium, TopicComplexity::Normal);
-        // target=15, min_gap=1, final quiz → (15-1)/2 + 1 = 7 + 1 = 8
+        // target=14 (domain Premium Normal), min_gap=1, require_final_quiz=true
+        // paced_max = (14-1) / (1+1) + 1 = 13/2 + 1 = 6 + 1 = 7
         let count = effective_interaction_count(&budget);
-        assert_eq!(count, 8);
+        assert_eq!(count, 7);
     }
 }

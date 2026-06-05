@@ -70,45 +70,74 @@ const MODES_DISPLAY = [
 
 // ─── Components ──────────────────────────────────────────────
 
+// ─── Credit Calculator — mirrors backend `lesson_credits_fixed` matrix ────────
+// Source of truth: crates/domain/src/billing.rs lesson_credits_fixed()
+// Credits: Basic/Standard/Premium × Revision/Explain/Exam/Placement
+
 const CALC_QUALITY = [
-  { id: 'basic', label: 'Basic', base: 1.0, rate: 0.1, color: 'emerald' },
-  { id: 'standard', label: 'Standard', base: 2.0, rate: 0.2, color: 'blue' },
-  { id: 'premium', label: 'Premium', base: 5.0, rate: 1.0, color: 'amber' },
+  {
+    id: 'basic',
+    label: 'Basic',
+    color: 'emerald',
+    // lesson_credits_fixed row for Basic
+    credits: { revision: 1.2, explain: 2.0, exam: 3.0, placement: 4.0 },
+    // credits_per_minute() for TTS: Basic = 0.4
+    ttsRatePerMin: 0.4,
+  },
+  {
+    id: 'standard',
+    label: 'Standard',
+    color: 'blue',
+    credits: { revision: 2.0, explain: 4.0, exam: 5.0, placement: 6.0 },
+    ttsRatePerMin: 0.8,
+  },
+  {
+    id: 'premium',
+    label: 'Premium',
+    color: 'amber',
+    credits: { revision: 3.5, explain: 6.0, exam: 7.0, placement: 9.0 },
+    ttsRatePerMin: 1.5,
+  },
 ];
 
 const CALC_LEARNING = [
-  { id: 'explain', label: 'Explain', avgTokens: 3.0 }, // ~3k tokens
-  { id: 'revision', label: 'Revision', avgTokens: 1.5 },
-  { id: 'exam', label: 'Exam', avgTokens: 4.0 },
-  { id: 'placement', label: 'Placement', avgTokens: 5.0 },
+  { id: 'explain',   label: 'Explain',        key: 'explain'   as const },
+  { id: 'revision',  label: 'Revision',       key: 'revision'  as const },
+  { id: 'exam',      label: 'Exam',           key: 'exam'      as const },
+  { id: 'placement', label: 'Placement Prep', key: 'placement' as const },
 ];
 
 function CreditBreakdownCalculator() {
-  const [quality, setQuality] = useState(CALC_QUALITY[1]);
-  const [learning, setLearning] = useState(CALC_LEARNING[0]);
-  const [duration, setDuration] = useState(5); // scenes
+  const [quality, setQuality] = useState(CALC_QUALITY[1]);   // Standard default
+  const [learning, setLearning] = useState(CALC_LEARNING[0]); // Explain default
+  const [duration, setDuration] = useState(5); // minutes of voice
   const [useVoice, setUseVoice] = useState(true);
   const [usePdf, setUsePdf] = useState(false);
   const [pdfPages, setPdfPages] = useState(10);
 
-  // V2 Telemetry Math
-  const estimatedTokens = learning.avgTokens + (duration * 0.2); // Each scene adds ~200 tokens
-  const baseHold = quality.base;
-  const tokenBurn = +(estimatedTokens * quality.rate).toFixed(2);
-  
-  const voiceCost = useVoice ? +(duration * 0.1).toFixed(2) : 0;
-  
-  // PDF Parsing: 2.0 Setup Fee + (pages * 300 tokens/page / 1000 * 0.5 premium rate)
-  const pdfTokensK = (pdfPages * 300) / 1000;
-  const pdfCost = usePdf ? +(2.0 + (pdfTokensK * 0.5)).toFixed(2) : 0;
-  
-  const totalCost = +(baseHold + tokenBurn + voiceCost + pdfCost).toFixed(2);
+  // ── Fixed-matrix lesson cost (matches backend lesson_credits_fixed exactly)
+  const lessonCost = quality.credits[learning.key];
+
+  // ── Voice (TTS): credits_per_minute × duration_minutes
+  const voiceCost = useVoice ? +(quality.ttsRatePerMin * duration).toFixed(2) : 0;
+
+  // ── PDF: 0.10 credits/page — matches backend pdf_credits() formula exactly
+  const pdfCost = usePdf ? +(pdfPages * 0.1).toFixed(2) : 0;
+
+  const totalCost = +(lessonCost + voiceCost + pdfCost).toFixed(2);
 
   const lineItems = [
-    { label: `${quality.label} Base Setup`, desc: `Hold context fee`, cost: baseHold },
-    { label: `${learning.label} Content`, desc: `~${estimatedTokens.toFixed(1)}k tokens × ${quality.rate}`, cost: tokenBurn },
-    ...(useVoice ? [{ label: 'Voice (TTS)', desc: `${duration} scenes audio generation`, cost: voiceCost }] : []),
-    ...(usePdf ? [{ label: 'PDF Analysis', desc: `Premium Setup + ~${pdfTokensK.toFixed(1)}k tokens extracted`, cost: pdfCost }] : []),
+    {
+      label: `${quality.label} ${learning.label} Lesson`,
+      desc: `Fixed session fee (${quality.label} quality)`,
+      cost: lessonCost,
+    },
+    ...(useVoice
+      ? [{ label: 'Voice (TTS)', desc: `${duration} min × ${quality.ttsRatePerMin} cr/min`, cost: voiceCost }]
+      : []),
+    ...(usePdf
+      ? [{ label: 'PDF Processing', desc: `${pdfPages} pages × 0.10 cr/page`, cost: pdfCost }]
+      : []),
   ];
 
   return (
@@ -123,7 +152,7 @@ function CreditBreakdownCalculator() {
             <span className="text-emerald-600">Calculator</span>
           </h2>
           <p className="text-neutral-400 text-base mb-8 leading-relaxed">
-            Adjust the options to estimate how many credits a session will cost.
+            Adjust the options below — costs shown are exact, matching what the backend charges.
           </p>
 
           {/* Quality */}
@@ -172,22 +201,22 @@ function CreditBreakdownCalculator() {
             </div>
           </div>
 
-          {/* Duration */}
+          {/* Voice Duration */}
           <div className="mb-6">
             <label className="block text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">
-              Target Length: <span className="text-white">{duration} scenes</span>
+              Voice Duration: <span className="text-white">{duration} min</span>
             </label>
             <input
               type="range"
               min={1}
-              max={15}
+              max={30}
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
               className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-emerald-500"
             />
             <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
-              <span>1 scene</span>
-              <span>15 scenes</span>
+              <span>1 min</span>
+              <span>30 min</span>
             </div>
           </div>
 
@@ -297,6 +326,7 @@ function CreditBreakdownCalculator() {
     </div>
   );
 }
+
 
 function PricingContent() {
   const router = useRouter();

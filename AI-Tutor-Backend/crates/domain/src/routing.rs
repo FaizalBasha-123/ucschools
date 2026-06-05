@@ -521,16 +521,16 @@ mod tests {
 
     #[test]
     fn effective_slides_scales_with_complexity() {
-        // Basic: max_slides=7
-        // Normal -> 7
-        // High -> ceil(7 * 1.4) = 10
-        // Low -> 7
+        // domain tier_limits(Basic).max_slides = 7
+        // Normal  → base_scene_count = 7, hard_max = 7  → min(7,7) = 7
+        // High    → base_scene_count = 8, hard_max = ceil(7*1.4)=10 → min(8,10) = 8
+        // Low     → base_scene_count = max(7-2,2)=5, hard_max = 7 → min(5,7) = 5
         let normal = effective_max_slides(QualityTier::Basic, TopicComplexity::Normal);
         let high = effective_max_slides(QualityTier::Basic, TopicComplexity::High);
         let low = effective_max_slides(QualityTier::Basic, TopicComplexity::Low);
-        assert_eq!(low, 7);
+        assert_eq!(low, 5);
         assert_eq!(normal, 7);
-        assert_eq!(high, 10);
+        assert_eq!(high, 8);
     }
 
     #[test]

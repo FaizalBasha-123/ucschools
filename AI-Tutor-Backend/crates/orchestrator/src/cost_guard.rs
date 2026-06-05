@@ -1,4 +1,4 @@
-use ai_tutor_domain::routing::{tier_limits, QualityTier};
+use ai_tutor_domain::routing::QualityTier;
 use tracing::warn;
 
 #[derive(Debug, Clone)]
@@ -123,18 +123,22 @@ pub fn estimate_cost_from_text(prompt: &str, tier: &QualityTier) -> CostEstimate
 }
 
 /// Enforce generation budget before calling the LLM.
+///
+/// V2 Telemetry Billing: We do NOT Deny on per-scene context size (that is handled
+/// by `check_outlines` at the pipeline level with a 100k-token hard cap).
+/// Here we only Compress/Warn on large inputs to prompt the engine to trim,
+/// and Deny only if the request is physically impossible (>100k tokens per scene).
 pub fn enforce_budget(tier: &QualityTier, estimate: &CostEstimate) -> CostDecision {
-    // In V2, we don't Deny unless the request is physically impossible for the model context
-    let max_tokens = tier_limits(*tier).max_tokens_per_response * 4; // rough approximation
-
-    if estimate.estimated_tokens > max_tokens {
+    // Hard Deny: >100k tokens in a single scene is physically unusable (matches check_outlines cap)
+    if estimate.estimated_tokens > 100_000 {
         warn!(
-            "CostGuard DENY: est_tokens={} > max_allowed={} (tier={:?})",
-            estimate.estimated_tokens, max_tokens, tier
+            "CostGuard DENY: est_tokens={} > 100_000 hard cap (tier={:?})",
+            estimate.estimated_tokens, tier
         );
         return CostDecision::Deny;
     }
 
+    // Soft signals: ask the engine to compress/warn for large prompts
     match tier {
         QualityTier::Basic if estimate.estimated_tokens > 4000 => CostDecision::Compress,
         QualityTier::Standard if estimate.estimated_tokens > 8000 => CostDecision::Warn,
@@ -227,18 +231,20 @@ mod tests {
             estimated_tokens: 100,
             estimated_credits: 0.01,
         };
+        // Small input: Allow
         assert_eq!(
             tracker.record_scene(&cheap, QualityTier::Basic),
             CostDecision::Allow
         );
         let expensive = CostEstimate {
-            estimated_tokens: 20000,
+            estimated_tokens: 20_000,
             estimated_credits: 2.0,
         };
-        // Should STILL allow because we move to post-generation telemetry billing
+        // 20k tokens > Basic's 4k Compress threshold → Compress (not Deny).
+        // V2 billing: we never Deny per-scene unless >100k tokens hard cap.
         assert_eq!(
             tracker.record_scene(&expensive, QualityTier::Basic),
-            CostDecision::Allow
+            CostDecision::Compress
         );
     }
 }

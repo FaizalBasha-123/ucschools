@@ -12200,18 +12200,20 @@ fn estimated_generation_duration_secs() -> f64 {
 
 fn estimate_generation_credits_for_modes(
     quality_mode: Option<&str>,
-    learning_mode: Option<&str>,
+    _learning_mode: Option<&str>,
 ) -> f64 {
-    use ai_tutor_domain::billing::{lesson_credits_fixed, LearningMode, QualityMode};
+    use ai_tutor_domain::billing::QualityMode;
 
     let quality = quality_mode
         .and_then(QualityMode::from_str)
         .unwrap_or_default();
-    let learning = learning_mode
-        .and_then(LearningMode::from_str)
-        .unwrap_or_default();
 
-    lesson_credits_fixed(quality, learning)
+    // In V2, we only estimate the base hold fee to see if they can start.
+    match quality {
+        QualityMode::Basic => 1.0,
+        QualityMode::Standard => 2.0,
+        QualityMode::Premium => 5.0,
+    }
 }
 
 fn estimate_generation_credits_for_request(request: &LessonGenerationRequest) -> f64 {
@@ -12232,7 +12234,8 @@ fn calculate_credit_usage(
     lesson: &Lesson,
     request: &ai_tutor_domain::generation::LessonGenerationRequest,
 ) -> CreditUsage {
-    use ai_tutor_domain::billing::{lesson_credits_fixed, LearningMode, QualityMode};
+    use ai_tutor_domain::billing::QualityMode;
+    use ai_tutor_domain::credits::round_credits;
 
     let quality = request
         .quality_mode
@@ -12240,33 +12243,71 @@ fn calculate_credit_usage(
         .and_then(QualityMode::from_str)
         .unwrap_or_default();
 
-    let learning = request
-        .learning_mode
-        .as_deref()
-        .and_then(LearningMode::from_str)
-        .unwrap_or_default();
+    let base_hold = match quality {
+        QualityMode::Basic => 1.0,
+        QualityMode::Standard => 2.0,
+        QualityMode::Premium => 5.0,
+    };
 
-    // Estimate voice duration: ~15 chars per second speaking rate
-    let total_chars: usize = lesson
+    let token_rate_per_1k = match quality {
+        QualityMode::Basic => 0.1,
+        QualityMode::Standard => 0.2,
+        QualityMode::Premium => 1.0,
+    };
+
+    // Calculate lesson text tokens
+    let total_lesson_chars: usize = lesson
         .scenes
         .iter()
-        .flat_map(|s| s.actions.iter())
-        .map(|a| match a {
-            ai_tutor_domain::action::LessonAction::Speech { text, .. } => text.len(),
-            _ => 0,
+        .map(|s| {
+            let content_chars: usize = match &s.content {
+                ai_tutor_domain::scene::SceneContent::Slide { canvas } => {
+                    canvas.elements.iter().map(|e| {
+                        match e {
+                            ai_tutor_domain::scene::SlideElement::Text { content, .. } => content.len(),
+                            _ => 0,
+                        }
+                    }).sum()
+                },
+                _ => 0,
+            };
+            let action_chars: usize = s.actions.iter().map(|a| match a {
+                ai_tutor_domain::action::LessonAction::Speech { text, .. } => text.len(),
+                _ => 0,
+            }).sum();
+            content_chars + action_chars
         })
         .sum();
 
-    let duration_secs = total_chars as f64 / 15.0;
+    // pdf text tokens
+    let pdf_chars = request.pdf_content.as_deref().map(|s| s.len()).unwrap_or(0);
     
-    // Fixed lesson credit cost + voice credit cost
-    let lesson_portion = lesson_credits_fixed(quality, learning);
-    let voice_portion = ((duration_secs / 60.0) * quality.credits_per_minute() * 10.0).round() / 10.0;
+    // approx 4 chars per token
+    let lesson_tokens = total_lesson_chars as f64 / 4.0;
+    let token_burn = (lesson_tokens / 1000.0) * token_rate_per_1k;
+
+    let pdf_tokens = pdf_chars as f64 / 4.0;
+    let pdf_burn = if pdf_tokens > 0.0 {
+        2.0 + ((pdf_tokens / 1000.0) * 0.5)
+    } else {
+        0.0
+    };
+
+    // Estimate voice scenes (each scene with speech counts)
+    let voice_scenes = lesson
+        .scenes
+        .iter()
+        .filter(|s| s.actions.iter().any(|a| matches!(a, ai_tutor_domain::action::LessonAction::Speech { .. })))
+        .count();
+
+    let voice_burn = if request.enable_tts { voice_scenes as f64 * 0.1 } else { 0.0 };
+
+    let total = round_credits(base_hold + token_burn + pdf_burn + voice_burn);
 
     CreditUsage {
-        total: lesson_portion + voice_portion,
-        voice: voice_portion,
-        multiplier: learning.credit_multiplier(),
+        total,
+        voice: round_credits(voice_burn),
+        multiplier: 1.0, // deprecated
     }
 }
 

@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use ai_tutor_domain::routing::{
     Capability, GenerationBudget, GenerationTask, QualityTier, RetryPolicy,
-    TierLimits, TopicComplexity,
+    TierLimits, TopicComplexity, tier_limits,
 };
 
 use crate::overrides;
@@ -250,36 +250,11 @@ pub fn resolve_model_by_capability(cap: Capability, tier: QualityTier) -> Cow<'s
     }
 }
 
-// ── Tier Limits (hardcoded — no env dependency) ──────────────────────────
 
-pub fn tier_limits(tier: QualityTier) -> TierLimits {
-    match tier {
-        QualityTier::Basic => TierLimits {
-            max_slides: 5,
-            max_examples_per_slide: 1,
-            max_tokens_per_response: 2048,
-            enable_refinement: false,
-            max_pdf_context_chars: 800,
-            max_cost_usd_per_request: 0.01,
-        },
-        QualityTier::Standard => TierLimits {
-            max_slides: 8,
-            max_examples_per_slide: 2,
-            max_tokens_per_response: 4096,
-            enable_refinement: false,
-            max_pdf_context_chars: 600,
-            max_cost_usd_per_request: 0.05,
-        },
-        QualityTier::Premium => TierLimits {
-            max_slides: 15,
-            max_examples_per_slide: 3,
-            max_tokens_per_response: 8192,
-            enable_refinement: true,
-            max_pdf_context_chars: 1000,
-            max_cost_usd_per_request: 0.15,
-        },
-    }
-}
+// tier_limits is imported from ai_tutor_domain::routing — it is the single source of truth.
+// Domain values: Basic=7 slides / Standard=10 slides / Premium=14 slides.
+// Do NOT redefine tier_limits locally; all scene-count helpers delegate to the domain impl.
+
 
 /// Deterministic base scene count derived from tier and complexity.
 pub fn effective_max_slides(tier: QualityTier, complexity: TopicComplexity) -> usize {
