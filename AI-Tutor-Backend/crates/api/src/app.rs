@@ -602,13 +602,13 @@ pub struct LessonPreviewResponse {
     pub hard_max_scenes: usize,
     /// Extra scenes available at reduced margin (user consent required).
     pub extra_scenes_available: usize,
-    /// Base credit cost for the lesson at target scene count.
+    /// Base context hold fee.
     pub base_credits: f64,
-    /// Additional credits if all extra scenes are used.
+    /// Estimated additional credits burned.
     pub extra_credits: f64,
-    /// Total credits if all extra scenes are used.
+    /// Total credits estimated.
     pub total_credits_if_extra: f64,
-    /// Whether user consent is required to proceed.
+    /// Whether user consent is required to proceed (always false in V2 telemetry).
     pub requires_consent: bool,
 }
 
@@ -9815,22 +9815,37 @@ async fn generate_lesson_async(
 async fn preview_lesson(
     Json(payload): Json<GenerateLessonPayload>,
 ) -> Json<LessonPreviewResponse> {
-    use ai_tutor_domain::billing::{extra_scene_credits, lesson_credits_fixed, LearningMode, QualityMode};
+    use ai_tutor_domain::billing::{LearningMode, QualityMode};
     use ai_tutor_domain::routing::QualityTier;
     use ai_tutor_orchestrator::complexity;
+    use ai_tutor_domain::credits::round_credits;
 
     let quality_mode_str = payload.quality_mode.as_deref().unwrap_or("standard");
     let learning_mode_str = payload.learning_mode.as_deref().unwrap_or("explain");
 
     let quality = QualityMode::from_str(quality_mode_str).unwrap_or_default();
-    let learning = LearningMode::from_str(learning_mode_str).unwrap_or_default();
+    let _learning = LearningMode::from_str(learning_mode_str).unwrap_or_default();
     let tier = QualityTier::from_str_loose(quality_mode_str);
 
     let complexity = ai_tutor_orchestrator::context::detect_complexity(&payload.requirement);
     let budget = complexity::compute_scene_budget(tier, complexity);
-    let base_credits = lesson_credits_fixed(quality, learning);
-    let extra_credits = extra_scene_credits(quality, learning, budget.target_scenes, budget.extra_scene_allowance);
-    let total_credits_if_extra = base_credits + extra_credits;
+    
+    let base_hold = match quality {
+        QualityMode::Basic => 1.0,
+        QualityMode::Standard => 2.0,
+        QualityMode::Premium => 5.0,
+    };
+    
+    let token_rate = match quality {
+        QualityMode::Basic => 0.1,
+        QualityMode::Standard => 0.2,
+        QualityMode::Premium => 1.0,
+    };
+
+    // Rough estimate: target_scenes * ~250 tokens per scene
+    let estimated_tokens = budget.target_scenes as f64 * 250.0;
+    let extra_credits = round_credits((estimated_tokens / 1000.0) * token_rate);
+    let total_credits_if_extra = base_hold + extra_credits;
 
     Json(LessonPreviewResponse {
         quality_mode: quality_mode_str.to_string(),
@@ -9839,10 +9854,10 @@ async fn preview_lesson(
         target_scenes: budget.target_scenes,
         hard_max_scenes: budget.hard_max_scenes,
         extra_scenes_available: budget.extra_scene_allowance,
-        base_credits,
+        base_credits: base_hold,
         extra_credits,
         total_credits_if_extra,
-        requires_consent: budget.extra_scene_allowance > 0,
+        requires_consent: false,
     })
 }
 
