@@ -96,7 +96,7 @@ fn build_pg_pool(url: &str) -> AnyResult<PgPool> {
             .min_idle(Some(0))
             .max_lifetime(Some(Duration::from_secs(5 * 60)))
             .idle_timeout(Some(Duration::from_secs(3 * 60)))
-            .connection_timeout(Duration::from_secs(10))
+            .connection_timeout(Duration::from_secs(45))
             .build(manager)
             .map_err(|e| anyhow::anyhow!("failed to build TLS pool: {}", e))?;
         Ok(PgPool::Tls(pool))
@@ -110,7 +110,7 @@ fn build_pg_pool(url: &str) -> AnyResult<PgPool> {
             .min_idle(Some(0))
             .max_lifetime(Some(Duration::from_secs(5 * 60)))
             .idle_timeout(Some(Duration::from_secs(3 * 60)))
-            .connection_timeout(Duration::from_secs(10))
+            .connection_timeout(Duration::from_secs(45))
             .build(manager)
             .map_err(|e| anyhow::anyhow!("failed to build NoTLS pool: {}", e))?;
         Ok(PgPool::NoTls(pool))
@@ -821,7 +821,7 @@ impl FileStorage {
         }
         // Retry with back-off to handle Neon cold-start and transient failures
         let mut last_err = String::new();
-        for attempt in 1..=5u32 {
+        for attempt in 1..=3u32 {
             match get_pg_client(postgres_url) {
                 Ok(_) => {
                     postgres_ready.store(true, Ordering::Release);
@@ -830,16 +830,16 @@ impl FileStorage {
                 Err(e) => {
                     last_err = e.to_string();
                     tracing::warn!(
-                        "Postgres not ready (attempt {}/5): {}. Retrying in 2s...",
+                        "Postgres not ready (attempt {}/3): {}. Retrying in 2s...",
                         attempt, last_err
                     );
-                    if attempt < 5 {
+                    if attempt < 3 {
                         std::thread::sleep(Duration::from_secs(2));
                     }
                 }
             }
         }
-        Err(format!("Postgres unreachable after 5 attempts: {}", last_err))
+        Err(format!("Postgres unreachable after 3 attempts: {}", last_err))
     }
 
     pub async fn ensure_postgres_ready(&self) -> Result<(), String> {
@@ -847,6 +847,17 @@ impl FileStorage {
         let postgres_ready = Arc::clone(&self.postgres_ready);
         tokio::task::spawn_blocking(move || {
             Self::ensure_postgres_ready_blocking(&postgres_url, postgres_ready.as_ref())
+        })
+        .await
+        .map_err(|err| err.to_string())?
+    }
+
+    pub async fn check_db_ready(&self) -> Result<(), String> {
+        let postgres_url = self.postgres_url.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            client.execute("SELECT 1", &[]).map_err(|e| e.to_string())?;
+            Ok(())
         })
         .await
         .map_err(|err| err.to_string())?

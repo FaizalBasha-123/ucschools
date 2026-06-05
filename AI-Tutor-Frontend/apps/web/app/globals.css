@@ -47,6 +47,11 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
+@keyframes progress {
+  0% { width: 0%; }
+  100% { width: 100%; }
+}
+
 :root {
   --background: #F8FAFC;
   --foreground: #0F172A;

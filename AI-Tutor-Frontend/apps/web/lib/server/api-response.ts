@@ -13,6 +13,7 @@ export const API_ERROR_CODES = {
   PARSE_FAILED: 'PARSE_FAILED',
   OCR_FAILED: 'OCR_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
+  DATABASE_WAKING_UP: 'DATABASE_WAKING_UP',
 } as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[keyof typeof API_ERROR_CODES];

@@ -1525,6 +1525,7 @@ pub struct SystemStatusResponse {
     pub provider_reported_total_cost_microusd: u64,
     pub provider_runtime: Vec<ProviderRuntimeStatusResponse>,
     pub provider_status_error: Option<String>,
+    pub db_ready: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1802,6 +1803,7 @@ pub trait LessonAppService: Send + Sync {
         &self,
         payload: AsrRequest,
     ) -> Result<AsrResponse>;
+    async fn check_db_ready(&self) -> Result<()>;
     async fn get_system_status(&self) -> Result<SystemStatusResponse>;
     /// Polls the lesson queue and processes jobs in a loop.
     async fn run_worker_loop(&self) -> Result<()>;
@@ -4647,6 +4649,7 @@ impl LiveLessonAppService {
                 .provider_reported_total_cost_microusd,
             provider_runtime,
             provider_status_error,
+            db_ready: self.storage.check_db_ready().await.is_ok(),
         })
     }
 
@@ -7311,6 +7314,13 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
+    async fn check_db_ready(&self) -> Result<()> {
+        self.storage
+            .check_db_ready()
+            .await
+            .map_err(|e| anyhow!(e))
+    }
+
     async fn get_system_status(&self) -> Result<SystemStatusResponse> {
         self.system_status().await
     }
@@ -7964,6 +7974,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
             .route("/api/subscriptions/me", get(get_subscription))
             .route("/api/subscriptions/{id}/cancel", post(cancel_subscription))
         .route("/api/system/status", get(get_system_status))
+        .route("/api/system/db-ready", get(stream_db_readiness))
         .route("/api/public/contact-enterprise", post(contact_enterprise_handler))
         .route("/api/system/ops-gate", get(get_ops_gate))
         .route("/api/lessons/generate", post(generate_lesson))
@@ -8294,6 +8305,27 @@ async fn get_system_status(
         .await
         .map(Json)
         .map_err(ApiError::internal)
+}
+
+async fn stream_db_readiness(
+    State(state): State<AppState>,
+) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
+    let (tx, rx) = mpsc::channel(1);
+    let service = state.service.clone();
+
+    tokio::spawn(async move {
+        loop {
+            if service.check_db_ready().await.is_ok() {
+                let _ = tx.send(Ok(Event::default().data("ready"))).await;
+                break;
+            } else {
+                let _ = tx.send(Ok(Event::default().data("waking_up"))).await;
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
+
+    Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default())
 }
 
 async fn get_ops_gate(State(state): State<AppState>) -> Result<Json<OpsGateResponse>, ApiError> {
@@ -13541,6 +13573,10 @@ mod tests {
             })
         }
 
+        async fn check_db_ready(&self) -> Result<()> {
+            Ok(())
+        }
+
         async fn get_system_status(&self) -> Result<SystemStatusResponse> {
             Ok(SystemStatusResponse {
                 status: "ok",
@@ -13643,6 +13679,7 @@ mod tests {
                 provider_reported_total_cost_microusd: 0,
                 provider_runtime: vec![],
                 provider_status_error: None,
+                db_ready: true,
             })
         }
 

@@ -8,6 +8,7 @@ import 'katex/dist/katex.min.css';
 import { ThemeProvider } from '@/lib/hooks/use-theme';
 import { I18nProvider } from '@/lib/hooks/use-i18n';
 import { CreditsProvider } from '@/lib/contexts/credits-context';
+import { DbStatusProvider } from '@/lib/contexts/db-status-context';
 import { Toaster } from '@/components/ui/sonner';
 import { ServerProvidersInit } from '@/components/server-providers-init';
 
@@ -37,9 +38,11 @@ export default function RootLayout({
         <ThemeProvider>
           <I18nProvider>
             <CreditsProvider>
-              <ServerProvidersInit />
-              {children}
-              <Toaster />
+              <DbStatusProvider>
+                <ServerProvidersInit />
+                {children}
+                <Toaster />
+              </DbStatusProvider>
             </CreditsProvider>
           </I18nProvider>
         </ThemeProvider>
