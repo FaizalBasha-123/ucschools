@@ -2554,7 +2554,7 @@ impl TutorAccountRepository for FileStorage {
                 .execute(
                     "
                     INSERT INTO credit_ledger (id, account_id, kind, amount, reason, bucket, created_at)
-                    VALUES ($1, $2, $3, ROUND($4::numeric, 1), $5, $6, $7)
+                    VALUES ($1, $2, $3, ROUND($4::float8::numeric, 1), $5, $6, $7)
                     ON CONFLICT (id) DO NOTHING
                     ",
                     &[
@@ -2579,9 +2579,9 @@ impl TutorAccountRepository for FileStorage {
                 .execute(
                     "
                     INSERT INTO credit_balances (account_id, balance, updated_at)
-                    VALUES ($1, ROUND($2::numeric, 1), $3)
+                    VALUES ($1, $2::float8::numeric, $3)
                     ON CONFLICT (account_id) DO UPDATE SET
-                        balance = ROUND((credit_balances.balance + EXCLUDED.balance)::numeric, 1),
+                        balance = ROUND((credit_balances.balance + EXCLUDED.balance::float8::numeric)::numeric, 1),
                         updated_at = EXCLUDED.updated_at
                     ",
                     &[&entry.account_id, &delta, &entry.created_at],
@@ -2597,9 +2597,9 @@ impl TutorAccountRepository for FileStorage {
             let wallet_sql = format!(
                 "
                 INSERT INTO wallet_balances (account_id, {col}, updated_at)
-                VALUES ($1, ROUND($2::numeric, 1), $3)
+                VALUES ($1, $2::float8::numeric, $3)
                 ON CONFLICT (account_id) DO UPDATE SET
-                    {col} = ROUND((wallet_balances.{col} + EXCLUDED.{col})::numeric, 1),
+                    {col} = ROUND((wallet_balances.{col} + EXCLUDED.{col}::float8::numeric)::numeric, 1),
                     updated_at = EXCLUDED.updated_at
                 ",
                 col = wallet_col
