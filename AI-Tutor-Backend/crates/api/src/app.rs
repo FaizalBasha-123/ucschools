@@ -7979,6 +7979,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/system/ops-gate", get(get_ops_gate))
         .route("/api/lessons/generate", post(generate_lesson))
         .route("/api/lessons/generate-async", post(generate_lesson_async))
+        .route("/api/lessons/generate-stream", post(generate_lesson_stream))
         .route("/api/lessons/preview", post(preview_lesson))
         .route("/api/lesson-shelf", get(list_lesson_shelf))
         .route(
@@ -9810,6 +9811,61 @@ async fn generate_lesson_async(
         .await
         .map(|response| (StatusCode::ACCEPTED, Json(response)))
         .map_err(|err| map_generation_error(err))
+}
+
+async fn generate_lesson_stream(
+    State(state): State<AppState>,
+    account: Option<Extension<AuthenticatedAccountContext>>,
+    Json(payload): Json<GenerateLessonPayload>,
+) -> Result<Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError> {
+    let payload = inject_account_id(payload, account.as_ref().map(|ctx| ctx.0.account_id.as_str()));
+
+    if let Some(ctx) = &account {
+        let min_credits = estimate_generation_credits_for_payload(&payload);
+        if let Err(err) = check_generation_entitlement_with_min(&state, &ctx.0, min_credits).await {
+            return Err(err);
+        }
+    }
+    
+    let response = state
+        .service
+        .queue_lesson(payload)
+        .await
+        .map_err(|err| map_generation_error(err))?;
+        
+    let job_id = response.job_id.clone();
+    let service = state.service.clone();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    tokio::spawn(async move {
+        // Yield initial state immediately
+        if let Ok(Some(job)) = service.get_job(&job_id).await {
+            let json_data = serde_json::to_string(&job).unwrap_or_default();
+            let _ = tx.send(Ok(Event::default().data(json_data)));
+        }
+
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            if let Ok(Some(job)) = service.get_job(&job_id).await {
+                let json_data = serde_json::to_string(&job).unwrap_or_default();
+                let status_str = format!("{:?}", job.status);
+                let is_done = status_str == "Succeeded" || status_str == "Failed" || status_str == "Cancelled";
+                
+                if tx.send(Ok(Event::default().data(json_data))).is_err() {
+                    break;
+                }
+                
+                if is_done {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    });
+
+    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx);
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 async fn preview_lesson(

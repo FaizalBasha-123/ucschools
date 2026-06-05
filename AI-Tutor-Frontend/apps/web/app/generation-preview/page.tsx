@@ -214,17 +214,62 @@ function GenerationPreviewContent() {
         body: JSON.stringify(payload),
       });
 
-      const data = await resp.json().catch(() => ({
-        error: `Server returned ${resp.status}`,
-      }));
-
       if (!resp.ok) {
-        throw new Error(data.error || `Generation failed (${resp.status})`);
+        const errData = await resp.json().catch(() => null);
+        const errMsg = errData?.error 
+          ? (typeof errData.error === 'object' ? errData.error.message : errData.error)
+          : `Generation failed (${resp.status})`;
+        throw new Error(errMsg);
       }
 
-      if (!data.lesson_id) {
-        throw new Error('Invalid response from generation server');
+      const reader = resp.body?.getReader();
+      if (!reader) throw new Error('No stream available');
+      
+      const decoder = new TextDecoder();
+      let lessonIdToRedirect = null;
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data:')) {
+            const dataStr = line.slice(5).trim();
+            if (!dataStr) continue;
+            try {
+              const job = JSON.parse(dataStr);
+              if (job.message) {
+                 setStatusMessage(job.message);
+              }
+              if (job.status === 'Succeeded') {
+                 lessonIdToRedirect = job.result?.lesson_id;
+                 break;
+              } else if (job.status === 'Failed') {
+                 throw new Error(job.error || 'Generation failed in backend');
+              } else if (job.status === 'Cancelled') {
+                 throw new Error('Generation cancelled');
+              }
+            } catch (e) {
+              if (e instanceof Error && e.message.includes('Generation failed in backend') || e.message.includes('Generation cancelled')) {
+                throw e;
+              }
+            }
+          }
+        }
+        
+        if (lessonIdToRedirect) break;
       }
+
+      if (!lessonIdToRedirect) {
+        throw new Error('Generation stream closed without result');
+      }
+
+      const data = { lesson_id: lessonIdToRedirect };
 
       setCurrentStepIndex(2);
       setStatusMessage('Redirecting to your lesson...');

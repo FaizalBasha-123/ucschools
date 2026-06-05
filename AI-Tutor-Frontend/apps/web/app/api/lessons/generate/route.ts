@@ -3,6 +3,8 @@ import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
 import { backendUrl } from '@/lib/server/backend-url';
 
+export const maxDuration = 300; // 5 minutes to allow lesson generation to complete
+
 const log = createLogger('LessonsGenerateProxy');
 
 export async function POST(req: NextRequest) {
@@ -11,7 +13,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const response = await fetch(`${backend.replace(/\/$/, '')}/api/lessons/generate`, {
+    const response = await fetch(`${backend.replace(/\/$/, '')}/api/lessons/generate-stream`, {
       method: 'POST',
       headers: {
         ...authHeadersFrom(req),
@@ -20,11 +22,8 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify(body),
     });
 
-    const data = await response.json().catch(() => ({
-      error: `Proxy returned ${response.status}`,
-    }));
-
     if (!response.ok) {
+      const data = await response.json().catch(() => ({ error: `Proxy returned ${response.status}` }));
       log.error('Generation proxy error:', response.status, data);
       return NextResponse.json(
         { error: data.error || `Proxy returned ${response.status}` },
@@ -32,7 +31,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    return NextResponse.json(data);
+    return new NextResponse(response.body, {
+      status: response.status,
+      headers: {
+        'Content-Type': response.headers.get('Content-Type') || 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
   } catch (err) {
     log.error('Generation proxy failed:', err);
     return NextResponse.json(
