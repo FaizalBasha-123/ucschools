@@ -5015,6 +5015,7 @@ mod tests {
                     whiteboard: vec![],
                     agent_ids: vec![],
                     generated_agent_configs: vec![],
+                    max_scenes: Some(15),
                 }),
                 scenes: vec![],
                 style: Some("interactive".to_string()),
@@ -5214,6 +5215,7 @@ mod tests {
                 amount: 10.0,
                 reason: "starter".to_string(),
                 created_at: now,
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             };
 
             let balance = storage.apply_credit_entry(&entry).await.unwrap();
@@ -5226,6 +5228,7 @@ mod tests {
                 amount: 2.5,
                 reason: "lesson".to_string(),
                 created_at: now,
+                bucket: ai_tutor_domain::wallet::CreditBucket::Paid,
             };
             let balance = storage.apply_credit_entry(&debit).await.unwrap();
             assert_eq!(balance.balance, 7.5);

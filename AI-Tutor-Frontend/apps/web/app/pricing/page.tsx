@@ -71,42 +71,44 @@ const MODES_DISPLAY = [
 // ─── Components ──────────────────────────────────────────────
 
 const CALC_QUALITY = [
-  { id: 'basic', label: 'Basic', rate: 0.4, color: 'emerald' },
-  { id: 'standard', label: 'Standard', rate: 0.8, color: 'blue' },
-  { id: 'premium', label: 'Premium', rate: 1.5, color: 'amber' },
+  { id: 'basic', label: 'Basic', base: 1.0, rate: 0.1, color: 'emerald' },
+  { id: 'standard', label: 'Standard', base: 2.0, rate: 0.2, color: 'blue' },
+  { id: 'premium', label: 'Premium', base: 5.0, rate: 1.0, color: 'amber' },
 ];
 
 const CALC_LEARNING = [
-  { id: 'explain', label: 'Explain', mul: 1.6 },
-  { id: 'revision', label: 'Revision', mul: 0.6 },
-  { id: 'exam', label: 'Exam', mul: 1.3 },
-  { id: 'placement', label: 'Placement', mul: 2.0 },
+  { id: 'explain', label: 'Explain', avgTokens: 3.0 }, // ~3k tokens
+  { id: 'revision', label: 'Revision', avgTokens: 1.5 },
+  { id: 'exam', label: 'Exam', avgTokens: 4.0 },
+  { id: 'placement', label: 'Placement', avgTokens: 5.0 },
 ];
-
-const LESSON_CREDITS_FIXED: Record<string, Record<string, number>> = {
-  basic:    { revision: 1.2, explain: 2.0, exam: 3.0, placement: 4.0 },
-  standard: { revision: 2.0, explain: 4.0, exam: 5.0, placement: 6.0 },
-  premium:  { revision: 3.5, explain: 6.0, exam: 7.0, placement: 9.0 },
-};
 
 function CreditBreakdownCalculator() {
   const [quality, setQuality] = useState(CALC_QUALITY[1]);
   const [learning, setLearning] = useState(CALC_LEARNING[0]);
-  const [duration, setDuration] = useState(5); // minutes
+  const [duration, setDuration] = useState(5); // scenes
   const [useVoice, setUseVoice] = useState(true);
   const [usePdf, setUsePdf] = useState(false);
   const [pdfPages, setPdfPages] = useState(10);
 
-  // Actual backend formula: lesson_credits_fixed(quality, learning) + voice + pdf
-  const lessonCost = LESSON_CREDITS_FIXED[quality.id]?.[learning.id] ?? 4.0;
-  const voiceCost = useVoice ? +(quality.rate * duration).toFixed(2) : 0;
-  const pdfCost = usePdf ? +(pdfPages * 0.1).toFixed(2) : 0;
-  const totalCost = +(lessonCost + voiceCost + pdfCost).toFixed(2);
+  // V2 Telemetry Math
+  const estimatedTokens = learning.avgTokens + (duration * 0.2); // Each scene adds ~200 tokens
+  const baseHold = quality.base;
+  const tokenBurn = +(estimatedTokens * quality.rate).toFixed(2);
+  
+  const voiceCost = useVoice ? +(duration * 0.1).toFixed(2) : 0;
+  
+  // PDF Parsing: 2.0 Setup Fee + (pages * 300 tokens/page / 1000 * 0.5 premium rate)
+  const pdfTokensK = (pdfPages * 300) / 1000;
+  const pdfCost = usePdf ? +(2.0 + (pdfTokensK * 0.5)).toFixed(2) : 0;
+  
+  const totalCost = +(baseHold + tokenBurn + voiceCost + pdfCost).toFixed(2);
 
   const lineItems = [
-    { label: `${learning.label} Lesson`, desc: `${quality.label} quality — fixed credit cost`, cost: lessonCost },
-    ...(useVoice ? [{ label: 'Voice (TTS)', desc: `${duration} min × ${quality.rate}/min`, cost: voiceCost }] : []),
-    ...(usePdf ? [{ label: 'PDF Context', desc: `${pdfPages} pages × 0.1`, cost: pdfCost }] : []),
+    { label: `${quality.label} Base Setup`, desc: `Hold context fee`, cost: baseHold },
+    { label: `${learning.label} Content`, desc: `~${estimatedTokens.toFixed(1)}k tokens × ${quality.rate}`, cost: tokenBurn },
+    ...(useVoice ? [{ label: 'Voice (TTS)', desc: `${duration} scenes audio generation`, cost: voiceCost }] : []),
+    ...(usePdf ? [{ label: 'PDF Analysis', desc: `Premium Setup + ~${pdfTokensK.toFixed(1)}k tokens extracted`, cost: pdfCost }] : []),
   ];
 
   return (
@@ -173,19 +175,19 @@ function CreditBreakdownCalculator() {
           {/* Duration */}
           <div className="mb-6">
             <label className="block text-[10px] font-bold uppercase tracking-widest text-neutral-500 mb-2">
-              Session Duration: <span className="text-white">{duration} min</span>
+              Target Length: <span className="text-white">{duration} scenes</span>
             </label>
             <input
               type="range"
               min={1}
-              max={30}
+              max={15}
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
               className="w-full h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-emerald-500"
             />
             <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
-              <span>1 min</span>
-              <span>30 min</span>
+              <span>1 scene</span>
+              <span>15 scenes</span>
             </div>
           </div>
 
@@ -328,19 +330,19 @@ function PricingContent() {
           const code = p.product_code.toLowerCase();
 
           if (code.includes('free')) {
-            features = ['20 Credits', 'Revision mode', 'Standard quality', 'Voice pay-per-use'];
+            features = ['20.0 Credits', 'Basic AI Quality', 'Revision mode only', 'Voice pay-per-use'];
             pdf_limit = 0;
             modes = ['Revision'];
           } else if (code.includes('starter')) {
-            features = ['180 Credits/mo', 'Revision + Explain', 'Standard quality', 'PDF uploads (5)', 'Voice pay-per-use'];
-            pdf_limit = 5;
+            features = ['40.0 Credits/mo', 'Indie & Students', 'Standard AI Quality', 'Unlimited PDF uploads', 'Voice pay-per-use'];
+            pdf_limit = 100;
             modes = ['Revision', 'Explain'];
           } else if (code.includes('pro')) {
-            features = ['650 Credits/mo', 'Revision + Explain + Exam', 'Standard + Premium quality', 'PDF uploads (25)', 'Voice pay-per-use'];
-            pdf_limit = 25;
+            features = ['100.0 Credits/mo', 'Fast-moving Educators', 'Premium AI Quality', 'Unlimited PDF uploads', 'Exam generation'];
+            pdf_limit = 100;
             modes = ['Revision', 'Explain', 'Exam'];
           } else if (code.includes('power')) {
-            features = ['1800 Credits/mo', 'All learning modes', 'Standard + Premium quality', 'PDF uploads (100)', 'Voice pay-per-use'];
+            features = ['200.0 Credits/mo', 'Growing Academies', 'Premium AI Quality', 'Unlimited PDF uploads', 'Placement & Career Prep'];
             pdf_limit = 100;
             modes = ['Revision', 'Explain', 'Exam', 'PlacementPrep'];
           } else {

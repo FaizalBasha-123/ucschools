@@ -288,6 +288,7 @@ pub enum ScenePriority {
 
 #[derive(Debug, Clone)]
 pub struct GenerationBudget {
+    pub target_scenes: usize,
     pub max_scenes: usize,
     pub max_interactions: usize,
     pub max_visuals: usize,
@@ -302,6 +303,7 @@ impl GenerationBudget {
     pub fn to_constraint_prompt(&self) -> String {
         format!(
             "Scene Limit Rules:\n\
+             - Target length: {target_scenes} scenes\n\
              - Maximum scenes: {max_scenes}\n\
              - Maximum interactive elements: {max_interactions}\n\
              - Maximum visual elements: {max_visuals}\n\
@@ -309,7 +311,8 @@ impl GenerationBudget {
              - Maximum bullets per scene: {max_bullets_per_scene}\n\
              - Maximum characters per bullet: {max_chars_per_bullet}\n\
              {quiz_rule}\
-             Never exceed these limits.",
+             Aim for the target length unless the topic complexity requires the hard maximum.",
+            target_scenes = self.target_scenes,
             max_scenes = self.max_scenes,
             max_interactions = self.max_interactions,
             max_visuals = self.max_visuals,
@@ -327,7 +330,8 @@ impl GenerationBudget {
     pub fn to_budget_prompt_block(&self) -> String {
         format!(
             "GENERATION BUDGET:\n\
-             - Max {max_scenes} scenes\n\
+             - Target {target_scenes} scenes (Recommended)\n\
+             - Max {max_scenes} scenes (Hard limit)\n\
              - Max {max_interactions} interactive elements\n\
              - Max {max_visuals} visual elements\n\
              - Max {max_bullets} bullets per scene\n\
@@ -336,7 +340,8 @@ impl GenerationBudget {
              - No paragraphs — use concise bullet points\n\
              - No fluff, no introductions, no conclusions in individual scene content\n\
              {quiz_rule}\
-             All limits are hard — do not exceed them.",
+             Aim for target scenes. All max limits are hard — do not exceed them.",
+            target_scenes = self.target_scenes,
             max_scenes = self.max_scenes,
             max_interactions = self.max_interactions,
             max_visuals = self.max_visuals,
@@ -354,8 +359,10 @@ impl GenerationBudget {
 
 pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity) -> GenerationBudget {
     let max_scenes = complexity.hard_max_scenes(tier);
+    let target_scenes = complexity.base_scene_count(tier);
     match tier {
         QualityTier::Basic => GenerationBudget {
+            target_scenes,
             max_scenes,
             max_interactions: 2,
             max_visuals: 1,
@@ -365,6 +372,7 @@ pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity)
             require_quiz_scene: false,
         },
         QualityTier::Standard => GenerationBudget {
+            target_scenes,
             max_scenes,
             max_interactions: 5,
             max_visuals: 3,
@@ -374,6 +382,7 @@ pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity)
             require_quiz_scene: false,
         },
         QualityTier::Premium => GenerationBudget {
+            target_scenes,
             max_scenes,
             max_interactions: 8,
             max_visuals: 5,
@@ -512,13 +521,16 @@ mod tests {
 
     #[test]
     fn effective_slides_scales_with_complexity() {
-        // Basic: Normal → base_scene_count=5, High → min(6, 7) = 6
+        // Basic: max_slides=7
+        // Normal -> 7
+        // High -> ceil(7 * 1.4) = 10
+        // Low -> 7
         let normal = effective_max_slides(QualityTier::Basic, TopicComplexity::Normal);
         let high = effective_max_slides(QualityTier::Basic, TopicComplexity::High);
         let low = effective_max_slides(QualityTier::Basic, TopicComplexity::Low);
-        assert_eq!(low, 3);   // 5 - 2, clamped to min 2
-        assert_eq!(normal, 5);
-        assert_eq!(high, 6);  // min(5+1=6, ceil(5*1.4)=7) = 6
+        assert_eq!(low, 7);
+        assert_eq!(normal, 7);
+        assert_eq!(high, 10);
     }
 
     #[test]

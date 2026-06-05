@@ -549,6 +549,7 @@ mod tests {
                 whiteboard: vec![],
                 agent_ids: vec![],
                 generated_agent_configs: vec![],
+                max_scenes: Some(15),
             }),
             scenes: vec![Scene {
                 id: "scene-1".to_string(),

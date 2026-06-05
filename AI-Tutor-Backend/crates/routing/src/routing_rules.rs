@@ -297,8 +297,10 @@ pub fn default_retry_policy() -> RetryPolicy {
 /// Generation budget per quality tier, with deterministic max_scenes from complexity.
 pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity) -> GenerationBudget {
     let max_scenes = complexity.hard_max_scenes(tier);
+    let target_scenes = complexity.base_scene_count(tier);
     match tier {
         QualityTier::Basic => GenerationBudget {
+            target_scenes,
             max_scenes,
             max_interactions: 2,
             max_visuals: 1,
@@ -308,6 +310,7 @@ pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity)
             require_quiz_scene: false,
         },
         QualityTier::Standard => GenerationBudget {
+            target_scenes,
             max_scenes,
             max_interactions: 5,
             max_visuals: 3,
@@ -317,6 +320,7 @@ pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity)
             require_quiz_scene: false,
         },
         QualityTier::Premium => GenerationBudget {
+            target_scenes,
             max_scenes,
             max_interactions: 8,
             max_visuals: 5,

@@ -241,94 +241,60 @@ pub async fn parse_pdf(
     if pdf_buffer.is_empty() {
         return Err(ApiError {
             status: StatusCode::BAD_REQUEST,
-            message: "No PDF file provided".to_string(),
+            message: "No document file provided".to_string(),
         });
     }
 
     let file_size = pdf_buffer.len();
-    
-    let api_key = env::var("OPENROUTER_API_KEY").unwrap_or_default();
-    if api_key.is_empty() {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            message: "OPENROUTER_API_KEY is not configured on the backend.".to_string(),
-        });
-    }
-
-    let model = routing_rules::resolve_specialized_model(routing_rules::SpecializedTask::PdfParsing, QualityTier::Standard)
-        .replace("openrouter:", "");
-
-    let base_url = env::var("PDF_OPENROUTER_BASE_URL")
-        .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string());
-
-    use base64::{engine::general_purpose, Engine as _};
-    let base64_pdf = general_purpose::STANDARD.encode(&pdf_buffer);
-
     let start_time = std::time::Instant::now();
-    let client = Client::new();
-    let res = client
-        .post(&format!("{}/chat/completions", base_url))
-        .header("Authorization", format!("Bearer {}", api_key))
-        .json(&serde_json::json!({
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "Please parse this PDF and return its full content in Markdown format. Preserve the structure, including headings, tables, and lists. If there are images, describe them in place using ALT text style within the Markdown."
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": format!("data:application/pdf;base64,{}", base64_pdf)
-                            }
-                        }
-                    ]
-                }
-            ],
-            "temperature": 0.1
-        }))
-        .send()
-        .await
-        .map_err(|e| ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("Failed to call OpenRouter for PDF: {}", e),
-        })?;
 
-    if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        return Err(ApiError {
-            status,
-            message: format!("OpenRouter PDF parsing failed: {}", body),
-        });
-    }
-
-    let json: serde_json::Value = res.json().await.map_err(|e| ApiError {
+    // 1. Create a temporary file to store the document for markitdown
+    let temp_dir = std::env::temp_dir();
+    let temp_file_path = temp_dir.join(format!("{}.{}", uuid::Uuid::new_v4(), file_name.split('.').last().unwrap_or("pdf")));
+    
+    tokio::fs::write(&temp_file_path, &pdf_buffer).await.map_err(|e| ApiError {
         status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("Failed to parse OpenRouter response: {}", e),
+        message: format!("Failed to write temp file: {}", e),
     })?;
 
-    let content = json["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    // 2. Use markitdown to convert the document locally
+    let converter_path = temp_file_path.clone();
+    let conversion_result = tokio::task::spawn_blocking(move || {
+        let mut md = markitdown::MarkItDown::new();
+        // convert expects &str for the path
+        let path_str = converter_path.to_str().unwrap_or("");
+        md.convert(path_str, None)
+    })
+    .await
+    .map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("Conversion task panicked: {}", e),
+    })?;
 
-    Ok(Json(ParsePdfResponse {
-        success: true,
-        data: ParsedPdfData {
-            text: content,
-            images: vec![],
-            metadata: PdfMetadata {
-                page_count: 0,
-                parser: "gemini-openrouter".to_string(),
-                model,
-                file_name,
-                file_size,
-                processing_time: start_time.elapsed().as_millis() as u64,
+    // 3. Clean up the temp file
+    let _ = tokio::fs::remove_file(&temp_file_path).await;
+
+    // conversion_result is Result<Option<DocumentConverterResult>, MarkitdownError>
+    if let Ok(Some(result)) = conversion_result {
+        Ok(Json(ParsePdfResponse {
+            success: true,
+            data: ParsedPdfData {
+                text: result.text_content,
+                images: vec![], // markitdown-rs describes images inline in text
+                metadata: PdfMetadata {
+                    page_count: 0, // markitdown doesn't always provide page count
+                    parser: "markitdown-rs".to_string(),
+                    model: "local-cpu".to_string(),
+                    file_name,
+                    file_size,
+                    processing_time: start_time.elapsed().as_millis() as u64,
+                },
             },
-        },
-    }))
+        }))
+    } else {
+        Err(ApiError {
+            status: StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            message: "Failed to convert document or unsupported format".to_string(),
+        })
+    }
 }

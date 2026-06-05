@@ -277,6 +277,7 @@ mod tests {
             order: 1,
             language: Some("en-US".to_string()),
             suggested_image_ids: vec![],
+            visual_type: None,
             media_generations: vec![
                 MediaGenerationRequest {
                     element_id: "gen_img_1".to_string(),

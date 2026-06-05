@@ -11136,14 +11136,14 @@ fn highest_allowed_quality_mode(
 
 fn billing_product_usd_amount_minor(product_code: &str) -> i64 {
     match product_code {
-        "starter" => 599,        // $5.99
-        "pro" => 1199,           // $11.99
-        "power" => 3499,         // $34.99
-        "starter_yearly" => 5750, // $57.50 (~20% off monthly)
-        "pro_yearly" => 11510,    // $115.10
-        "power_yearly" => 33590,  // $335.90
-        "pack_150" => 200,        // $2 (unchanged)
-        "pack_500" => 500,        // $5 (unchanged)
+        "starter" => 999,        // $9.99
+        "pro" => 2499,           // $24.99
+        "power" => 4999,         // $49.99
+        "starter_yearly" => 9590, // $95.90 (~20% off monthly)
+        "pro_yearly" => 23990,    // $239.90
+        "power_yearly" => 47990,  // $479.90
+        "pack_20" => 500,        // $5.00
+        "pack_100" => 2500,      // $25.00
         _ => 0,
     }
 }
@@ -13573,6 +13573,32 @@ mod tests {
             })
         }
 
+        async fn explain_doubt(
+            &self,
+            _session: &mut WhiteboardDoubtSession,
+            _question: &str,
+            _prior_exchange: &[(String, String)],
+        ) -> Result<Vec<WhiteboardActionEvent>> {
+            Ok(vec![])
+        }
+
+        async fn explain_doubt_followup(
+            &self,
+            _session: &mut WhiteboardDoubtSession,
+            _question: &str,
+            _prior_exchange: &[(String, String)],
+        ) -> Result<Vec<WhiteboardActionEvent>> {
+            Ok(vec![])
+        }
+
+        async fn stop_doubt_session(&self, _wb_session_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn redis_client(&self) -> Option<&redis::Client> {
+            None
+        }
+
         async fn check_db_ready(&self) -> Result<()> {
             Ok(())
         }
@@ -14081,6 +14107,7 @@ mod tests {
                 whiteboard: vec![],
                 agent_ids: vec![],
                 generated_agent_configs: vec![],
+                max_scenes: Some(15),
             }),
             scenes: vec![],
             style: Some("interactive".to_string()),

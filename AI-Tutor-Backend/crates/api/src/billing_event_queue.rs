@@ -3,18 +3,18 @@
 /// This is the AI-Tutor equivalent of Lago's Apache Kafka event ingestion.
 /// Instead of Kafka (which requires a separate cluster), we use Redis Streams
 /// which provide identical semantics for our scale:
-///   - XADD:        Producer "fire and forget" — returns immediately, no DB touch
+///   - XADD:        Producer "fire and forget" - returns immediately, no DB touch
 ///   - XREADGROUP:  Consumer groups with at-least-once delivery guarantee
 ///   - XACK:        Explicit acknowledgement after successful processing
 ///   - XAUTOCLAIM:  Automatic reclaim of stale messages (crashed worker recovery)
 ///
 /// ## Stream Keys
 /// ```
-/// billing:events:raw          — Raw credit deduction requests (from lesson generation)
-/// billing:events:enriched     — Processed events with bucket split computed
-/// billing:events:rejected     — Events rejected due to insufficient balance
-/// billing:jobs:renewal        — Hourly tick from the AlarmClock task
-/// billing:jobs:renewal:tasks  — Per-subscription renewal tasks (fanned out)
+/// billing:events:raw          - Raw credit deduction requests (from lesson generation)
+/// billing:events:enriched     - Processed events with bucket split computed
+/// billing:events:rejected     - Events rejected due to insufficient balance
+/// billing:jobs:renewal        - Hourly tick from the AlarmClock task
+/// billing:jobs:renewal:tasks  - Per-subscription renewal tasks (fanned out)
 /// ```
 ///
 /// ## Lago Parallel
@@ -48,11 +48,11 @@ pub const MAX_STREAM_LEN: usize = 10_000;
 
 // ── Event / message types ─────────────────────────────────────────────────────
 
-/// A raw billing debit event — written on every lesson generation (async, no DB).
+/// A raw billing debit event - written on every lesson generation (async, no DB).
 /// This is the "drop into Kafka and return 200" pattern from Lago.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawBillingEvent {
-    /// Unique event ID — also the idempotency key for the credit_ledger entry.
+    /// Unique event ID - also the idempotency key for the credit_ledger entry.
     pub event_id: String,
     pub account_id: String,
     pub lesson_id: String,
@@ -66,7 +66,7 @@ pub struct RawBillingEvent {
     pub enqueued_at: i64,
 }
 
-/// An enriched billing event — after the processor has determined the bucket split.
+/// An enriched billing event - after the processor has determined the bucket split.
 /// Written to billing:events:enriched and then bulk-inserted into credit_ledger.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnrichedBillingEvent {
@@ -84,7 +84,7 @@ pub struct EnrichedBillingEvent {
     pub processed_at: i64,
 }
 
-/// A rejected billing event — written when a debit fails due to insufficient balance.
+/// A rejected billing event - written when a debit fails due to insufficient balance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RejectedBillingEvent {
     pub event_id: String,
@@ -112,7 +112,7 @@ pub struct RenewalTask {
     pub subscription_id: String,
     pub account_id: String,
     pub plan_code: String,
-    /// Unix timestamp of current_period_end — used as the idempotency key suffix
+    /// Unix timestamp of current_period_end - used as the idempotency key suffix
     /// for the credit_ledger entry, preventing double-charges on retry.
     pub period_end_ts: i64,
 }
@@ -146,7 +146,7 @@ impl BillingEventQueue {
     }
 
     /// Ensure all consumer groups exist. Called once at startup.
-    /// Redis XGROUP CREATE returns BUSYGROUP if group already exists — we ignore that.
+    /// Redis XGROUP CREATE returns BUSYGROUP if group already exists - we ignore that.
     pub async fn ensure_consumer_groups(&self) -> Result<()> {
         let mut conn = self.conn().await?;
 
@@ -194,7 +194,7 @@ impl BillingEventQueue {
     /// Returns true if the error was NOGROUP (caller should retry the consume).
     pub async fn recover_from_nogroup(&self, error_msg: &str) -> bool {
         if error_msg.contains("NOGROUP") {
-            warn!("NOGROUP detected — attempting to recreate consumer groups");
+            warn!("NOGROUP detected - attempting to recreate consumer groups");
             match self.ensure_consumer_groups().await {
                 Ok(_) => {
                     info!("consumer groups recreated successfully");
@@ -213,7 +213,7 @@ impl BillingEventQueue {
     // ── PRODUCER: Raw billing event ingestion ─────────────────────────────────
 
     /// Enqueue a raw billing debit event.
-    /// Returns immediately — never touches the database.
+    /// Returns immediately - never touches the database.
     /// This is the "drop into Kafka and return 200 OK" pattern from Lago.
     pub async fn enqueue_raw_event(&self, event: &RawBillingEvent) -> Result<String> {
         let mut conn = self.conn().await?;

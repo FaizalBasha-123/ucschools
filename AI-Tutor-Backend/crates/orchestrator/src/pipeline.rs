@@ -353,23 +353,9 @@ where
         let hard_max = scene_budget.hard_max_scenes;
         let original_count = state.outlines.len();
 
-        // Consent gate: if outlines exceed target without consent, bail with details
-        // so the frontend can surface the budget to the user before we proceed.
-        if !state.request.extra_scenes_consented
-            && state.outlines.len() > scene_budget.target_scenes
-        {
-            let quality_label = tier_label(tier);
-            let extra_cost = (state.outlines.len() - scene_budget.target_scenes) as f64
-                * scene_budget_extra_credit_cost(complexity);
-            anyhow::bail!(
-                "BUDGET_EXCEEDED: scene_count={}, target={}, hard_cap={}, quality={}, extra_cost={:.2}",
-                state.outlines.len(),
-                scene_budget.target_scenes,
-                hard_max,
-                quality_label,
-                extra_cost,
-            );
-        }
+        // Consent gate: REMOVED for V2 Telemetry Billing. 
+        // We now allow generation up to hard_max as long as the base fee was held.
+        // Final usage is calculated and deducted at the end of the pipeline.
 
         // Phase 1: Priority-aware truncation to hard_max (absolute cap)
         if state.outlines.len() > hard_max {
@@ -532,11 +518,11 @@ where
             match budget_tracker.record_scene(&cost_estimate, tier) {
                 CostDecision::Deny => {
                     warn!(
-                        "CostGuard DENIED scene {}: est_tokens={} est_cost=${:.6} total=${:.6}",
+                        "CostGuard DENIED scene {}: est_tokens={} est_credits={:.1} total={:.1}",
                         outline.title,
                         cost_estimate.estimated_tokens,
-                        cost_estimate.estimated_cost_usd,
-                        budget_tracker.total_estimated_cost_usd
+                        cost_estimate.estimated_credits,
+                        budget_tracker.total_estimated_credits
                     );
                     telemetry.record_cost_decision("Deny");
                     continue;
@@ -547,9 +533,9 @@ where
                 }
                 CostDecision::Warn => {
                     info!(
-                        "CostGuard WARN: scene {} approaching budget limit (total=${:.6})",
+                        "CostGuard WARN: scene {} approaching budget limit (total={:.1})",
                         outline.title,
-                        budget_tracker.total_estimated_cost_usd
+                        budget_tracker.total_estimated_credits
                     );
                     telemetry.record_cost_decision("Warn");
                 }
