@@ -158,7 +158,10 @@ export default function LessonStudioPage() {
   // ── Load classroom ─────────────────────────────────────────────────────────
   const loadClassroom = useCallback(async () => {
     try {
-      await useStageStore.getState().loadFromStorage(classroomId);
+      // The backend namespaces stage IDs with 'stage-' but the URL does not.
+      // Ensure we query IndexedDB using the correct namespaced key to prevent cache misses.
+      const storageId = classroomId.startsWith('stage-') ? classroomId : `stage-${classroomId}`;
+      await useStageStore.getState().loadFromStorage(storageId);
 
       if (!useStageStore.getState().stage) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
@@ -202,11 +205,12 @@ export default function LessonStudioPage() {
         }
       }
 
-      await useMediaGenerationStore.getState().restoreFromDB(classroomId);
+
+      await useMediaGenerationStore.getState().restoreFromDB(storageId);
 
       const { loadGeneratedAgentsForStage } = await import('@/lib/orchestration/registry/store');
       const { useSettingsStore: ss } = await import('@/lib/store/settings');
-      const generatedAgentIds = await loadGeneratedAgentsForStage(classroomId);
+      const generatedAgentIds = await loadGeneratedAgentsForStage(storageId);
       if (generatedAgentIds.length > 0) {
         ss.getState().setAgentMode('auto');
         ss.getState().setSelectedAgentIds(generatedAgentIds);

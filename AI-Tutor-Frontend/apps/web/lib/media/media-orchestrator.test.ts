@@ -81,7 +81,8 @@ function makeOutline(overrides?: Partial<SceneOutline>): SceneOutline {
     title: 'Mitochondria Structure',
     description: 'The powerhouse of the cell',
     keyPoints: ['Outer membrane', 'Inner membrane', 'ATP synthesis'],
-    sceneType: 'slide',
+    type: 'slide',
+    order: 0,
     mediaGenerations: [
       {
         elementId: 'gen_img_1',

@@ -37,7 +37,7 @@ function simulateOnSceneAdvance(
 }
 
 describe('Scene check-in trigger logic', () => {
-  let triggerSpy: ReturnType<typeof vi.fn>;
+  let triggerSpy: any;
   let state: CheckinState;
 
   beforeEach(() => {
