@@ -39,6 +39,7 @@ function isSessionAuthRequired(pathname: string): boolean {
   return (
     pathname === '/api/lesson-shelf' ||
     pathname === '/api/lesson-shelf/mark-opened' ||
+    pathname === '/api/lessons' ||
     pathname.startsWith('/api/lesson-shelf/') ||
     pathname.startsWith('/api/lessons/') ||
     pathname.startsWith('/api/billing/') ||
