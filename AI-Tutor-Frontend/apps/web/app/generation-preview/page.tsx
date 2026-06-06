@@ -255,7 +255,7 @@ function GenerationPreviewContent() {
                  throw new Error('Generation cancelled');
               }
             } catch (e) {
-              if (e instanceof Error && e.message.includes('Generation failed in backend') || e.message.includes('Generation cancelled')) {
+              if (e instanceof Error && (e.message.includes('Generation failed in backend') || e.message.includes('Generation cancelled'))) {
                 throw e;
               }
             }
