@@ -689,8 +689,8 @@ export class PlaybackEngine {
     };
 
     utterance.onerror = (event) => {
-      // 'canceled' is expected when stop/pause is called — not a real error
-      if (event.error !== 'canceled') {
+      // 'canceled' and 'interrupted' are expected when stop/pause/cancel is called
+      if (event.error !== 'canceled' && event.error !== 'interrupted') {
         log.warn('Browser TTS chunk error:', event.error);
         // Skip failed chunk, try next
         this.browserTTSChunkIndex++;

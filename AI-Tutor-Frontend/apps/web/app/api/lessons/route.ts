@@ -88,6 +88,7 @@ function normalizeLesson(lesson: any) {
 
     return {
       ...sc,
+      type: sc.scene_type ?? sc.type,
       stageId: sc.stage_id ?? sc.stageId,
       createdAt: sc.created_at ?? sc.createdAt,
       updatedAt: sc.updated_at ?? sc.updatedAt,
