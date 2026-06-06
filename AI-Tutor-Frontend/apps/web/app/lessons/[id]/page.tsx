@@ -665,7 +665,7 @@ export default function LessonStudioPage() {
               ) : (
                 /* Stage — full width, ChatArea hidden (still mounted for SSE wiring) */
                 <div
-                  className="flex-1 overflow-hidden"
+                  className="flex-1 flex flex-col overflow-hidden"
                   style={{ paddingBottom: STUDIO_BAR_HEIGHT }}
                 >
                   <Stage />
