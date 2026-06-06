@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use ai_tutor_domain::routing::{
     Capability, GenerationBudget, GenerationTask, QualityTier, RetryPolicy,
-    TierLimits, TopicComplexity, tier_limits,
+    TopicComplexity,
 };
 
 use crate::overrides;
