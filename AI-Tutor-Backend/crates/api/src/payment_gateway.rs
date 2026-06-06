@@ -27,11 +27,10 @@
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use axum::http::HeaderMap;
-use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use ai_tutor_domain::gateway::{
     GatewayCheckoutRequest, GatewayCheckoutResponse, GatewayPaymentLinkRequest,
@@ -208,7 +207,7 @@ impl PaymentGateway for StripeGateway {
         let client = reqwest::Client::new();
 
         // Stripe Payment Links API.
-        let expires_at_unix = req.expires_at.timestamp();
+        let _expires_at_unix = req.expires_at.timestamp();
         let params: Vec<(&str, String)> = vec![
             ("line_items[0][quantity]", "1".to_string()),
             ("line_items[0][price_data][currency]", req.currency.to_lowercase()),
@@ -348,7 +347,7 @@ fn extract_stripe_metadata(obj: &serde_json::Value) -> HashMap<String, String> {
 /// Stripe signature format: `t=<timestamp>,v1=<hmac_hex>`
 /// The signed payload is: `{timestamp}.{body}`
 fn verify_stripe_signature(body: &[u8], signature: &str, secret: &str) -> Result<()> {
-    use base64::Engine;
+    
 
     let mut timestamp: Option<&str> = None;
     let mut v1_sig: Option<&str> = None;

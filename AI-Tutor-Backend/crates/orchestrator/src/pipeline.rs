@@ -1046,6 +1046,7 @@ fn resolve_quality_tier(request: &LessonGenerationRequest) -> QualityTier {
     }
 }
 
+#[allow(dead_code)]
 fn tier_label(tier: QualityTier) -> &'static str {
     match tier {
         QualityTier::Basic => "basic",
@@ -1054,6 +1055,7 @@ fn tier_label(tier: QualityTier) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn scene_budget_extra_credit_cost(complexity: TopicComplexity) -> f64 {
     // Rough per-scene cost estimate for the consent dialog (varies by learning mode,
     // but this gives a ballpark for user visibility).

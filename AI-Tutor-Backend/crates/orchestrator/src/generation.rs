@@ -449,6 +449,7 @@ struct OutlineDto {
     /// Visual type chosen by the LLM: none|svg|chart|latex|html|image
     #[serde(default, alias = "visualType", alias = "visual_type")]
     visual_type: Option<String>,
+    #[allow(dead_code)]
     #[serde(default)]
     media_generations: Vec<MediaGenerationDto>,
     #[serde(default, alias = "quizConfig", alias = "quiz_config")]
@@ -464,6 +465,7 @@ struct OutlineDto {
     project_config: Option<ProjectOutlineConfigDto>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct MediaGenerationDto {
     element_id: String,
@@ -493,6 +495,7 @@ struct SlideElementDto {
     chart_type: Option<String>,
     /// Raw SVG markup for kind=svg elements.
     /// Accessibility description for kind=svg elements.
+    #[allow(dead_code)]
     #[serde(default)]
     alt: Option<String>,
     left: f32,
@@ -1502,6 +1505,7 @@ fn normalize_project_outline_config(
     })
 }
 
+#[allow(dead_code)]
 fn map_media_generation(media: MediaGenerationDto) -> Option<MediaGenerationRequest> {
     let media_type = match media.media_type.trim().to_ascii_lowercase().as_str() {
         "image" => MediaType::Image,
@@ -1718,6 +1722,7 @@ fn repair_media_elements(
     elements
 }
 
+#[allow(dead_code)]
 fn build_fallback_image_prompt(title: &str, description: &str, key_points: &[String]) -> String {
     let kp_text = if key_points.is_empty() {
         String::new()

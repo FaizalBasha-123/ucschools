@@ -2,7 +2,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::warn;
 
 use ai_tutor_storage::repositories::ApiUsageRepository;
 

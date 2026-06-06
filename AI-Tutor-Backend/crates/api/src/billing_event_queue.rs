@@ -21,7 +21,7 @@
 /// Lago: event → Kafka(RAW_EVENTS_TOPIC) → Go consumer → Kafka(ENRICHED_EVENTS_TOPIC) → DB
 /// Ours: event → Redis(billing:events:raw) → Rust task → Redis(billing:events:enriched) → DB
 use anyhow::{anyhow, Result};
-use redis::{AsyncCommands, RedisResult};
+use redis::RedisResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};

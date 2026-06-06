@@ -24,7 +24,7 @@
 /// - Events NOT ACKed if processing fails → stay in stream for XAUTOCLAIM retry
 /// - Stale messages (> 5 min) are reclaimed by the next available worker
 /// - Duplicate ledger entries are prevented by PK idempotency (ON CONFLICT DO NOTHING)
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
 use futures::future::join_all;
 use std::collections::HashMap;
@@ -33,7 +33,6 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
-use ai_tutor_domain::wallet::CreditBucket;
 use ai_tutor_storage::{filesystem::FileStorage, repositories::WalletRepository};
 
 use crate::billing_event_queue::{
@@ -287,7 +286,7 @@ impl BillingProcessor {
         }
 
         // Flush each account's debits to the DB.
-        for (account_id, (promo_total, paid_total)) in &account_debits {
+        for (_account_id, (promo_total, paid_total)) in &account_debits {
             // The idempotency key is per event; for the aggregate wallet debit we
             // use the flush-time debit. We reconstruct per-event entries below.
             // This is the batch wallet update path — uses the WalletRepository trait.

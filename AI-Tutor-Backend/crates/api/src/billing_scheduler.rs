@@ -39,7 +39,6 @@ use ai_tutor_storage::{
     repositories::{
         CreditLedgerRepository, InvoiceLineRepository, InvoiceRepository,
         SubscriptionRepository, TutorAccountRepository, WalletRepository,
-        RevenueSnapshotRepository,
     },
 };
 
@@ -50,8 +49,7 @@ use crate::invoice_renderer::InvoiceRenderer;
 /// Number of parallel RenewalTaskWorker Tokio tasks.
 const RENEWAL_WORKER_COUNT: usize = 8;
 
-/// Grace period after a failed renewal before marking subscription PastDue.
-const GRACE_PERIOD_DAYS: i64 = 3;
+
 
 // ── AlarmClock ────────────────────────────────────────────────────────────────
 
@@ -321,7 +319,7 @@ impl RenewalTaskWorker {
     async fn process_renewal_task_msg(
         &self,
         msg: crate::billing_event_queue::StreamMessage<RenewalTask>,
-        consumer_name: &str,
+        _consumer_name: &str,
     ) {
         let task = &msg.payload;
         info!(

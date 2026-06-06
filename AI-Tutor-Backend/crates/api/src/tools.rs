@@ -260,7 +260,7 @@ pub async fn parse_pdf(
     // 2. Use markitdown to convert the document locally
     let converter_path = temp_file_path.clone();
     let conversion_result = tokio::task::spawn_blocking(move || {
-        let mut md = markitdown::MarkItDown::new();
+        let md = markitdown::MarkItDown::new();
         // convert expects &str for the path
         let path_str = converter_path.to_str().unwrap_or("");
         md.convert(path_str, None)

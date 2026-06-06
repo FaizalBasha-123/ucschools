@@ -86,8 +86,8 @@ use ai_tutor_providers::{
 };
 use ai_tutor_routing::routing_rules;
 use ai_tutor_runtime::session::{
-    action_execution_metadata_for_name, lesson_playback_events,
-    ActionAckPolicy, PlaybackEvent, TutorEventKind, TutorStreamEvent, TutorTurnStatus,
+    lesson_playback_events,
+    ActionAckPolicy, PlaybackEvent, TutorStreamEvent,
 };
 use ai_tutor_runtime::whiteboard::WhiteboardDoubtSession;
 use ai_tutor_storage::{
@@ -8781,13 +8781,13 @@ async fn get_free_callback_handler(
 /// Drops the debit event into the Redis Stream and returns immediately.
 /// The BillingProcessor task picks it up asynchronously.
 async fn ingest_billing_event(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     Extension(account): Extension<AuthenticatedAccountContext>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    use crate::billing_event_queue::RawBillingEvent;
+    
     use crate::billing_processor::enqueue_lesson_debit;
-    use chrono::Utc;
+    
 
     let lesson_id = body["lesson_id"].as_str().unwrap_or("unknown");
     let credits = body["credits_amount"].as_f64().unwrap_or(0.0);
@@ -8855,15 +8855,15 @@ async fn unified_payment_webhook(
 
     match event {
         GatewayWebhookEvent::PaymentSucceeded {
-            ref gateway_txn_id,
-            ref gateway_payment_id,
-            amount_minor,
-            ref currency,
+            gateway_txn_id: _,
+            gateway_payment_id: _,
+            amount_minor: _,
+            currency: _,
             ref metadata,
         } => {
             let order_id = metadata.get("order_id").cloned().unwrap_or_default();
             let account_id = metadata.get("account_id").cloned().unwrap_or_default();
-            let product_code = metadata.get("product_code").cloned().unwrap_or_default();
+            let _product_code = metadata.get("product_code").cloned().unwrap_or_default();
             let credits: f64 = metadata.get("credits_to_grant")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0.0);
@@ -8916,7 +8916,7 @@ async fn unified_payment_webhook(
             tracing::info!(gateway_txn_id, refund_amount_minor, "refund webhook received");
             Ok(Json(serde_json::json!({ "ok": true, "action": "refund_noted" })))
         }
-        GatewayWebhookEvent::PaymentLinkPaid { ref gateway_link_id, ref gateway_payment_id, amount_minor, ref currency, ref metadata } => {
+        GatewayWebhookEvent::PaymentLinkPaid { ref gateway_link_id, gateway_payment_id: _, amount_minor: _, currency: _, ref metadata } => {
             // Operator top-up payment link paid.
             let link_id = metadata.get("link_id").cloned().unwrap_or_default();
             let account_id = metadata.get("account_id").cloned().unwrap_or_default();
@@ -9020,7 +9020,7 @@ async fn validate_topup_token(
 
 /// Initiate checkout for a top-up link.
 async fn topup_checkout(
-    State(state): State<AppState>,
+    State(_state): State<AppState>,
     axum::extract::Path(token): axum::extract::Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -9088,7 +9088,7 @@ async fn send_operator_topup_link(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     use jsonwebtoken::{encode, EncodingKey, Header, Algorithm};
-    use serde::{Deserialize, Serialize};
+    use serde::Serialize;
     use chrono::Utc;
 
     #[derive(Debug, Serialize)]
