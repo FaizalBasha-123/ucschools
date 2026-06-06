@@ -88,8 +88,8 @@ impl RedisBalanceCache {
                 promo_str.parse::<f64>(),
                 paid_str.parse::<f64>(),
             ) {
-                let promo = (promo * 10.0).round() / 10.0;
-                let paid = (paid * 10.0).round() / 10.0;
+                let promo = (promo * 10000.0).round() / 10000.0;
+                let paid = (paid * 10000.0).round() / 10000.0;
                 debug!(account_id, promo, paid, "balance cache hit");
                 return Ok(WalletBalance {
                     account_id: account_id.to_string(),
@@ -107,8 +107,8 @@ impl RedisBalanceCache {
 
         // Round to 1dp before caching.
         let mut rounded = balance.clone();
-        rounded.promo_balance = (rounded.promo_balance * 10.0).round() / 10.0;
-        rounded.paid_balance = (rounded.paid_balance * 10.0).round() / 10.0;
+        rounded.promo_balance = (rounded.promo_balance * 10000.0).round() / 10000.0;
+        rounded.paid_balance = (rounded.paid_balance * 10000.0).round() / 10000.0;
 
         // Warm the cache.
         if let Err(e) = self.warm_cache(account_id, &rounded).await {
@@ -183,7 +183,7 @@ impl RedisBalanceCache {
         let mut conn = self.conn().await?;
 
         if promo_amount > 0.0 {
-            let promo_rounded = (promo_amount * 10.0).round() / 10.0;
+            let promo_rounded = (promo_amount * 10000.0).round() / 10000.0;
             let result: f64 = redis::cmd("HINCRBYFLOAT")
                 .arg(&key).arg("promo").arg(promo_rounded)
                 .query_async(&mut conn)
@@ -198,7 +198,7 @@ impl RedisBalanceCache {
         }
 
         if paid_amount > 0.0 {
-            let paid_rounded = (paid_amount * 10.0).round() / 10.0;
+            let paid_rounded = (paid_amount * 10000.0).round() / 10000.0;
             let result: f64 = redis::cmd("HINCRBYFLOAT")
                 .arg(&key).arg("paid").arg(paid_rounded)
                 .query_async(&mut conn)
@@ -250,8 +250,8 @@ impl RedisBalanceCache {
         let mut conn = self.conn().await?;
         let now = Utc::now().timestamp().to_string();
 
-        let promo = format!("{:.1}", (balance.promo_balance * 10.0).round() / 10.0);
-        let paid = format!("{:.1}", (balance.paid_balance * 10.0).round() / 10.0);
+        let promo = format!("{:.1}", (balance.promo_balance * 10000.0).round() / 10000.0);
+        let paid = format!("{:.1}", (balance.paid_balance * 10000.0).round() / 10000.0);
 
         redis::cmd("HSET")
             .arg(&key)

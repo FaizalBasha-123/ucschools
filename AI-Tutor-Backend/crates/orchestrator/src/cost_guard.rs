@@ -75,7 +75,7 @@ impl BudgetTracker {
     /// Estimate total credits for all outlines before generation starts.
     pub fn check_outlines(&self, outlines: &[&str], tier: QualityTier) -> CostDecision {
         let total_tokens: usize = outlines.iter().map(|o| estimate_tokens(o)).sum();
-        let _credits = (total_tokens as f64 * credits_per_token(tier) * 10.0).round() / 10.0;
+        let _credits = (total_tokens as f64 * credits_per_token(tier) * 10000.0).round() / 10000.0;
         
         // In V2 telemetry, we allow generation as long as Base Fee is covered.
         // We only Deny if the prompt itself is absurdly large (>100k tokens).

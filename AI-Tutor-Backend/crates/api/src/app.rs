@@ -4051,8 +4051,8 @@ impl LiveLessonAppService {
             return Ok(());
         }
 
-        let precharged = (request.precharged_credits.unwrap_or(0.0).max(0.0) * 10.0).round() / 10.0;
-        let delta = ((usage.total - precharged) * 10.0).round() / 10.0;
+        let precharged = (request.precharged_credits.unwrap_or(0.0).max(0.0) * 10000.0).round() / 10000.0;
+        let delta = ((usage.total - precharged) * 10000.0).round() / 10000.0;
         if delta.abs() < 0.01 {
             return Ok(());
         }
@@ -4088,7 +4088,7 @@ impl LiveLessonAppService {
                 .await
                 .map_err(|err| anyhow!(err))?;
         } else {
-            let refund = (-delta * 10.0).round() / 10.0;
+            let refund = (-delta * 10000.0).round() / 10000.0;
             let entry = CreditLedgerEntry {
                 id: format!("refund-{}-{}", account_id, lesson.id),
                 account_id: account_id.to_string(),
@@ -5288,7 +5288,7 @@ impl LessonAppService for LiveLessonAppService {
             }
         });
 
-        let credit_balance = (balance.balance * 10.0).round() / 10.0;
+        let credit_balance = (balance.balance * 10000.0).round() / 10000.0;
         let mut context = BillingContext::new(credit_balance, active_subscription);
 
         let has_blocking_unpaid_invoice = unpaid_invoices.iter().any(|invoice| {
@@ -6451,7 +6451,7 @@ impl LessonAppService for LiveLessonAppService {
                         balance.balance
                     );
                 }
-                let est_rounded = (estimated_credits * 10.0).round() / 10.0;
+                let est_rounded = (estimated_credits * 10000.0).round() / 10000.0;
                 let entry = CreditLedgerEntry {
                     id: format!("precharge-{}-{}", account_id, lesson_id),
                     account_id: account_id.to_string(),
@@ -8104,7 +8104,13 @@ async fn start_whiteboard_doubt(
         .await
         .map_err(|e| ApiError::internal(anyhow::anyhow!("whiteboard doubt pipeline failed: {e}")))?;
 
-    let credits_used = WHITEBOARD_DOUBT_FLAT_CREDITS;
+    let credits_used = actions.iter().find_map(|a| {
+        if let WhiteboardActionEvent::Done { credits_used, .. } = a {
+            Some(*credits_used)
+        } else {
+            None
+        }
+    }).unwrap_or(WHITEBOARD_DOUBT_FLAT_CREDITS);
     let session_id = session.id.clone();
 
     // Persist session to Redis for follow-up requests
@@ -8189,13 +8195,21 @@ async fn followup_whiteboard_doubt(
         }
     }
 
-    // Always debit the flat per-question charge.
+    // Always debit the precisely calculated token cost from the pipeline.
+    let credits_used = actions.iter().find_map(|a| {
+        if let WhiteboardActionEvent::Done { credits_used, .. } = a {
+            Some(*credits_used)
+        } else {
+            None
+        }
+    }).unwrap_or(WHITEBOARD_DOUBT_FLAT_CREDITS);
+
     // Key includes turn_index — idempotent for retries of THIS turn, distinct across turns.
     let idempotency_key = format!("wb-followup-{}-t{}", wb_id, turn_index);
     if let Err(e) = state.service
         .debit_lesson_credits_for_account(
             &account.account_id,
-            WHITEBOARD_DOUBT_FLAT_CREDITS,
+            credits_used,
             &idempotency_key,
             &format!("Whiteboard follow-up t{}: {} ({})", turn_index, session.scene_title, lesson_id),
         )
@@ -8212,7 +8226,7 @@ async fn followup_whiteboard_doubt(
     Ok(Json(WhiteboardDoubtResponse {
         wb_session_id: wb_id,
         actions,
-        credits_used: WHITEBOARD_DOUBT_FLAT_CREDITS,
+        credits_used,
     }))
 }
 
@@ -12040,7 +12054,7 @@ fn min_generation_credits() -> f64 {
     read_optional_env("AI_TUTOR_MIN_GENERATION_CREDITS")
         .and_then(|v| v.parse::<f64>().ok())
         .filter(|v| *v >= 0.0)
-        .map(|v| (v * 10.0).round() / 10.0)
+        .map(|v| (v * 10000.0).round() / 10000.0)
         .unwrap_or(2.0)
 }
 

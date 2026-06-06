@@ -2545,7 +2545,7 @@ impl TutorAccountRepository for FileStorage {
                 get_pg_client(&postgres_url).map_err(|err| err.to_string())?;
 
             let mut transaction = client.transaction().map_err(|err| err.to_string())?;
-            let rounded_amount = (entry.amount * 10.0).round() / 10.0;
+            let rounded_amount = (entry.amount * 10000.0).round() / 10000.0;
             let bucket_str = entry.bucket.as_str();
 
             // INSERT into credit_ledger with bucket column (migration v22 added bucket).

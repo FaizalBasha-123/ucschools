@@ -110,9 +110,14 @@ export default function LessonStudioPage() {
                   `"correctAnswer":"A","explanation":"..."}. Return ONLY the JSON.`,
               },
             ],
+            storeState: { stage, scenes: [scene], currentSceneId: scene.id, mode: 'playback' },
+            config: { agentIds: stage.agentIds?.length ? stage.agentIds : ['default-1'] },
           }),
         });
-        if (!res.ok) return;
+        if (!res.ok) {
+          log.warn(`Checkin question generation failed: ${res.status}`);
+          return;
+        }
         // The chat route streams SSE events; collect the full text delta.
         const reader = res.body?.getReader();
         if (!reader) return;

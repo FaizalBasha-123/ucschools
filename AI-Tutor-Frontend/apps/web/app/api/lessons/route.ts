@@ -34,11 +34,64 @@ function normalizeLesson(lesson: any) {
 
   const normalizeScene = (sc: any) => {
     if (!sc) return sc;
+    
+    // Normalize content
+    let content = sc.content;
+    if (content) {
+      if (content.type === 'slide' && content.canvas) {
+        const c = content.canvas;
+        content = {
+          ...content,
+          canvas: {
+            ...c,
+            viewportWidth: c.viewport_width ?? c.viewportWidth,
+            viewportHeight: c.viewport_height ?? c.viewportHeight,
+            viewportRatio: c.viewport_ratio ?? c.viewportRatio,
+            theme: c.theme ? {
+              ...c.theme,
+              backgroundColor: c.theme.background_color ?? c.theme.backgroundColor,
+              themeColors: c.theme.theme_colors ?? c.theme.themeColors,
+              fontColor: c.theme.font_color ?? c.theme.fontColor,
+              fontName: c.theme.font_name ?? c.theme.fontName,
+            } : undefined,
+            elements: Array.isArray(c.elements) ? c.elements.map((el: any) => ({
+              ...el,
+              shapeName: el.shape_name ?? el.shapeName,
+            })) : [],
+          }
+        };
+      } else if (content.type === 'quiz' && Array.isArray(content.questions)) {
+        content = {
+          ...content,
+          questions: content.questions.map((q: any) => ({
+            ...q,
+            commentPrompt: q.comment_prompt ?? q.commentPrompt,
+            hasAnswer: q.has_answer ?? q.hasAnswer,
+          })),
+        };
+      } else if (content.type === 'project' || content.type === 'pbl') {
+         // Backend uses 'project', frontend uses 'pbl'
+         const pc = content.project_config ?? content.projectConfig;
+         content = {
+           ...content,
+           type: 'pbl',
+           projectConfig: pc ? {
+             ...pc,
+             drivingQuestion: pc.driving_question ?? pc.drivingQuestion,
+             learningObjectives: pc.learning_objectives ?? pc.learningObjectives,
+             requiredResources: pc.required_resources ?? pc.requiredResources,
+             evaluationCriteria: pc.evaluation_criteria ?? pc.evaluationCriteria,
+           } : undefined,
+         };
+      }
+    }
+
     return {
       ...sc,
       stageId: sc.stage_id ?? sc.stageId,
       createdAt: sc.created_at ?? sc.createdAt,
       updatedAt: sc.updated_at ?? sc.updatedAt,
+      content,
       multiAgent: sc.multi_agent
         ? {
             enabled: sc.multi_agent.enabled,

@@ -8,6 +8,8 @@ import { apiError } from '@/lib/server/api-response';
 import { authHeadersFrom } from '@/lib/server/auth';
 import { backendUrl } from '@/lib/server/backend-url';
 
+export const maxDuration = 60; // Allow enough time for Render cold start and LLM generation
+
 type Params = Promise<{ id: string; wbId: string }>;
 
 export async function POST(req: NextRequest, { params }: { params: Params }) {

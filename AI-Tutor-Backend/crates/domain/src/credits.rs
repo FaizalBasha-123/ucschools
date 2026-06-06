@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 pub use crate::wallet::CreditBucket;
 
 pub fn round_credits(v: f64) -> f64 {
-    (v * 10.0).round() / 10.0
+    (v * 10000.0).round() / 10000.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

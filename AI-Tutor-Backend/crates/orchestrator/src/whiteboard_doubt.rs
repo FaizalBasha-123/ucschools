@@ -151,7 +151,7 @@ impl WhiteboardDoubtPipeline {
             "whiteboard doubt: calling LLM"
         );
 
-        let raw = self.llm.generate_text_with_history(&messages).await?;
+        let (raw, usage) = self.llm.generate_text_with_history_and_usage(&messages).await?;
 
         // Parse tool calls
         let tool_calls = parse_tool_calls(&raw);
@@ -161,7 +161,18 @@ impl WhiteboardDoubtPipeline {
 
         // Execute tool calls → produce events
         let mut events: Vec<WhiteboardActionEvent> = Vec::new();
-        let mut credits_used = 0.0_f64;
+        
+        let mut credits_used = if let Some(u) = usage {
+            let total = u.total_tokens.unwrap_or(u.input_tokens + u.output_tokens);
+            let rate = match quality {
+                QualityMode::Basic => 0.0001,
+                QualityMode::Standard => 0.0002,
+                QualityMode::Premium => 0.0010,
+            };
+            ai_tutor_domain::credits::round_credits(total as f64 * rate)
+        } else {
+            ai_tutor_domain::billing::WHITEBOARD_DOUBT_FLAT_CREDITS
+        };
         let mut image_count = 0u32;
         let mut next_id = 0usize;
 
