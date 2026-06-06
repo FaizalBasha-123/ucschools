@@ -6,7 +6,8 @@ import { backendUrl } from '@/lib/server/backend-url';
 
 const log = createLogger('BillingDashboardAPI');
 
-
+// Render cold start can take ~15s; give enough headroom beyond the AbortController timeout.
+export const maxDuration = 30;
 
 export async function GET(request: NextRequest) {
   const baseUrl = backendUrl();

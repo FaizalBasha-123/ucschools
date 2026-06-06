@@ -13,6 +13,49 @@ import { authHeadersFrom } from '@/lib/server/auth';
 
 const log = createLogger('Classroom API');
 
+export const maxDuration = 30; // Allow enough time for Render cold start
+
+/**
+ * The Rust backend serializes with snake_case (serde default).
+ * The frontend Stage/Scene types use camelCase.
+ * Normalize at the proxy boundary so no client code needs to handle both.
+ */
+function normalizeLesson(lesson: any) {
+  const normalizeStage = (s: any) => {
+    if (!s) return s;
+    return {
+      ...s,
+      createdAt: s.created_at ?? s.createdAt,
+      updatedAt: s.updated_at ?? s.updatedAt,
+      agentIds: s.agent_ids ?? s.agentIds ?? [],
+      generatedAgentConfigs: s.generated_agent_configs ?? s.generatedAgentConfigs ?? [],
+    };
+  };
+
+  const normalizeScene = (sc: any) => {
+    if (!sc) return sc;
+    return {
+      ...sc,
+      stageId: sc.stage_id ?? sc.stageId,
+      createdAt: sc.created_at ?? sc.createdAt,
+      updatedAt: sc.updated_at ?? sc.updatedAt,
+      multiAgent: sc.multi_agent
+        ? {
+            enabled: sc.multi_agent.enabled,
+            agentIds: sc.multi_agent.agent_ids ?? [],
+            directorPrompt: sc.multi_agent.director_prompt,
+          }
+        : (sc.multiAgent ?? undefined),
+    };
+  };
+
+  return {
+    ...lesson,
+    stage: normalizeStage(lesson.stage),
+    scenes: Array.isArray(lesson.scenes) ? lesson.scenes.map(normalizeScene) : [],
+  };
+}
+
 export async function POST(request: NextRequest) {
   let stageId: string | undefined;
   let sceneCount: number | undefined;
@@ -90,7 +133,8 @@ export async function GET(request: NextRequest) {
       return apiError(API_ERROR_CODES.INTERNAL_ERROR, backendRes.status, 'Failed to fetch lesson', errorText);
     }
 
-    const classroom = await backendRes.json();
+    const raw = await backendRes.json();
+    const classroom = normalizeLesson(raw);
     return apiSuccess({ classroom });
   } catch (error) {
     log.error(
