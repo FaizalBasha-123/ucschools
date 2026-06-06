@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
 import { ElementTypes, type PPTElement } from '@/lib/types/slides';
+import { useSceneSelector } from '@/lib/store';
+import type { SceneContent } from '@/lib/types/stage';
 import { ImageElement } from '../../components/element/ImageElement';
 import { TextElement } from '../../components/element/TextElement';
 import { LineElement } from '../../components/element/LineElement';
@@ -233,12 +235,26 @@ export function EditableElement({
     );
   }
 
+  const theme = useSceneSelector<SceneContent, { fontColor: string; fontName: string }>(
+    (content) => {
+      if (content.type === 'slide') {
+        return content.canvas.theme;
+      }
+      return {
+        fontColor: '#333333',
+        fontName: 'Microsoft YaHei',
+      };
+    },
+  );
+
   return (
     <div
       id={`editable-element-${elementInfo.id}`}
       className="editable-element absolute"
       style={{
         zIndex: elementIndex,
+        color: theme.fontColor,
+        fontFamily: theme.fontName,
       }}
     >
       <ContextMenu>

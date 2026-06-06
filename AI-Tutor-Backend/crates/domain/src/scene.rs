@@ -37,6 +37,7 @@ pub enum SceneContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SlideCanvas {
     pub id: String,
     pub viewport_width: i32,
@@ -50,6 +51,7 @@ pub struct SlideCanvas {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SlideTheme {
     pub background_color: String,
     pub theme_colors: Vec<String>,

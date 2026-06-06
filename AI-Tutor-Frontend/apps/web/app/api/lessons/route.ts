@@ -56,6 +56,7 @@ function normalizeLesson(lesson: any) {
             } : undefined,
             elements: Array.isArray(c.elements) ? c.elements.map((el: any) => ({
               ...el,
+              type: el.type ?? el.kind,
               shapeName: el.shape_name ?? el.shapeName,
             })) : [],
           }
@@ -65,6 +66,7 @@ function normalizeLesson(lesson: any) {
           ...content,
           questions: content.questions.map((q: any) => ({
             ...q,
+            type: q.type ?? q.question_type,
             commentPrompt: q.comment_prompt ?? q.commentPrompt,
             hasAnswer: q.has_answer ?? q.hasAnswer,
           })),

@@ -91,60 +91,9 @@ export default function LessonStudioPage() {
       const stage = useStageStore.getState().stage;
       const scene = useStageStore.getState().scenes[sceneIdx];
       if (!stage || !scene) return;
-      try {
-        // Ask the chat AI to generate a quick comprehension question for this scene.
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders() },
-          body: JSON.stringify({
-            session_id: `checkin:${stage.id}:${sceneIdx}`,
-            session_mode: 'qa',
-            messages: [
-              {
-                id: nanoid(),
-                role: 'user',
-                content:
-                  `Generate a single multiple-choice comprehension question for scene: "${scene.title}" ` +
-                  `in lesson "${stage.name}". ` +
-                  `Return JSON: {"id":"q1","text":"...","options":[{"label":"...","value":"A"},{...}],` +
-                  `"correctAnswer":"A","explanation":"..."}. Return ONLY the JSON.`,
-              },
-            ],
-            storeState: { stage, scenes: [scene], currentSceneId: scene.id, mode: 'playback' },
-            config: { agentIds: stage.agentIds?.length ? stage.agentIds : ['default-1'] },
-          }),
-        });
-        if (!res.ok) {
-          log.warn(`Checkin question generation failed: ${res.status}`);
-          return;
-        }
-        // The chat route streams SSE events; collect the full text delta.
-        const reader = res.body?.getReader();
-        if (!reader) return;
-        let full = '';
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          // Parse SSE data lines
-          chunk.split('\n').forEach((line) => {
-            if (line.startsWith('data: ')) {
-              try {
-                const ev = JSON.parse(line.slice(6));
-                if (ev.kind === 'text_delta' && ev.content) full += ev.content;
-              } catch { /* skip */ }
-            }
-          });
-        }
-        // Extract JSON from the full response
-        const jsonMatch = full.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) return;
-        const q: CheckinQuestion = JSON.parse(jsonMatch[0]);
-        setCheckin({ visible: true, sceneIndex: sceneIdx, question: q });
-      } catch (err) {
-        log.warn('[Checkin] Failed to generate check-in question:', err);
-      }
+      // The `/api/runtime/chat/stream` endpoint was removed in the backend.
+      // We disable this checkin trigger to avoid 404 errors until a new endpoint is provided.
+      return;
     },
   });
 
