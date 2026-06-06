@@ -748,6 +748,19 @@ pub fn supports_openai_compatible(provider_type: &ProviderType) -> bool {
 // TTS Provider (async reqwest)
 // ────────────────────────────────────────────────────────────
 
+/// Pick a sensible default voice for the given model_id.
+///
+/// - Kokoro (`hexgrad/kokoro-82m`) uses its own voice identifiers like `af_bella`.
+///   Sending an OpenAI voice such as "alloy" results in a 400 Bad Request.
+/// - All other OpenAI-compatible endpoints keep "alloy" as the default.
+fn default_tts_voice(model_id: &str) -> &'static str {
+    if model_id.contains("kokoro") {
+        "af_bella"
+    } else {
+        "alloy"
+    }
+}
+
 #[derive(Serialize)]
 struct TtsRequest<'a> {
     model: &'a str,
@@ -766,10 +779,11 @@ impl TtsProvider for OpenAiCompatibleTtsProvider {
         voice: Option<&str>,
         speed: Option<f32>,
     ) -> Result<String> {
+        let resolved_voice = voice.unwrap_or_else(|| default_tts_voice(&self.model_config.model_id));
         let request = TtsRequest {
             model: &self.model_config.model_id,
             input: text,
-            voice: voice.unwrap_or("alloy"),
+            voice: resolved_voice,
             response_format: "mp3",
             speed,
         };
