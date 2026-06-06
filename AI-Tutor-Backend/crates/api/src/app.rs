@@ -8039,7 +8039,7 @@ async fn add_security_headers(
     headers.insert(
         header::HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(
-            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' *;",
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' *; frame-src 'self' https://accounts.google.com;",
         ),
     );
     headers.insert(
