@@ -246,12 +246,12 @@ function GenerationPreviewContent() {
               if (job.message) {
                  setStatusMessage(job.message);
               }
-              if (job.status === 'Succeeded') {
+              if (job.status === 'succeeded') {
                  lessonIdToRedirect = job.result?.lesson_id;
                  break;
-              } else if (job.status === 'Failed') {
+              } else if (job.status === 'failed') {
                  throw new Error(job.error || 'Generation failed in backend');
-              } else if (job.status === 'Cancelled') {
+              } else if (job.status === 'cancelled') {
                  throw new Error('Generation cancelled');
               }
             } catch (e) {
