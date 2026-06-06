@@ -86,9 +86,10 @@ function normalizeLesson(lesson: any) {
       }
     }
 
+    const resolvedType = sc.scene_type ?? sc.type ?? content?.type;
     return {
       ...sc,
-      type: sc.scene_type ?? sc.type,
+      type: resolvedType === 'project' ? 'pbl' : resolvedType,
       stageId: sc.stage_id ?? sc.stageId,
       createdAt: sc.created_at ?? sc.createdAt,
       updatedAt: sc.updated_at ?? sc.updatedAt,
