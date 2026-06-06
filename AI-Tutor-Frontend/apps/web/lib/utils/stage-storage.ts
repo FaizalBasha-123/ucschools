@@ -92,7 +92,13 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
     }
 
     // Load scenes
-    const scenes = await db.scenes.where('stageId').equals(stageId).sortBy('order');
+    let scenes = await db.scenes.where('stageId').equals(stageId).sortBy('order');
+
+    // Fix legacy missing type field (if cached before the API normalized it)
+    scenes = scenes.map((sc) => ({
+      ...sc,
+      type: (sc as any).scene_type ?? sc.type,
+    }));
 
     // Load chat sessions from independent table
     const chats = await loadChatSessions(stageId);
