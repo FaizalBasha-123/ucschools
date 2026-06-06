@@ -41,7 +41,9 @@ export default function LessonStudioPage() {
   const { t } = useI18n();
 
   // ── Stage loading ──────────────────────────────────────────────────────────
-  const { loadFromStorage } = useStageStore();
+  // NOTE: do NOT destructure loadFromStorage from useStageStore() hook — that
+  // returns a new reference on every store update, causing loadClassroom to
+  // rebuild and the useEffect to re-fire mid-load (race condition).
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -151,7 +153,7 @@ export default function LessonStudioPage() {
   // ── Load classroom ─────────────────────────────────────────────────────────
   const loadClassroom = useCallback(async () => {
     try {
-      await loadFromStorage(classroomId);
+      await useStageStore.getState().loadFromStorage(classroomId);
 
       if (!useStageStore.getState().stage) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
@@ -163,11 +165,18 @@ export default function LessonStudioPage() {
             const json = await res.json();
             if (json.success && json.classroom) {
               const { stage, scenes } = json.classroom;
-              useStageStore.getState().setStage(stage);
+              // Set stage + scenes atomically in one setState call to prevent
+              // any intermediate render where stage is set but scenes is []
+              // (setStage() alone resets scenes to [], causing the guard in
+              // loadFromStorage to fail and the effect to re-fire)
               useStageStore.setState({
+                stage,
                 scenes,
                 currentSceneId: scenes[0]?.id ?? null,
+                chats: [],
               });
+              // Persist to IndexedDB
+              useStageStore.getState().saveToStorage();
               log.info('Loaded from server-side storage:', classroomId);
 
               if (stage.generatedAgentConfigs?.length) {
@@ -216,7 +225,7 @@ export default function LessonStudioPage() {
     } finally {
       setLoading(false);
     }
-  }, [classroomId, loadFromStorage, t]);
+  }, [classroomId]);
 
   useEffect(() => {
     if (!hasAuthSessionHint()) {
