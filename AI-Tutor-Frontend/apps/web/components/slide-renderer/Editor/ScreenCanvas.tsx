@@ -17,18 +17,20 @@ import { AnimatePresence } from 'motion/react';
 
 export function ScreenCanvas() {
   const canvasScale = useCanvasStore.use.canvasScale();
-  const elements = useSceneSelector<SlideContent, PPTElement[]>(
-    (content) => content.canvas.elements,
+  const canvasData = useSceneSelector<SlideContent, SlideContent['canvas']>(
+    (content) => content.canvas,
   );
+  const elements = canvasData.elements;
+  const viewportSize = canvasData.viewportSize ?? (canvasData as any).viewport_width ?? 1000;
+  const viewportRatio = canvasData.viewportRatio ?? (canvasData as any).viewport_ratio ?? 0.5625;
+
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // Viewport size and positioning
-  const { viewportStyles } = useViewportSize(canvasRef);
+  const { viewportStyles } = useViewportSize(canvasRef, viewportSize, viewportRatio);
 
   // Get background style
-  const background = useSceneSelector<SlideContent, SlideBackground | undefined>(
-    (content) => content.canvas.background,
-  );
+  const background = canvasData.background;
   const { backgroundStyle } = useSlideBackgroundStyle(background);
 
   // Get visual effect state
