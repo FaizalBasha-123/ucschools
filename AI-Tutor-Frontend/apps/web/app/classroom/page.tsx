@@ -141,12 +141,12 @@ export default function ClassroomDashboard() {
 
     try {
       // 1. Billing check
-      const billingRes = await fetch('/api/billing/dashboard', {
-        method: 'GET',
-        headers: authHeaders(),
-        cache: 'no-store',
-      });
-
+      try {
+        const { apiFetch } = await import('@/lib/auth/session');
+        const billingRes = await apiFetch('/api/billing/dashboard', {
+          method: 'GET',
+          cache: 'no-store',
+        });
       if (billingRes.ok) {
         const billingData = await billingRes.json();
         // apiSuccess() spreads data at root: { success, entitlement, ... }

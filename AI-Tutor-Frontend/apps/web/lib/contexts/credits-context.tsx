@@ -55,8 +55,7 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
 
     setLoading(true);
     try {
-      const res = await fetch('/api/billing/dashboard', {
-        headers: authHeaders(),
+      const res = await apiFetch('/api/billing/dashboard', {
         cache: 'no-store',
       });
       if (res.status === 401) {

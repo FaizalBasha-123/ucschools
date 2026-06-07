@@ -1,4 +1,4 @@
-import { authHeaders } from '@/lib/auth/session';
+import { authHeaders, apiFetch } from '@/lib/auth/session';
 
 export type LessonShelfStatus = 'generating' | 'ready' | 'failed' | 'archived';
 
@@ -66,10 +66,9 @@ export async function fetchShelf(status?: LessonShelfStatus) {
     url.searchParams.set('status', status);
   }
 
-  const response = await fetch(url.toString(), {
+  const response = await apiFetch(url.toString(), {
     method: 'GET',
     cache: 'no-store',
-    headers: authHeaders(),
     credentials: 'include',
   });
 
@@ -82,11 +81,11 @@ export async function fetchShelf(status?: LessonShelfStatus) {
 }
 
 export async function renameShelfItem(itemId: string, title: string) {
-  const response = await fetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}`, {
+  const response = await apiFetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}`, {
     method: 'PATCH',
-    headers: authHeaders({
+    headers: {
       'Content-Type': 'application/json',
-    }),
+    },
     credentials: 'include',
     body: JSON.stringify({ title }),
   });
@@ -100,9 +99,8 @@ export async function renameShelfItem(itemId: string, title: string) {
 }
 
 export async function archiveShelfItem(itemId: string) {
-  const response = await fetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}/archive`, {
+  const response = await apiFetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}/archive`, {
     method: 'POST',
-    headers: authHeaders(),
     credentials: 'include',
   });
 
@@ -115,9 +113,8 @@ export async function archiveShelfItem(itemId: string) {
 }
 
 export async function deleteShelfItem(itemId: string) {
-  const response = await fetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}`, {
+  const response = await apiFetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}`, {
     method: 'DELETE',
-    headers: authHeaders(),
     credentials: 'include',
   });
 
@@ -128,9 +125,8 @@ export async function deleteShelfItem(itemId: string) {
 }
 
 export async function reopenShelfItem(itemId: string) {
-  const response = await fetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}/reopen`, {
+  const response = await apiFetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}/reopen`, {
     method: 'POST',
-    headers: authHeaders(),
     credentials: 'include',
   });
 
@@ -143,9 +139,8 @@ export async function reopenShelfItem(itemId: string) {
 }
 
 export async function retryShelfItem(itemId: string) {
-  const response = await fetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}/retry`, {
+  const response = await apiFetch(`${baseUrl()}/api/lesson-shelf/${encodeURIComponent(itemId)}/retry`, {
     method: 'POST',
-    headers: authHeaders(),
     credentials: 'include',
   });
 
@@ -158,11 +153,11 @@ export async function retryShelfItem(itemId: string) {
 }
 
 export async function markShelfOpened(lessonId: string, itemId?: string) {
-  const response = await fetch(`${baseUrl()}/api/lesson-shelf/mark-opened`, {
+  const response = await apiFetch(`${baseUrl()}/api/lesson-shelf/mark-opened`, {
     method: 'POST',
-    headers: authHeaders({
+    headers: {
       'Content-Type': 'application/json',
-    }),
+    },
     credentials: 'include',
     body: JSON.stringify({ lesson_id: lessonId, item_id: itemId }),
   });

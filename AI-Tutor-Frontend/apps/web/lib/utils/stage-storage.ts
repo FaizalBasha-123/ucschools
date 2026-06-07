@@ -94,11 +94,66 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
     // Load scenes
     let scenes = await db.scenes.where('stageId').equals(stageId).sortBy('order');
 
-    // Fix legacy missing type field (if cached before the API normalized it)
+    // Fix legacy missing type field and internal data structures (if cached before the API normalized it)
     scenes = scenes.map((sc) => {
       let resolvedType = (sc as any).scene_type ?? sc.type ?? sc.content?.type;
       if (resolvedType === 'project') resolvedType = 'pbl';
-      return { ...sc, type: resolvedType };
+      
+      const scene = { ...sc, type: resolvedType };
+      
+      // Normalize content if present
+      if (scene.content) {
+        if (scene.content.type === 'slide' && scene.content.canvas) {
+          const c = scene.content.canvas;
+          scene.content = {
+            ...scene.content,
+            canvas: {
+              ...c,
+              viewportSize: c.viewportSize ?? c.viewport_width ?? 1000,
+              viewportHeight: c.viewportHeight ?? c.viewport_height ?? 563,
+              viewportRatio: c.viewportRatio ?? c.viewport_ratio ?? 0.5625,
+              theme: c.theme ? {
+                ...c.theme,
+                backgroundColor: c.theme.backgroundColor ?? c.theme.background_color,
+                themeColors: c.theme.themeColors ?? c.theme.theme_colors,
+                fontColor: c.theme.fontColor ?? c.theme.font_color,
+                fontName: c.theme.font_name ?? c.theme.font_name,
+              } : {
+                backgroundColor: '#ffffff',
+                themeColors: ['#333333'],
+                fontColor: '#333333',
+                fontName: 'Microsoft YaHei',
+              },
+              elements: Array.isArray(c.elements) ? c.elements.map((el: any) => ({
+                rotate: 0,
+                defaultColor: '#333333',
+                defaultFontName: 'Microsoft YaHei',
+                fixedRatio: true,
+                ...el,
+                type: el.type ?? el.kind ?? 'text',
+                shapeName: el.shapeName ?? el.shape_name,
+              })) : [],
+            }
+          };
+        } else if (scene.content.type === 'quiz' && Array.isArray(scene.content.questions)) {
+          scene.content = {
+            ...scene.content,
+            questions: scene.content.questions.map((q: any) => ({
+              ...q,
+              type: q.type ?? q.question_type,
+              commentPrompt: q.commentPrompt ?? q.comment_prompt,
+              hasAnswer: q.hasAnswer ?? q.has_answer,
+            })),
+          };
+        } else if (scene.content.type === 'interactive') {
+          scene.content = {
+            ...scene.content,
+            scientificModel: scene.content.scientificModel ?? scene.content.scientific_model,
+          };
+        }
+      }
+      
+      return scene;
     });
 
     // Load chat sessions from independent table

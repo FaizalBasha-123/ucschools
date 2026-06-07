@@ -115,9 +115,9 @@ export default function LessonStudioPage() {
       if (!useStageStore.getState().stage) {
         log.info('No IndexedDB data, trying server-side storage for:', classroomId);
         try {
-          const res = await fetch(`/api/lessons?id=${encodeURIComponent(classroomId)}`, {
-            headers: authHeaders(),
-          });
+          const { apiFetch } = await import('@/lib/auth/session');
+          const res = await apiFetch(`/api/lessons?id=${encodeURIComponent(classroomId)}`);
+          
           if (res.ok) {
             const json = await res.json();
             if (json.success && json.classroom) {
@@ -274,9 +274,9 @@ export default function LessonStudioPage() {
     setStudioGenerating(true);
 
     try {
-      const billingRes = await fetch('/api/billing/dashboard', {
+      const { apiFetch } = await import('@/lib/auth/session');
+      const billingRes = await apiFetch('/api/billing/dashboard', {
         method: 'GET',
-        headers: authHeaders(),
         cache: 'no-store',
       });
 

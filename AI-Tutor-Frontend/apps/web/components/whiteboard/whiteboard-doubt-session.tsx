@@ -6,6 +6,7 @@ import { X, Send, HelpCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useStageStore } from '@/lib/store';
 import { useSettingsStore } from '@/lib/store/settings';
+import { apiFetch } from '@/lib/auth/session';
 import type {
   WhiteboardActionEvent,
   WhiteboardDoubtResponse,
@@ -40,13 +41,6 @@ interface WhiteboardDoubtSessionProps {
   sceneIndex: number;
   /** Current scene title */
   sceneTitle: string;
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function authHeaders(): HeadersInit {
-  // The Next.js API route handles auth forwarding; the browser just needs its cookie.
-  return { 'Content-Type': 'application/json' };
 }
 
 // ─── Canvas renderer ──────────────────────────────────────────────────────────
@@ -272,7 +266,7 @@ export function WhiteboardDoubtSession({
     if (cleanedUpRef.current || !wbSessionId) return;
     cleanedUpRef.current = true;
     try {
-      await fetch(`/api/lessons/${lessonId}/doubt/${wbSessionId}`, {
+      await apiFetch(`/api/lessons/${lessonId}/doubt/${wbSessionId}`, {
         method: 'DELETE',
       });
     } catch {
@@ -336,9 +330,8 @@ export function WhiteboardDoubtSession({
       try {
         if (!wbSessionId) {
           // First question — start session
-          const res = await fetch(`/api/lessons/${lessonId}/doubt`, {
+          const res = await apiFetch(`/api/lessons/${lessonId}/doubt`, {
             method: 'POST',
-            headers: authHeaders(),
             body: JSON.stringify({
               question: q.trim(),
               scene_index: sceneIndex,
@@ -358,9 +351,8 @@ export function WhiteboardDoubtSession({
           setCallCount((c) => c + 1);
         } else {
           // Follow-up question
-          const res = await fetch(`/api/lessons/${lessonId}/doubt/${wbSessionId}`, {
+          const res = await apiFetch(`/api/lessons/${lessonId}/doubt/${wbSessionId}`, {
             method: 'POST',
-            headers: authHeaders(),
             body: JSON.stringify({ question: q.trim() }),
           });
           if (!res.ok) {

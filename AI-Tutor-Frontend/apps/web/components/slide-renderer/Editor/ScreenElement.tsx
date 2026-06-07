@@ -23,7 +23,9 @@ interface ScreenElementProps {
 
 export function ScreenElement({ elementInfo, elementIndex, animate }: ScreenElementProps) {
   const CurrentElementComponent = useMemo(() => {
-     
+    // Robust type identification with fallback to 'kind' (legacy)
+    const type = elementInfo.type ?? (elementInfo as any).kind;
+    
     const elementTypeMap: Record<string, any> = {
       [ElementTypes.IMAGE]: BaseImageElement,
       [ElementTypes.TEXT]: BaseTextElement,
@@ -34,11 +36,9 @@ export function ScreenElement({ elementInfo, elementIndex, animate }: ScreenElem
       [ElementTypes.TABLE]: BaseTableElement,
       [ElementTypes.VIDEO]: BaseVideoElement,
       [ElementTypes.SVG]: BaseSvgElement,
-      // TODO: Add other element types
-      // [ElementTypes.AUDIO]: BaseAudioElement,
     };
-    return elementTypeMap[elementInfo.type] || null;
-  }, [elementInfo.type]);
+    return elementTypeMap[type] || null;
+  }, [elementInfo.type, (elementInfo as any).kind]);
 
   const theme = useSceneSelector<SceneContent, { fontColor: string; fontName: string }>(
     (content) => {
