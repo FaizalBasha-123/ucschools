@@ -6,11 +6,13 @@ import type { PercentageGeometry } from '@/lib/types/action';
  *
  * @param element - PPT element
  * @param viewportSize - Viewport width base, default 1000px
+ * @param viewportRatio - Viewport height/width ratio, default 0.5625 (16:9)
  * @returns Percentage geometry info, or null if the element has no position info
  */
 export function getElementPercentageGeometry(
   element: PPTElement,
   viewportSize: number = 1000,
+  viewportRatio: number = 0.5625,
 ): PercentageGeometry | null {
   // Only positioned elements have left/top/width/height
   if (
@@ -23,12 +25,13 @@ export function getElementPercentageGeometry(
   }
 
   const { left, top, width, height } = element;
+  const viewportHeight = viewportSize * viewportRatio;
 
-  // Calculate percentage coordinates (relative to viewportSize)
+  // Calculate percentage coordinates (relative to actual viewport dimensions)
   const x = (left / viewportSize) * 100;
-  const y = (top / (viewportSize * 0.5625)) * 100; // 16:9 ratio
+  const y = (top / viewportHeight) * 100;
   const w = (width / viewportSize) * 100;
-  const h = (height / (viewportSize * 0.5625)) * 100;
+  const h = (height / viewportHeight) * 100;
 
   // Calculate center point
   const centerX = x + w / 2;
@@ -49,19 +52,18 @@ export function getElementPercentageGeometry(
  *
  * @param scene - Scene object
  * @param elementId - Element ID
- * @param viewportSize - Viewport width base, default 1000px
  * @returns Percentage geometry info, or null if element is not found or has no position info
  */
 export function findElementGeometry(
-   
   scene: Record<string, any>,
   elementId: string,
-  viewportSize: number = 1000,
 ): PercentageGeometry | null {
   // Support two scene structures:
   // 1. scene.elements (old format)
   // 2. scene.content.canvas.elements (new format)
   let elements: PPTElement[] | undefined;
+  let viewportSize = 1000;
+  let viewportRatio = 0.5625;
 
   if (scene.type === 'slide') {
     if (scene.elements) {
@@ -69,7 +71,10 @@ export function findElementGeometry(
       elements = scene.elements;
     } else if (scene.content?.canvas?.elements) {
       // New format
-      elements = scene.content.canvas.elements;
+      const canvas = scene.content.canvas;
+      elements = canvas.elements;
+      viewportSize = canvas.viewportSize ?? canvas.viewport_width ?? 1000;
+      viewportRatio = canvas.viewportRatio ?? canvas.viewport_ratio ?? 0.5625;
     }
   }
 
@@ -82,7 +87,7 @@ export function findElementGeometry(
     return null;
   }
 
-  return getElementPercentageGeometry(element, viewportSize);
+  return getElementPercentageGeometry(element, viewportSize, viewportRatio);
 }
 
 /**

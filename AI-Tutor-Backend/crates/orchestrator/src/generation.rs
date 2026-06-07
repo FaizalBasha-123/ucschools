@@ -502,6 +502,8 @@ struct SlideElementDto {
     top: f32,
     width: f32,
     height: f32,
+    #[serde(default)]
+    rotate: f32,
 }
 
 #[derive(Deserialize)]
@@ -1529,6 +1531,7 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
     let id = element
         .id
         .unwrap_or_else(|| format!("element-{}", index + 1));
+    let rotate = element.rotate;
     match element.kind.trim().to_ascii_lowercase().as_str() {
         "image" => SlideElement::Image {
             id,
@@ -1536,7 +1539,9 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             top: element.top,
             width: element.width,
             height: element.height,
+            rotate,
             src: element.src.unwrap_or_default(),
+            fixed_ratio: true,
         },
         "video" => SlideElement::Video {
             id,
@@ -1544,6 +1549,7 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             top: element.top,
             width: element.width,
             height: element.height,
+            rotate,
             src: element.src.unwrap_or_default(),
         },
         "shape" => SlideElement::Shape {
@@ -1552,7 +1558,9 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             top: element.top,
             width: element.width,
             height: element.height,
+            rotate,
             shape_name: element.shape_name,
+            fill: "#5b9bd5".to_string(),
         },
         "line" => SlideElement::Line {
             id,
@@ -1560,6 +1568,7 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             top: element.top,
             width: element.width,
             height: element.height,
+            rotate,
         },
         "chart" => SlideElement::Chart {
             id,
@@ -1567,6 +1576,7 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             top: element.top,
             width: element.width,
             height: element.height,
+            rotate,
             chart_type: element.chart_type,
         },
         "latex" => SlideElement::Latex {
@@ -1575,6 +1585,7 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             top: element.top,
             width: element.width,
             height: element.height,
+            rotate,
             latex: element.latex.unwrap_or_default(),
         },
         "table" => SlideElement::Table {
@@ -1583,15 +1594,18 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             top: element.top,
             width: element.width,
             height: element.height,
+            rotate,
         },
-
         _ => SlideElement::Text {
             id,
             left: element.left,
             top: element.top,
             width: element.width,
             height: element.height,
+            rotate,
             content: element.content.unwrap_or_default(),
+            default_font_name: "Microsoft YaHei".to_string(),
+            default_color: "#333333".to_string(),
         },
     }
 }
@@ -2987,7 +3001,10 @@ fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElement> {
             top: 50.0,
             width: 520.0,
             height: 60.0,
+            rotate: 0.0,
             content: outline.title.clone(),
+            default_font_name: "Microsoft YaHei".to_string(),
+            default_color: "#333333".to_string(),
         },
         SlideElement::Text {
             id: "text-body-1".to_string(),
@@ -2995,6 +3012,7 @@ fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElement> {
             top: 130.0,
             width: 520.0,
             height: 180.0,
+            rotate: 0.0,
             content: if outline.key_points.is_empty() {
                 outline.description.clone()
             } else {
@@ -3005,6 +3023,8 @@ fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElement> {
                     .collect::<Vec<_>>()
                     .join("\n")
             },
+            default_font_name: "Microsoft YaHei".to_string(),
+            default_color: "#333333".to_string(),
         },
     ];
     elements = attach_media_placeholders(elements, outline);

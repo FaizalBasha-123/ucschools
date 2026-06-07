@@ -44,34 +44,43 @@ function normalizeLesson(lesson: any) {
           ...content,
           canvas: {
             ...c,
-            viewportWidth: c.viewport_width ?? c.viewportWidth,
-            viewportHeight: c.viewport_height ?? c.viewportHeight,
-            viewportRatio: c.viewport_ratio ?? c.viewportRatio,
+            viewportWidth: c.viewportWidth ?? c.viewport_width ?? 1000,
+            viewportHeight: c.viewportHeight ?? c.viewport_height ?? 563,
+            viewportRatio: c.viewportRatio ?? c.viewport_ratio ?? 0.5625,
             theme: c.theme ? {
               ...c.theme,
-              backgroundColor: c.theme.background_color ?? c.theme.backgroundColor,
-              themeColors: c.theme.theme_colors ?? c.theme.themeColors,
-              fontColor: c.theme.font_color ?? c.theme.fontColor,
-              fontName: c.theme.font_name ?? c.theme.fontName,
+              backgroundColor: c.theme.backgroundColor ?? c.theme.background_color,
+              themeColors: c.theme.themeColors ?? c.theme.theme_colors,
+              fontColor: c.theme.fontColor ?? c.theme.font_color,
+              fontName: c.theme.fontName ?? c.theme.font_name,
             } : undefined,
             elements: Array.isArray(c.elements) ? c.elements.map((el: any) => ({
+              rotate: 0, // Default for visibility
+              defaultColor: '#333333',
+              defaultFontName: 'Microsoft YaHei',
+              fixedRatio: true,
               ...el,
               type: el.type ?? el.kind,
-              shapeName: el.shape_name ?? el.shapeName,
+              shapeName: el.shapeName ?? el.shape_name,
             })) : [],
-          }
-        };
-      } else if (content.type === 'quiz' && Array.isArray(content.questions)) {
-        content = {
-          ...content,
-          questions: content.questions.map((q: any) => ({
+            }
+            };
+            } else if (content.type === 'quiz' && Array.isArray(content.questions)) {
+            content = {
+            ...content,
+            questions: content.questions.map((q: any) => ({
             ...q,
             type: q.type ?? q.question_type,
-            commentPrompt: q.comment_prompt ?? q.commentPrompt,
-            hasAnswer: q.has_answer ?? q.hasAnswer,
-          })),
-        };
-      } else if (content.type === 'project' || content.type === 'pbl') {
+            commentPrompt: q.commentPrompt ?? q.comment_prompt,
+            hasAnswer: q.hasAnswer ?? q.has_answer,
+            })),
+            };
+            } else if (content.type === 'interactive') {
+            content = {
+            ...content,
+            scientificModel: content.scientificModel ?? content.scientific_model,
+            };
+            } else if (content.type === 'project' || content.type === 'pbl') {
          // Backend uses 'project', frontend uses 'pbl'
          const pc = content.project_config ?? content.projectConfig;
          content = {

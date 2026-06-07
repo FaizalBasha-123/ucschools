@@ -40,7 +40,9 @@ pub enum SceneContent {
 #[serde(rename_all = "camelCase")]
 pub struct SlideCanvas {
     pub id: String,
+    #[serde(rename = "viewportSize")]
     pub viewport_width: i32,
+    #[serde(rename = "viewportHeight")]
     pub viewport_height: i32,
     pub viewport_ratio: f32,
     pub theme: SlideTheme,
@@ -60,7 +62,7 @@ pub struct SlideTheme {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum SlideElement {
     Text {
         id: String,
@@ -68,7 +70,13 @@ pub enum SlideElement {
         top: f32,
         width: f32,
         height: f32,
+        #[serde(default)]
+        rotate: f32,
         content: String,
+        #[serde(default = "default_font_name")]
+        default_font_name: String,
+        #[serde(default = "default_color")]
+        default_color: String,
     },
     Image {
         id: String,
@@ -76,7 +84,11 @@ pub enum SlideElement {
         top: f32,
         width: f32,
         height: f32,
+        #[serde(default)]
+        rotate: f32,
         src: String,
+        #[serde(default = "default_fixed_ratio")]
+        fixed_ratio: bool,
     },
     Shape {
         id: String,
@@ -84,8 +96,12 @@ pub enum SlideElement {
         top: f32,
         width: f32,
         height: f32,
+        #[serde(default)]
+        rotate: f32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shape_name: Option<String>,
+        #[serde(default = "default_fill")]
+        fill: String,
     },
     Line {
         id: String,
@@ -93,6 +109,8 @@ pub enum SlideElement {
         top: f32,
         width: f32,
         height: f32,
+        #[serde(default)]
+        rotate: f32,
     },
     Chart {
         id: String,
@@ -100,6 +118,8 @@ pub enum SlideElement {
         top: f32,
         width: f32,
         height: f32,
+        #[serde(default)]
+        rotate: f32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chart_type: Option<String>,
     },
@@ -109,6 +129,8 @@ pub enum SlideElement {
         top: f32,
         width: f32,
         height: f32,
+        #[serde(default)]
+        rotate: f32,
         latex: String,
     },
     Table {
@@ -117,6 +139,8 @@ pub enum SlideElement {
         top: f32,
         width: f32,
         height: f32,
+        #[serde(default)]
+        rotate: f32,
     },
     Video {
         id: String,
@@ -124,8 +148,26 @@ pub enum SlideElement {
         top: f32,
         width: f32,
         height: f32,
+        #[serde(default)]
+        rotate: f32,
         src: String,
     },
+}
+
+fn default_font_name() -> String {
+    "Microsoft YaHei".to_string()
+}
+
+fn default_color() -> String {
+    "#333333".to_string()
+}
+
+fn default_fixed_ratio() -> bool {
+    true
+}
+
+fn default_fill() -> String {
+    "#5b9bd5".to_string()
 }
 
 /// The visual type chosen by the outline LLM for a slide scene.

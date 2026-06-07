@@ -128,9 +128,9 @@ export type SceneContent =
 
 export type SlideCanvas = {
   id: string;
-  viewport_width: number;
-  viewport_height: number;
-  viewport_ratio: number;
+  viewportSize: number;
+  viewportHeight: number;
+  viewportRatio: number;
   theme: {
     background_color: string;
     theme_colors: string[];
@@ -142,31 +142,86 @@ export type SlideCanvas = {
 
 export type SlideElement =
   | {
-      kind: "text";
+      type: "text";
       id: string;
       left: number;
       top: number;
       width: number;
       height: number;
+      rotate: number;
       content: string;
+      default_font_name?: string;
+      default_color?: string;
     }
   | {
-      kind: "image";
+      type: "image";
       id: string;
       left: number;
       top: number;
       width: number;
       height: number;
+      rotate: number;
       src: string;
+      fixed_ratio?: boolean;
     }
   | {
-      kind: "video";
+      type: "video";
       id: string;
       left: number;
       top: number;
       width: number;
       height: number;
+      rotate: number;
       src: string;
+    }
+  | {
+      type: "shape";
+      id: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      rotate: number;
+      shape_name?: string;
+      fill?: string;
+    }
+  | {
+      type: "chart";
+      id: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      rotate: number;
+      chart_type?: string;
+    }
+  | {
+      type: "latex";
+      id: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      rotate: number;
+      latex: string;
+    }
+  | {
+      type: "table";
+      id: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      rotate: number;
+    }
+  | {
+      type: "line";
+      id: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      rotate: number;
     };
 
 export type QuizQuestion = {

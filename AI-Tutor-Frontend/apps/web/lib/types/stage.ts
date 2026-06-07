@@ -125,6 +125,20 @@ export interface InteractiveContent {
   url: string; // URL of the interactive page
   // Optional: embedded HTML content
   html?: string;
+  /**
+   * Domain-specific constraints and variables that govern the interactive's behavior.
+   * Consumed by agents to answer questions about "how the model works".
+   */
+  scientificModel?: {
+    core_formulas: string[];
+    mechanism: string[];
+    constraints: string[];
+    forbidden_errors: string[];
+    variables: string[];
+    interaction_guidance: string[];
+    experiment_steps: string[];
+    observation_prompts: string[];
+  };
 }
 
 /**

@@ -169,6 +169,10 @@ export interface ScientificModel {
   mechanism: string[];
   constraints: string[];
   forbidden_errors: string[];
+  variables: string[];
+  interaction_guidance: string[];
+  experiment_steps: string[];
+  observation_prompts: string[];
 }
 
 /**
