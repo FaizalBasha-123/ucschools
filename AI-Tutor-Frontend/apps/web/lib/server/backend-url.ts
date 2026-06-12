@@ -11,10 +11,11 @@
  *   const res = await fetch(`${backendUrl()}/api/billing/catalog`);
  */
 export function backendUrl(): string {
-  return (
+  const url =
     process.env.AI_TUTOR_BACKEND_INTERNAL_URL ||
     process.env.AI_TUTOR_API_BASE_URL ||
     process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL ||
-    'http://127.0.0.1:4041'
-  );
+    'http://127.0.0.1:8099'; // Default backend port
+
+  return url.replace(/\/$/, '');
 }

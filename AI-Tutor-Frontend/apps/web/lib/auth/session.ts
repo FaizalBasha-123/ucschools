@@ -167,7 +167,7 @@ async function executeTokenRefresh(): Promise<boolean> {
  * This is the ONLY place where 401 responses trigger session cleanup.
  */
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const url = path.startsWith('/') ? path : `/${path}`;
+  const url = path.startsWith('/') || path.startsWith('http') ? path : `/${path}`;
 
   // Proactively refresh if token expires within 60s
   if (typeof window !== 'undefined') {

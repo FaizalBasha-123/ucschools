@@ -54,46 +54,50 @@ function normalizeLesson(lesson: any) {
               fontColor: c.theme.fontColor ?? c.theme.font_color ?? '#000000',
               fontName: (c.theme as any).fontName ?? (c.theme as any).font_name ?? 'Microsoft YaHei',
             } : undefined,
-            elements: Array.isArray(c.elements) ? c.elements.map((el: any) => ({
-              rotate: 0, // Default for visibility
-              defaultColor: '#333333',
-              defaultFontName: 'Microsoft YaHei',
-              fixedRatio: true,
-              ...el,
-              type: el.type ?? el.kind,
-              shapeName: el.shapeName ?? el.shape_name,
-            })) : [],
-            }
-            };
-            } else if (content.type === 'quiz' && Array.isArray(content.questions)) {
-            content = {
-            ...content,
-            questions: content.questions.map((q: any) => ({
+            elements: Array.isArray(c.elements)
+              ? c.elements.map((el: any) => ({
+                  rotate: 0, // Default for visibility
+                  defaultColor: '#333333',
+                  defaultFontName: 'Microsoft YaHei',
+                  fixedRatio: true,
+                  ...el,
+                  type: el.type ?? el.kind,
+                  shapeName: el.shapeName ?? el.shape_name,
+                }))
+              : [],
+          },
+        };
+      } else if (content.type === 'quiz' && Array.isArray(content.questions)) {
+        content = {
+          ...content,
+          questions: content.questions.map((q: any) => ({
             ...q,
             type: q.type ?? q.question_type,
             commentPrompt: q.commentPrompt ?? q.comment_prompt,
             hasAnswer: q.hasAnswer ?? q.has_answer,
-            })),
-            };
-            } else if (content.type === 'interactive') {
-            content = {
-            ...content,
-            scientificModel: content.scientificModel ?? content.scientific_model,
-            };
-            } else if (content.type === 'project' || content.type === 'pbl') {
-         // Backend uses 'project', frontend uses 'pbl'
-         const pc = content.project_config ?? content.projectConfig;
-         content = {
-           ...content,
-           type: 'pbl',
-           projectConfig: pc ? {
-             ...pc,
-             drivingQuestion: pc.driving_question ?? pc.drivingQuestion,
-             learningObjectives: pc.learning_objectives ?? pc.learningObjectives,
-             requiredResources: pc.required_resources ?? pc.requiredResources,
-             evaluationCriteria: pc.evaluation_criteria ?? pc.evaluationCriteria,
-           } : undefined,
-         };
+          })),
+        };
+      } else if (content.type === 'interactive') {
+        content = {
+          ...content,
+          scientificModel: content.scientificModel ?? content.scientific_model,
+        };
+      } else if (content.type === 'project' || content.type === 'pbl') {
+        // Backend uses 'project', frontend uses 'pbl'
+        const pc = content.project_config ?? content.projectConfig;
+        content = {
+          ...content,
+          type: 'pbl',
+          projectConfig: pc
+            ? {
+                ...pc,
+                drivingQuestion: pc.driving_question ?? pc.drivingQuestion,
+                learningObjectives: pc.learning_objectives ?? pc.learningObjectives,
+                requiredResources: pc.required_resources ?? pc.requiredResources,
+                evaluationCriteria: pc.evaluation_criteria ?? pc.evaluationCriteria,
+              }
+            : undefined,
+        };
       }
     }
 
