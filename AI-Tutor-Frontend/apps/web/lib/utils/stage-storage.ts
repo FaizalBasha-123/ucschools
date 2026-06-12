@@ -114,10 +114,10 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
               viewportRatio: c.viewportRatio ?? c.viewport_ratio ?? 0.5625,
               theme: c.theme ? {
                 ...c.theme,
-                backgroundColor: c.theme.backgroundColor ?? c.theme.background_color,
-                themeColors: c.theme.themeColors ?? c.theme.theme_colors,
-                fontColor: c.theme.fontColor ?? c.theme.font_color,
-                fontName: c.theme.font_name ?? c.theme.font_name,
+                backgroundColor: c.theme.backgroundColor ?? c.theme.background_color ?? '#ffffff',
+                themeColors: c.theme.themeColors ?? c.theme.theme_colors ?? [],
+                fontColor: c.theme.fontColor ?? c.theme.font_color ?? '#000000',
+                fontName: (c.theme as any).fontName ?? (c.theme as any).font_name ?? 'Microsoft YaHei',
               } : {
                 backgroundColor: '#ffffff',
                 themeColors: ['#333333'],
@@ -148,7 +148,7 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
         } else if (scene.content.type === 'interactive') {
           scene.content = {
             ...scene.content,
-            scientificModel: scene.content.scientificModel ?? scene.content.scientific_model,
+            scientificModel: scene.content.scientificModel ?? (scene.content as any).scientific_model,
           };
         }
       }

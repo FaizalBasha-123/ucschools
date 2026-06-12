@@ -1674,7 +1674,9 @@ fn attach_media_placeholders(
                 top: 120.0,
                 width: 300.0,
                 height: 220.0,
+                rotate: 0.0,
                 src: media.element_id.clone(),
+                fixed_ratio: false,
             }),
             MediaType::Video => elements.push(SlideElement::Video {
                 id: media.element_id.clone(),
@@ -1682,6 +1684,7 @@ fn attach_media_placeholders(
                 top: 120.0,
                 width: 300.0,
                 height: 220.0,
+                rotate: 0.0,
                 src: media.element_id.clone(),
             }),
         }
@@ -1694,7 +1697,10 @@ fn attach_media_placeholders(
             top: 80.0,
             width: 800.0,
             height: 100.0,
+            rotate: 0.0,
             content: outline.description.clone(),
+            default_font_name: "Microsoft YaHei".to_string(),
+            default_color: "#333333".to_string(),
         });
     }
 
@@ -2508,7 +2514,10 @@ fn validate_slide_elements(
                 top: 48.0,
                 width: 880.0,
                 height: 60.0,
+                rotate: 0.0,
                 content: outline.title.clone(),
+                default_font_name: "Microsoft YaHei".to_string(),
+                default_color: "#333333".to_string(),
             },
         );
     }
@@ -2542,7 +2551,10 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             top,
             width,
             height,
+            rotate,
             content,
+            default_font_name,
+            default_color,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Text {
                 id,
@@ -2550,7 +2562,10 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
+                rotate,
                 content: content.trim().chars().take(400).collect(),
+                default_font_name,
+                default_color,
             }
         }),
         SlideElement::Image {
@@ -2559,7 +2574,9 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             top,
             width,
             height,
+            rotate,
             src,
+            fixed_ratio,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Image {
                 id,
@@ -2567,7 +2584,9 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
+                rotate,
                 src,
+                fixed_ratio,
             }
         }),
         SlideElement::Video {
@@ -2576,6 +2595,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             top,
             width,
             height,
+            rotate,
             src,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Video {
@@ -2584,6 +2604,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
+                rotate,
                 src,
             }
         }),
@@ -2593,7 +2614,9 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             top,
             width,
             height,
+            rotate,
             shape_name,
+            fill,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Shape {
                 id,
@@ -2601,7 +2624,9 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
+                rotate,
                 shape_name,
+                fill,
             }
         }),
         SlideElement::Line {
@@ -2610,6 +2635,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             top,
             width,
             height,
+            rotate,
         } => normalize_box(left, top, width.max(2.0), height.max(2.0)).map(
             |(left, top, width, height)| SlideElement::Line {
                 id,
@@ -2617,6 +2643,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
+                rotate,
             },
         ),
         SlideElement::Chart {
@@ -2625,6 +2652,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             top,
             width,
             height,
+            rotate,
             chart_type,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Chart {
@@ -2633,6 +2661,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
+                rotate,
                 chart_type,
             }
         }),
@@ -2642,6 +2671,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             top,
             width,
             height,
+            rotate,
             latex,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Latex {
@@ -2650,6 +2680,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
+                rotate,
                 latex,
             }
         }),
@@ -2659,6 +2690,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             top,
             width,
             height,
+            rotate,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Table {
                 id,
@@ -2666,6 +2698,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 top,
                 width,
                 height,
+                rotate,
             }
         }),
     }

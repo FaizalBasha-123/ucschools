@@ -49,10 +49,10 @@ function normalizeLesson(lesson: any) {
             viewportRatio: c.viewportRatio ?? c.viewport_ratio ?? 0.5625,
             theme: c.theme ? {
               ...c.theme,
-              backgroundColor: c.theme.backgroundColor ?? c.theme.background_color,
-              themeColors: c.theme.themeColors ?? c.theme.theme_colors,
-              fontColor: c.theme.fontColor ?? c.theme.font_color,
-              fontName: c.theme.fontName ?? c.theme.font_name,
+              backgroundColor: c.theme.backgroundColor ?? c.theme.background_color ?? '#ffffff',
+              themeColors: c.theme.themeColors ?? c.theme.theme_colors ?? [],
+              fontColor: c.theme.fontColor ?? c.theme.font_color ?? '#000000',
+              fontName: (c.theme as any).fontName ?? (c.theme as any).font_name ?? 'Microsoft YaHei',
             } : undefined,
             elements: Array.isArray(c.elements) ? c.elements.map((el: any) => ({
               rotate: 0, // Default for visibility

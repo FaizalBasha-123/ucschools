@@ -147,22 +147,25 @@ export default function ClassroomDashboard() {
           method: 'GET',
           cache: 'no-store',
         });
-      if (billingRes.ok) {
-        const billingData = await billingRes.json();
-        // apiSuccess() spreads data at root: { success, entitlement, ... }
-        // Fallback to .data.entitlement for any future structural changes.
-        const entitlement = billingData?.entitlement ?? billingData?.data?.entitlement;
-        const creditBalance: number = entitlement?.credit_balance ?? 0;
-        const hasActiveSubscription: boolean = entitlement?.has_active_subscription ?? false;
-        const canGenerate: boolean = entitlement?.can_generate ?? (creditBalance > 0);
+        if (billingRes.ok) {
+          const billingData = await billingRes.json();
+          // apiSuccess() spreads data at root: { success, entitlement, ... }
+          // Fallback to .data.entitlement for any future structural changes.
+          const entitlement = billingData?.entitlement ?? billingData?.data?.entitlement;
+          const creditBalance: number = entitlement?.credit_balance ?? 0;
+          const hasActiveSubscription: boolean = entitlement?.has_active_subscription ?? false;
+          const canGenerate: boolean = entitlement?.can_generate ?? (creditBalance > 0);
 
-        if (!canGenerate && !hasActiveSubscription && creditBalance <= 0) {
-          toast.error('Insufficient credits', {
-            description: 'Please choose a plan to generate lessons.',
-          });
-          router.push('/pricing');
-          return;
+          if (!canGenerate && !hasActiveSubscription && creditBalance <= 0) {
+            toast.error('Insufficient credits', {
+              description: 'Please choose a plan to generate lessons.',
+            });
+            router.push('/pricing');
+            return;
+          }
         }
+      } catch (err) {
+        console.warn('Billing check failed:', err);
       }
 
       // 2. Build session

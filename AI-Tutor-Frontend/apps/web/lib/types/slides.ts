@@ -794,7 +794,12 @@ export type SlideType = 'cover' | 'contents' | 'transition' | 'content' | 'end';
 export interface Slide {
   id: string;
   viewportSize: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
   viewportRatio: number;
+  viewport_width?: number;
+  viewport_height?: number;
+  viewport_ratio?: number;
   theme: SlideTheme;
   elements: PPTElement[];
   background?: SlideBackground;
@@ -820,6 +825,10 @@ export interface SlideTheme {
   themeColors: string[];
   fontColor: string;
   fontName: string;
+  background_color?: string;
+  theme_colors?: string[];
+  font_color?: string;
+  font_name?: string;
   outline?: PPTElementOutline;
   shadow?: PPTElementShadow;
 }
