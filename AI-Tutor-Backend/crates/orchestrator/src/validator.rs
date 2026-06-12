@@ -300,7 +300,10 @@ mod tests {
                         top: 0.0,
                         width: 100.0,
                         height: 50.0,
+                        rotate: 0.0,
                         content: text.to_string(),
+                        default_font_name: "Microsoft YaHei".to_string(),
+                        default_color: "#333333".to_string(),
                     })
                     .collect(),
                 background: None,

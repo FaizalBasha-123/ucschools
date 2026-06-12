@@ -49,22 +49,22 @@ pub fn compute_learning_profile(request: &LessonGenerationRequest) -> LearningPr
 pub fn compute_layout_constraints(request: &LessonGenerationRequest) -> LayoutConstraints {
     match request.quality_mode.as_deref() {
         Some("basic") => LayoutConstraints {
-            max_bullets: 3,
-            max_chars_per_bullet: 60,
-            max_lines: 2,
-            max_scenes: 5,
-        },
-        Some("premium") => LayoutConstraints {
             max_bullets: 5,
             max_chars_per_bullet: 80,
-            max_lines: 4,
-            max_scenes: 15,
+            max_lines: 3,
+            max_scenes: 8,
+        },
+        Some("premium") => LayoutConstraints {
+            max_bullets: 8,
+            max_chars_per_bullet: 120,
+            max_lines: 6,
+            max_scenes: 20,
         },
         _ => LayoutConstraints {
-            max_bullets: 4,
-            max_chars_per_bullet: 70,
-            max_lines: 3,
-            max_scenes: 10,
+            max_bullets: 6,
+            max_chars_per_bullet: 100,
+            max_lines: 5,
+            max_scenes: 12,
         },
     }
 }

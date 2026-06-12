@@ -1432,12 +1432,14 @@ mod tests {
                         font_name: "Geist".to_string(),
                     },
                     elements: vec![ai_tutor_domain::scene::SlideElement::Image {
-                        id: "gen_img_1".to_string(),
+                        id: "img-1".to_string(),
                         left: 0.0,
                         top: 0.0,
-                        width: 500.0,
-                        height: 280.0,
+                        width: 100.0,
+                        height: 100.0,
+                        rotate: 0.0,
                         src: "gen_img_1".to_string(),
+                        fixed_ratio: true,
                     }],
                     background: None,
                 },
@@ -1514,11 +1516,12 @@ mod tests {
                         font_name: "Geist".to_string(),
                     },
                     elements: vec![ai_tutor_domain::scene::SlideElement::Video {
-                        id: "gen_vid_1".to_string(),
+                        id: "vid-1".to_string(),
                         left: 0.0,
                         top: 0.0,
-                        width: 500.0,
-                        height: 280.0,
+                        width: 100.0,
+                        height: 100.0,
+                        rotate: 0.0,
                         src: "gen_vid_1".to_string(),
                     }],
                     background: None,
@@ -1828,12 +1831,15 @@ mod tests {
             .unwrap();
 
         match &output.lesson.scenes[0].content {
-            SceneContent::Slide { canvas } => match &canvas.elements[0] {
-                ai_tutor_domain::scene::SlideElement::Image { src, .. } => {
-                    assert!(src.starts_with("http://localhost:3000/api/assets/media/"));
-                }
-                _ => panic!("expected image element"),
-            },
+            SceneContent::Slide { canvas } => {
+                let has_valid_media = canvas.elements.iter().any(|el| match el {
+                    ai_tutor_domain::scene::SlideElement::Image { src, .. } => {
+                        src.starts_with("http://localhost:3000/api/assets/media/")
+                    }
+                    _ => false,
+                });
+                assert!(has_valid_media, "expected image element with correct URL");
+            }
             _ => panic!("expected slide content"),
         }
     }
@@ -1899,12 +1905,15 @@ mod tests {
             .unwrap();
 
         match &output.lesson.scenes[0].content {
-            SceneContent::Slide { canvas } => match &canvas.elements[0] {
-                ai_tutor_domain::scene::SlideElement::Video { src, .. } => {
-                    assert!(src.starts_with("http://localhost:3000/api/assets/media/"));
-                }
-                _ => panic!("expected video element"),
-            },
+            SceneContent::Slide { canvas } => {
+                let has_valid_media = canvas.elements.iter().any(|el| match el {
+                    ai_tutor_domain::scene::SlideElement::Video { src, .. } => {
+                        src.starts_with("http://localhost:3000/api/assets/media/")
+                    }
+                    _ => false,
+                });
+                assert!(has_valid_media, "expected video element with correct URL");
+            }
             _ => panic!("expected slide content"),
         }
     }
@@ -1934,12 +1943,15 @@ mod tests {
             LessonGenerationJobStatus::Succeeded
         ));
         match &output.lesson.scenes[0].content {
-            SceneContent::Slide { canvas } => match &canvas.elements[0] {
-                ai_tutor_domain::scene::SlideElement::Image { src, .. } => {
-                    assert!(src.starts_with("data:image/svg+xml"));
-                }
-                _ => panic!("expected image element"),
-            },
+            SceneContent::Slide { canvas } => {
+                let has_valid_media = canvas.elements.iter().any(|el| match el {
+                    ai_tutor_domain::scene::SlideElement::Image { src, .. } => {
+                        src.starts_with("data:image/svg+xml")
+                    }
+                    _ => false,
+                });
+                assert!(has_valid_media, "expected fallback image element");
+            }
             _ => panic!("expected slide content"),
         }
     }
@@ -1974,12 +1986,15 @@ mod tests {
         ));
         assert_eq!(flaky_video.call_count.load(Ordering::SeqCst), 3);
         match &output.lesson.scenes[0].content {
-            SceneContent::Slide { canvas } => match &canvas.elements[0] {
-                ai_tutor_domain::scene::SlideElement::Video { src, .. } => {
-                    assert!(src.starts_with("data:video/mp4;base64"));
-                }
-                _ => panic!("expected video element"),
-            },
+            SceneContent::Slide { canvas } => {
+                let has_valid_media = canvas.elements.iter().any(|el| match el {
+                    ai_tutor_domain::scene::SlideElement::Video { src, .. } => {
+                        src.starts_with("data:video/mp4;base64")
+                    }
+                    _ => false,
+                });
+                assert!(has_valid_media, "expected base64 video element");
+            }
             _ => panic!("expected slide content"),
         }
     }

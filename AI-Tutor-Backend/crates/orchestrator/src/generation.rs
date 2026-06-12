@@ -915,7 +915,7 @@ impl LlmGenerationPipeline {
         let language = language_code(&request.requirements.language);
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let layout = engine::compute_layout_constraints(request);
-        let system = "You are a slide designer. Return strict JSON only. Slides are visual aids, not lecture scripts.".to_string();
+        let system = "You are an educational content designer. Generate well-structured slide components with precise layouts. Return strict JSON only.".to_string();
         let user = format!(
 "Slide: {title}
 Requirement: {req}
@@ -925,12 +925,15 @@ Media: {media}
 {layout}
 
 Canvas: 1000x563. Language: {lang}
-Return JSON: {{\"elements\":[{{\"kind\":\"text|shape|chart|table|image|video\",\"content\":\"...\",\"left\":0,\"top\":0,\"width\":0,\"height\":0}}]}}
+Return JSON: {{\"elements\":[{{\"kind\":\"text|shape|chart|table|latex|image|video\",\"content\":\"...\",\"left\":0,\"top\":0,\"width\":0,\"height\":0}}]}}
 Rules:
-- 2-4 elements. Title at top.
+- Generate enough elements to fully cover ALL key points visually. Do NOT arbitrarily restrict to 2-4 elements.
+- If the key points list multiple items (e.g. '3 types'), you MUST generate visual elements for ALL of them to prevent voice-visual mismatch.
+- Title must be at the top.
 - {bullet_rule}
-- Use shapes/charts for visual explanations. Images/video only if media placeholder exists.
-- All dimensions positive. Text within margins.",
+- Use HTML in text (e.g., `<p style=\"font-size: 24px;\">`). Do NOT put LaTeX in text elements, use 'latex' kind instead.
+- Use shapes/charts for visual explanations. Images/video ONLY if media placeholder exists.
+- All dimensions positive. Margins: left ≥ 50, top ≥ 50, right ≤ 950, bottom ≤ 513.",
     title = outline.title,
     req = request.requirements.requirement,
     pdf = pdf_info,
@@ -1780,13 +1783,14 @@ fn build_scene_action_prompt(
         SceneType::Slide => format!(
 "Slide actions: {title}
 Requirement: {req}
-{pdf}Key points: {points}
-Elements: {elements}
-Content JSON: {content}
+{pdf}Original Key points: {points}
+Generated Elements: {elements}
+Generated Content JSON: {content}
 
 Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}} or {{\"type\":\"action\",\"name\":\"spotlight|laser|play_video|discussion\",\"params\":{{...}}}}
 Rules:
 - 3-6 items. At least 1 speech segment.
+- CRITICAL: Your speech MUST strictly match the 'Generated Content JSON'. If an original key point was dropped or simplified in the visual content, DO NOT talk about it. Voice-visual mismatch is a critical failure.
 - spotlight/laser must reference valid element ids.
 - discussion optional, must be last.
 - Speech in {lang}.",
@@ -2520,7 +2524,7 @@ fn validate_slide_elements(
                 width: 880.0,
                 height: 60.0,
                 rotate: 0.0,
-                content: outline.title.clone(),
+                content: format!("<p style=\"font-size: 32px; font-weight: bold;\">{}</p>", outline.title),
                 default_font_name: "Microsoft YaHei".to_string(),
                 default_color: "#333333".to_string(),
             },
@@ -3037,10 +3041,10 @@ fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElement> {
             id: "text-title-1".to_string(),
             left: 60.0,
             top: 50.0,
-            width: 520.0,
+            width: 880.0,
             height: 60.0,
             rotate: 0.0,
-            content: outline.title.clone(),
+            content: format!("<p style=\"font-size: 32px; font-weight: bold;\">{}</p>", outline.title),
             default_font_name: "Microsoft YaHei".to_string(),
             default_color: "#333333".to_string(),
         },
@@ -3048,18 +3052,18 @@ fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElement> {
             id: "text-body-1".to_string(),
             left: 60.0,
             top: 130.0,
-            width: 520.0,
-            height: 180.0,
+            width: 880.0,
+            height: 300.0,
             rotate: 0.0,
             content: if outline.key_points.is_empty() {
-                outline.description.clone()
+                format!("<p style=\"font-size: 20px; line-height: 1.5;\">{}</p>", outline.description)
             } else {
                 outline
                     .key_points
                     .iter()
-                    .map(|point| format!("- {}", point))
+                    .map(|point| format!("<p style=\"font-size: 20px; line-height: 1.5;\">• {}</p>", point))
                     .collect::<Vec<_>>()
-                    .join("\n")
+                    .join("")
             },
             default_font_name: "Microsoft YaHei".to_string(),
             default_color: "#333333".to_string(),
