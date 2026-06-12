@@ -1781,21 +1781,32 @@ fn build_scene_action_prompt(
     let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
     let prompt = match outline.scene_type {
         SceneType::Slide => format!(
-"Slide actions: {title}
+"You are a professional instructional designer scripting teaching actions for a slide.
+
+Slide: {title}
 Requirement: {req}
-{pdf}Original Key points: {points}
+Original Key points: {points}
 Generated Elements: {elements}
 Generated Content JSON: {content}
 
-Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}} or {{\"type\":\"action\",\"name\":\"spotlight|laser|play_video|discussion\",\"params\":{{...}}}}
-Rules:
-- 3-6 items. At least 1 speech segment.
-- CRITICAL: Your speech MUST strictly match the 'Generated Content JSON'. If an original key point was dropped or simplified in the visual content, DO NOT talk about it. Voice-visual mismatch is a critical failure.
-- spotlight/laser must reference valid element ids.
-- discussion optional, must be last.
-- Speech in {lang}.",
+Output a JSON array ONLY. Items: {{\"type\":\"text\",\"content\":\"...\"}} or {{\"type\":\"action\",\"name\":\"spotlight|laser|play_video|discussion\",\"params\":{{...}}}}
+
+### Format & Ordering Rules:
+1. spotlight/laser actions MUST appear BEFORE the corresponding text object (point first, then speak).
+2. Use multiple spotlight+text pairs to create a natural \"focus then explain\" flow.
+3. spotlight/laser MUST reference valid element ids from the 'Generated Elements' list.
+4. discussion (optional) MUST be the last action. Do NOT place text after a discussion.
+
+### CRITICAL Speech Content Rules:
+1. Speech MUST be natural, professional teacher narration.
+2. DO NOT say \"Let me highlight...\" or \"I am pointing at...\". Just speak the explanation naturally; the highlight happens concurrently.
+3. DO NOT use Markdown in speech.
+4. You are scripting a monologue. NEVER write dialogue or include speaker tags like (Teacher): or (Student):.
+5. Elaborate on the bullet points! The slide only shows keywords; your speech MUST provide the full explanation, context, and examples.
+6. Voice-visual synchronization is critical. ONLY talk about concepts that are visually present in the 'Generated Content JSON'.
+
+Speech must be in {lang}.",
     req = request.requirements.requirement,
-    pdf = pdf_info,
     title = outline.title,
     points = outline.key_points.join(" | "),
     elements = slide_focus_targets(content),
@@ -1803,37 +1814,48 @@ Rules:
     lang = language
 ),
         SceneType::Quiz => format!(
-"Quiz actions: {title}
+"You are a professional instructional designer scripting teaching actions for a quiz scene.
+
+Quiz: {title}
 Requirement: {req}
-{pdf}Key points: {points}
+Original Key points: {points}
 Content JSON: {content}
 
-Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}}; optional final {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\"}}}}
-Rules:
-- 2-4 items. Speech segments only.
-- Discussion optional, must be last.
-- Speech in {lang}.",
+Output a JSON array ONLY. Items: {{\"type\":\"text\",\"content\":\"...\"}}; optional final {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\"}}}}
+
+### CRITICAL Speech Content Rules:
+1. Speech MUST be natural, professional teacher narration introducing the quiz to students.
+2. Encourage the students and briefly explain the context of the quiz based on the key points.
+3. DO NOT use Markdown in speech.
+4. You are scripting a monologue. NEVER write dialogue or include speaker tags.
+5. DO NOT provide the answers in the speech! The students need to take the quiz themselves.
+
+Speech must be in {lang}.",
     req = request.requirements.requirement,
-    pdf = pdf_info,
     title = outline.title,
     points = outline.key_points.join(" | "),
     content = content_summary,
     lang = language
 ),
         SceneType::Interactive => format!(
-"Interactive narration: {title}
+"You are a professional instructional designer scripting teaching actions for an interactive simulation.
+
+Interactive narration: {title}
 Requirement: {req}
-{pdf}Key points: {points}
+Original Key points: {points}
 Interactive JSON: {content}
 Scientific model: {model}
 
-Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}} only.
-Rules:
-- 2-4 speech segments.
-- Sequence: orient → manipulate → observe → conclude.
-- Speech in {lang}.",
+Output a JSON array ONLY. Items: {{\"type\":\"text\",\"content\":\"...\"}} only.
+
+### CRITICAL Speech Content Rules:
+1. Speech MUST be natural, professional teacher narration guiding students on how to use the interactive simulation.
+2. Explain what variables they can adjust and what they should observe based on the scientific model.
+3. DO NOT use Markdown in speech.
+4. You are scripting a monologue. NEVER write dialogue or include speaker tags.
+
+Speech must be in {lang}.",
     req = request.requirements.requirement,
-    pdf = pdf_info,
     title = outline.title,
     points = outline.key_points.join(" | "),
     content = content_summary,
@@ -1841,18 +1863,24 @@ Rules:
     lang = language
 ),
         SceneType::Pbl => format!(
-"PBL narration: {title}
+"You are a professional instructional designer scripting teaching actions for a Project-Based Learning (PBL) activity.
+
+PBL narration: {title}
 Requirement: {req}
-{pdf}Key points: {points}
+Original Key points: {points}
 PBL JSON: {content}
 Facilitation: {facilitation}
 
-Return JSON array. Items: {{\"type\":\"text\",\"content\":\"...\"}}; optional final {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\"}}}}
-Rules:
-- 2-4 items. Introduce goal, deliverable, first decision.
-- Speech in {lang}.",
+Output a JSON array ONLY. Items: {{\"type\":\"text\",\"content\":\"...\"}}; optional final {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\"}}}}
+
+### CRITICAL Speech Content Rules:
+1. Speech MUST be natural, professional teacher narration setting up the project scenario and goals.
+2. Hook the students with the real-world application of this project based on the key points.
+3. DO NOT use Markdown in speech.
+4. You are scripting a monologue. NEVER write dialogue or include speaker tags.
+
+Speech must be in {lang}.",
     req = request.requirements.requirement,
-    pdf = pdf_info,
     title = outline.title,
     points = outline.key_points.join(" | "),
     content = content_summary,
