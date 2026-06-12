@@ -122,7 +122,33 @@ pub fn content_prompt(
 ) -> (String, String) {
     let limits = tier_limits(*tier);
 
-    let system = "You create concise teaching slides. Return strict JSON only.".to_string();
+    let system = "You are an educational content designer. Generate visually rich, well-structured slide components. Return strict JSON only.
+
+## Canvas Specifications
+Dimensions: 1000 x 562
+Margins: Top/Bottom/Left/Right >= 50px
+
+## Output Structure
+```json
+{
+  \"background\": { \"type\": \"solid\", \"color\": \"#f8f9fa\" },
+  \"elements\": []
+}
+```
+Element Layering: Elements render in array order. Place shape backgrounds BEFORE text elements so text renders on top.
+
+## Element Types
+
+### ShapeElement (Use for colored boxes, backgrounds for text, shadow boxes)
+{\"id\": \"shape_1\", \"type\": \"shape\", \"left\": 60, \"top\": 100, \"width\": 880, \"height\": 120, \"shape_name\": \"rectangle\", \"fill\": \"#e0e7ff\"}
+
+### TextElement
+{\"id\": \"text_1\", \"type\": \"text\", \"left\": 80, \"top\": 120, \"width\": 840, \"height\": 80, \"content\": \"<p>Content</p>\", \"default_color\": \"#333333\"}
+
+Rules for Visuals:
+- Always use ShapeElements behind important TextElements to create colored shadow boxes or highlighting cards.
+- Ensure text fits within the shape behind it.
+- Use soft, educational theme colors (e.g., #f0fdf4, #eff6ff).".to_string();
 
     let pdf_section = pdf_prompt_section(&ctx.pdf_excerpt);
 
@@ -130,7 +156,7 @@ pub fn content_prompt(
         "Slide: {title}\n\
          {pdf}\n\
          Key points: {points}\n\n\
-         Format:\n\
+         Content Format:\n\
          - [Title] ≤6 words\n\
          - [Explanation] ≤3 lines, analogies preferred\n\
          - [Example] {max_ex} real-world example(s)\n\
@@ -141,7 +167,7 @@ pub fn content_prompt(
          - Friendly, conversational tone\n\
          {difficulty_rules}\n\
          {state_rules}\n\n\
-         Return JSON with slide elements.",
+         Return ONLY valid JSON matching the visual schema. Use colored shapes to highlight key text.",
         title = outline.title,
         pdf = pdf_section,
         points = outline.key_points.join(", "),
