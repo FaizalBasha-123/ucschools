@@ -2572,7 +2572,7 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 width,
                 height,
                 rotate,
-                content: content.trim().chars().take(400).collect(),
+                content: content.trim().to_string(),
                 default_font_name,
                 default_color,
             }
