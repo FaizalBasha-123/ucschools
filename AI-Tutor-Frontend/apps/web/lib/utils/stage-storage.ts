@@ -124,15 +124,78 @@ export async function loadStageData(stageId: string): Promise<StageStoreData | n
                 fontColor: '#333333',
                 fontName: 'Microsoft YaHei',
               },
-              elements: Array.isArray(c.elements) ? c.elements.map((el: any) => ({
-                rotate: 0,
-                defaultColor: '#333333',
-                defaultFontName: 'Microsoft YaHei',
-                fixedRatio: true,
-                ...el,
-                type: el.type ?? el.kind ?? 'text',
-                shapeName: el.shapeName ?? el.shape_name,
-              })) : [],
+              elements: Array.isArray(c.elements)
+                ? c.elements.map((el: any) => {
+                    const type = el.type ?? el.kind ?? 'text';
+                    const base = {
+                      rotate: 0,
+                      opacity: 1,
+                      fixedRatio: true,
+                      ...el,
+                      type,
+                    };
+
+                    if (type === 'text') {
+                      return {
+                        ...base,
+                        content: el.content ?? '',
+                        defaultFontName: el.defaultFontName ?? el.default_font_name ?? 'Microsoft YaHei',
+                        defaultColor: el.defaultColor ?? el.default_color ?? '#333333',
+                      };
+                    }
+                    if (type === 'image') {
+                      return {
+                        ...base,
+                        src: el.src ?? '',
+                        fixedRatio: el.fixedRatio ?? el.fixed_ratio ?? true,
+                      };
+                    }
+                    if (type === 'shape') {
+                      return {
+                        ...base,
+                        shapeName: el.shapeName ?? el.shape_name ?? 'rect',
+                        viewBox: el.viewBox ?? [el.width ?? 100, el.height ?? 100],
+                        path: el.path ?? 'M 0 0 L 100 0 L 100 100 L 0 100 Z',
+                        fill: el.fill ?? '#333333',
+                      };
+                    }
+                    if (type === 'line') {
+                      return {
+                        ...base,
+                        start: el.start ?? [0, 0],
+                        end: el.end ?? [el.width ?? 100, el.height ?? 0],
+                        points: el.points ?? ['', ''],
+                        color: el.color ?? '#333333',
+                        style: el.style ?? 'solid',
+                      };
+                    }
+                    if (type === 'chart') {
+                      return {
+                        ...base,
+                        chartType: el.chartType ?? el.chart_type ?? 'bar',
+                        data: el.data ?? { labels: [], legends: [], series: [] },
+                        themeColors: el.themeColors ?? el.theme_colors ?? c.theme?.themeColors ?? c.theme?.theme_colors ?? ['#1f2937', '#0f766e', '#2563eb'],
+                      };
+                    }
+                    if (type === 'table') {
+                      return {
+                        ...base,
+                        data: el.data ?? [],
+                        colWidths: el.colWidths ?? el.col_widths ?? [],
+                        cellMinHeight: el.cellMinHeight ?? el.cell_min_height ?? 40,
+                      };
+                    }
+                    if (type === 'latex') {
+                      return {
+                        ...base,
+                        latex: el.latex ?? '',
+                        viewBox: el.viewBox ?? [el.width ?? 100, el.height ?? 100],
+                        path: el.path ?? '',
+                      };
+                    }
+                    return base;
+                  })
+                : [],
             }
           };
         } else if (scene.content.type === 'quiz' && Array.isArray(scene.content.questions)) {
