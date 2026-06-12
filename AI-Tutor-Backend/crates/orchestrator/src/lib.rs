@@ -8,6 +8,8 @@ pub mod pipeline;
 pub mod placement;
 pub mod planner;
 pub mod prompts;
+pub mod prompts_generated;
+pub mod prompt_builder;
 pub mod response_parser;
 pub mod router;
 pub mod state;

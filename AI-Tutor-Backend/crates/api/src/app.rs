@@ -13697,16 +13697,16 @@ mod tests {
         async fn get_system_status(&self) -> Result<SystemStatusResponse> {
             Ok(SystemStatusResponse {
                 status: "ok",
-                current_model: Some("openai:gpt-4o-mini".to_string()),
+                current_model: Some("openrouter:deepseek/deepseek-chat".to_string()),
                 deployment_environment: "test".to_string(),
                 deployment_revision: Some("rev-test".to_string()),
                 rollout_phase: "stable".to_string(),
                 generation_model_policy: GenerationModelPolicyResponse {
                     outlines_model: "openrouter:google/gemini-2.5-flash".to_string(),
-                    scene_content_model: "openrouter:openai/gpt-4o-mini".to_string(),
-                    scene_actions_model: "openrouter:openai/gpt-4o-mini".to_string(),
+                    scene_content_model: "openrouter:deepseek/deepseek-chat".to_string(),
+                    scene_actions_model: "openrouter:deepseek/deepseek-chat".to_string(),
                     scene_actions_fallback_model: None,
-                    agent_profiles_model: Some("openrouter:openai/gpt-4o-mini".to_string()),
+                    agent_profiles_model: Some("openrouter:deepseek/deepseek-chat".to_string()),
                 },
                 selected_model_profile: Some(SelectedModelProfileResponse {
                     provider_id: "openai".to_string(),
@@ -14396,7 +14396,7 @@ mod tests {
             user_profile: None,
             api_key: "test-key".to_string(),
             base_url: None,
-            model: Some("openai:gpt-4o-mini".to_string()),
+            model: Some("openrouter:deepseek/deepseek-chat".to_string()),
             provider_type: Some("openai".to_string()),
             requires_api_key: Some(true),
         }
@@ -14445,20 +14445,20 @@ mod tests {
     fn build_live_service_with_fakes_and_queue(
         storage: Arc<FileStorage>,
     ) -> Arc<dyn LessonAppService> {
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_IMAGE_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_VIDEO_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_TTS_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_ASR_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("BALANCED_MODE_AI_TUTOR_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_MODEL", "openai:gpt-4o-mini");
-        std::env::set_var("STANDARD_MODE_AI_TUTOR_PBL_RUNTIME_MODEL", "openai:gpt-4o-mini");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_PBL_RUNTIME_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_IMAGE_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_VIDEO_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_TTS_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_ASR_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("BALANCED_MODE_AI_TUTOR_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_OUTLINES_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_SCENE_CONTENT_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_GENERATION_SCENE_ACTIONS_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_MODEL", "openrouter:deepseek/deepseek-chat");
+        std::env::set_var("STANDARD_MODE_AI_TUTOR_PBL_RUNTIME_MODEL", "openrouter:deepseek/deepseek-chat");
 
         let provider_config = Arc::new(ServerProviderConfig {
             providers: std::collections::HashMap::from([(
@@ -15592,7 +15592,7 @@ mod tests {
                 lesson_id: "lesson-system-status".to_string(),
                 job,
                 request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
+                model_string: Some("openrouter:deepseek/deepseek-chat".to_string()),
                 attempt: 0,
                 max_attempts: 3,
                 last_error: None,
@@ -15657,7 +15657,7 @@ mod tests {
                 lesson_id: "lesson-system-status-active-lease".to_string(),
                 job: active_job.clone(),
                 request: request.clone(),
-                model_string: Some("openai:gpt-4o-mini".to_string()),
+                model_string: Some("openrouter:deepseek/deepseek-chat".to_string()),
                 attempt: 0,
                 max_attempts: 3,
                 last_error: None,
@@ -15681,7 +15681,7 @@ mod tests {
                 lesson_id: "lesson-system-status-stale-lease".to_string(),
                 job: stale_job.clone(),
                 request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
+                model_string: Some("openrouter:deepseek/deepseek-chat".to_string()),
                 attempt: 0,
                 max_attempts: 3,
                 last_error: None,
@@ -15789,7 +15789,7 @@ mod tests {
         let payload = serde_json::to_vec(&GenerateLessonPayload {
             requirement: "test auth".to_string(),
             language: Some("english".to_string()),
-            model: Some("openai:gpt-4o-mini".to_string()),
+            model: Some("openrouter:deepseek/deepseek-chat".to_string()),
             pdf_text: None,
             pdf_images: None,
             enable_image_generation: Some(false),
@@ -16334,7 +16334,7 @@ mod tests {
     fn provider_runtime_status_mapping_exposes_streaming_path() {
         let mapped = map_provider_runtime_status(vec![
             ProviderRuntimeStatus {
-                label: "openai:gpt-4o-mini".to_string(),
+                label: "openrouter:deepseek/deepseek-chat".to_string(),
                 available: true,
                 consecutive_failures: 0,
                 cooldown_remaining_ms: 0,
@@ -16542,7 +16542,7 @@ mod tests {
         let selectors = runtime_native_streaming_selectors();
         assert_eq!(
             selectors,
-            vec!["openai:gpt-4o-mini".to_string(), "anthropic".to_string()]
+            vec!["openrouter:deepseek/deepseek-chat".to_string(), "anthropic".to_string()]
         );
 
         if let Some(value) = previous {
@@ -17328,7 +17328,7 @@ mod tests {
             user_profile: None,
             api_key: "test-key".to_string(),
             base_url: None,
-            model: Some("openai:gpt-4o-mini".to_string()),
+            model: Some("openrouter:deepseek/deepseek-chat".to_string()),
             provider_type: Some("openai".to_string()),
             requires_api_key: Some(true),
         })
@@ -17919,7 +17919,7 @@ mod tests {
         let payload = serde_json::to_vec(&GenerateLessonPayload {
             requirement: "Teach fractions".to_string(),
             language: Some("en-US".to_string()),
-            model: Some("openai:gpt-4o-mini".to_string()),
+            model: Some("openrouter:deepseek/deepseek-chat".to_string()),
             pdf_text: None,
             pdf_images: None,
             enable_image_generation: Some(true),
@@ -18031,7 +18031,7 @@ mod tests {
         let payload = serde_json::to_vec(&GenerateLessonPayload {
             requirement: "Teach fractions".to_string(),
             language: Some("en-US".to_string()),
-            model: Some("openai:gpt-4o-mini".to_string()),
+            model: Some("openrouter:deepseek/deepseek-chat".to_string()),
             pdf_text: None,
             pdf_images: None,
             enable_image_generation: Some(true),
@@ -18309,7 +18309,7 @@ mod tests {
                 lesson_id: "lesson-cancel-live".to_string(),
                 job: job.clone(),
                 request,
-                model_string: Some("openai:gpt-4o-mini".to_string()),
+                model_string: Some("openrouter:deepseek/deepseek-chat".to_string()),
                 attempt: 0,
                 max_attempts: 3,
                 last_error: None,
@@ -18352,7 +18352,7 @@ mod tests {
         let request = build_generation_request(GenerateLessonPayload {
             requirement: "Teach fractions".to_string(),
             language: Some("en-US".to_string()),
-            model: Some("openai:gpt-4o-mini".to_string()),
+            model: Some("openrouter:deepseek/deepseek-chat".to_string()),
             pdf_text: None,
             pdf_images: None,
             enable_image_generation: Some(false),
@@ -18394,7 +18394,7 @@ mod tests {
                 &QueuedLessonJobSnapshot {
                     lesson_id: "lesson-resume-live".to_string(),
                     request,
-                    model_string: Some("openai:gpt-4o-mini".to_string()),
+                    model_string: Some("openrouter:deepseek/deepseek-chat".to_string()),
                     max_attempts: 3,
                 },
             )

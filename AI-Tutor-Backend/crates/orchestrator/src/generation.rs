@@ -476,6 +476,8 @@ struct MediaGenerationDto {
 
 #[derive(Deserialize)]
 struct SlideContentEnvelope {
+    #[serde(default)]
+    background: Option<ai_tutor_domain::scene::SlideBackground>,
     elements: Vec<SlideElementDto>,
 }
 
@@ -493,6 +495,8 @@ struct SlideElementDto {
     shape_name: Option<String>,
     #[serde(default, alias = "chartType", alias = "chart_type")]
     chart_type: Option<String>,
+    #[serde(default)]
+    fill: Option<String>,
     /// Raw SVG markup for kind=svg elements.
     /// Accessibility description for kind=svg elements.
     #[allow(dead_code)]
@@ -590,10 +594,14 @@ struct ActionsEnvelope {
 
 #[derive(Deserialize)]
 struct ActionDto {
+    #[serde(alias = "type")]
     action_type: String,
+    #[serde(alias = "content")]
     text: Option<String>,
     element_id: Option<String>,
     topic: Option<String>,
+    name: Option<String>,
+    params: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -915,38 +923,59 @@ impl LlmGenerationPipeline {
         let language = language_code(&request.requirements.language);
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
         let layout = engine::compute_layout_constraints(request);
-        let system = "You are an educational content designer. Generate well-structured slide components with precise layouts. Return strict JSON only.".to_string();
-        let user = format!(
-"Slide: {title}
-Requirement: {req}
-{pdf}Key points: {points}
-Media: {media}
 
-{layout}
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("title", outline.title.clone());
+        vars.insert("description", outline.description.clone());
+        let key_points = outline.key_points.iter().enumerate().map(|(i, p)| format!("{}. {}", i + 1, p)).collect::<Vec<_>>().join("\n");
+        vars.insert("keyPoints", key_points);
+        vars.insert("elements", "（根据要点自动生成）".to_string());
+        
+        let mut assigned_images_text = "无可用图片，禁止插入任何 image 元素".to_string();
+        let media = &outline.media_generations;
+        if !media.is_empty() {
+            let gen_img_descs = media.iter().filter(|m| matches!(m.media_type, ai_tutor_domain::scene::MediaType::Image))
+                .map(|mg| format!("- {}: \"{}\" (aspect ratio: 16:9)", mg.element_id, mg.prompt))
+                .collect::<Vec<_>>().join("\n");
+            let gen_vid_descs = media.iter().filter(|m| matches!(m.media_type, ai_tutor_domain::scene::MediaType::Video))
+                .map(|mg| format!("- {}: \"{}\" (aspect ratio: 16:9)", mg.element_id, mg.prompt))
+                .collect::<Vec<_>>().join("\n");
+            
+            let mut media_parts = Vec::new();
+            if !gen_img_descs.is_empty() {
+                media_parts.push(format!("AI-Generated Images (use these IDs as image element src):\n{}", gen_img_descs));
+            }
+            if !gen_vid_descs.is_empty() {
+                media_parts.push(format!("AI-Generated Videos (use these IDs as video element mediaRef):\n{}", gen_vid_descs));
+            }
+            if !media_parts.is_empty() {
+                assigned_images_text = media_parts.join("\n\n");
+            }
+        }
+        vars.insert("assignedImages", assigned_images_text);
+        vars.insert("canvas_width", "1000".to_string());
+        vars.insert("canvas_height", "563".to_string());
+        vars.insert("teacherContext", "".to_string());
+        vars.insert("languageDirective", format!("Language: {}", language));
+        
+        let has_image = outline.media_generations.iter().any(|x| matches!(x.media_type, ai_tutor_domain::scene::MediaType::Image));
+        let has_vid = outline.media_generations.iter().any(|x| matches!(x.media_type, ai_tutor_domain::scene::MediaType::Video));
+        
+        vars.insert("imageElementEnabled", if has_image { "true".to_string() } else { "false".to_string() });
+        vars.insert("generatedImageEnabled", if has_image { "true".to_string() } else { "false".to_string() });
+        vars.insert("generatedVideoEnabled", if has_vid { "true".to_string() } else { "false".to_string() });
+        vars.insert("mediaElementEnabled", if has_image || has_vid { "true".to_string() } else { "false".to_string() });
 
-Canvas: 1000x563. Language: {lang}
-Return JSON: {{\"elements\":[{{\"kind\":\"text|shape|chart|table|latex|image|video\",\"content\":\"...\",\"left\":0,\"top\":0,\"width\":0,\"height\":0}}]}}
-Rules:
-- Generate enough elements to fully cover ALL key points visually. Do NOT arbitrarily restrict to 2-4 elements.
-- If the key points list multiple items (e.g. '3 types'), you MUST generate visual elements for ALL of them to prevent voice-visual mismatch.
-- Title must be at the top.
-- {bullet_rule}
-- Use HTML in text (e.g., `<p style=\"font-size: 24px;\">`). Do NOT put LaTeX in text elements, use 'latex' kind instead.
-- Use shapes/charts for visual explanations. Images/video ONLY if media placeholder exists.
-- All dimensions positive. Margins: left ≥ 50, top ≥ 50, right ≤ 950, bottom ≤ 513.",
-    title = outline.title,
-    req = request.requirements.requirement,
-    pdf = pdf_info,
-    points = outline.key_points.join(" | "),
-    media = media_generation_summary(outline),
-    layout = layout.to_prompt_block(),
-    lang = language,
-    bullet_rule = format!("Max {} bullets, max {} chars each, no paragraphs", layout.max_bullets, layout.max_chars_per_bullet),
-);
+        let (system, user) = crate::prompt_builder::build_prompt("slide-content", &vars).unwrap_or_else(|| {
+            (
+                "You are an educational content designer. Generate visually rich, well-structured slide components. Return strict JSON only.".to_string(),
+                "Error loading prompt.".to_string()
+            )
+        });
 
         let response = self.generate_with_search_tool(&system, &user).await?;
         let payload: SlideContentEnvelope = parse_json_with_repair(&response)
-            .unwrap_or_else(|_| SlideContentEnvelope { elements: vec![] });
+            .unwrap_or_else(|_| SlideContentEnvelope { background: None, elements: vec![] });
 
         let elements = payload
             .elements
@@ -979,7 +1008,7 @@ Rules:
                     font_name: "Geist".to_string(),
                 },
                 elements,
-                background: None,
+                background: payload.background,
             },
         })
     }
@@ -1568,7 +1597,7 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             height,
             rotate,
             shape_name: element.shape_name,
-            fill: "#5b9bd5".to_string(),
+            fill: element.fill.unwrap_or_else(|| "#5b9bd5".to_string()),
         },
         "line" => SlideElement::Line {
             id,
@@ -1780,39 +1809,25 @@ fn build_scene_action_prompt(
     let language = language_code(&request.requirements.language);
     let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
     let prompt = match outline.scene_type {
-        SceneType::Slide => format!(
-"You are a professional instructional designer scripting teaching actions for a slide.
-
-Slide: {title}
-Requirement: {req}
-Original Key points: {points}
-Generated Elements: {elements}
-Generated Content JSON: {content}
-
-Output a JSON array ONLY. Items: {{\"type\":\"text\",\"content\":\"...\"}} or {{\"type\":\"action\",\"name\":\"spotlight|laser|play_video|discussion\",\"params\":{{...}}}}
-
-### Format & Ordering Rules:
-1. spotlight/laser actions MUST appear BEFORE the corresponding text object (point first, then speak).
-2. Use multiple spotlight+text pairs to create a natural \"focus then explain\" flow.
-3. spotlight/laser MUST reference valid element ids from the 'Generated Elements' list.
-4. discussion (optional) MUST be the last action. Do NOT place text after a discussion.
-
-### CRITICAL Speech Content Rules:
-1. Speech MUST be natural, professional teacher narration.
-2. DO NOT say \"Let me highlight...\" or \"I am pointing at...\". Just speak the explanation naturally; the highlight happens concurrently.
-3. DO NOT use Markdown in speech.
-4. You are scripting a monologue. NEVER write dialogue or include speaker tags like (Teacher): or (Student):.
-5. Elaborate on the bullet points! The slide only shows keywords; your speech MUST provide the full explanation, context, and examples.
-6. Voice-visual synchronization is critical. ONLY talk about concepts that are visually present in the 'Generated Content JSON'.
-
-Speech must be in {lang}.",
-    req = request.requirements.requirement,
-    title = outline.title,
-    points = outline.key_points.join(" | "),
-    elements = slide_focus_targets(content),
-    content = content_summary,
-    lang = language
-),
+        SceneType::Slide => {
+            let mut vars = std::collections::HashMap::new();
+            vars.insert("title", outline.title.clone());
+            vars.insert("description", outline.description.clone());
+            let key_points = outline.key_points.iter().enumerate().map(|(i, p)| format!("{}. {}", i + 1, p)).collect::<Vec<_>>().join("\n");
+            vars.insert("keyPoints", key_points);
+            
+            // To provide the elements as JSON
+            vars.insert("elements", slide_focus_targets(content));
+            vars.insert("content", content_summary.clone());
+            vars.insert("languageDirective", format!("Language: {}", language));
+            vars.insert("teacherContext", "".to_string());
+            
+            if let Some((sys, usr)) = crate::prompt_builder::build_prompt("slide-actions", &vars) {
+                return Ok((sys, usr));
+            }
+            // fallback
+            return Ok(("You are an instructional designer. Return strict JSON only.".to_string(), "Fallback prompt".to_string()));
+        },
         SceneType::Quiz => format!(
 "You are a professional instructional designer scripting teaching actions for a quiz scene.
 
