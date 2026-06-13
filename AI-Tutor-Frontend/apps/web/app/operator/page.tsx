@@ -53,6 +53,8 @@ export default function OperatorPage() {
   const [apiCosts, setApiCosts] = useState<any>(null);
   const [schools, setSchools] = useState<any[]>([]);
 
+  const [redirecting, setRedirecting] = useState(false);
+
   const headers = (): HeadersInit => {
     const tok = getOperatorToken();
     const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
@@ -61,6 +63,11 @@ export default function OperatorPage() {
   };
 
   const load = async () => {
+    if (!getOperatorToken()) {
+      setRedirecting(true);
+      router.replace('/operator/login');
+      return;
+    }
     setLoading(true); setError(null);
     try {
       const [ovRes, costsRes, schoolsRes] = await Promise.all([
@@ -68,7 +75,7 @@ export default function OperatorPage() {
         fetch('/api/operator/api-costs', { headers: headers(), cache: 'no-store' }),
         fetch('/api/operator/schools', { headers: headers(), cache: 'no-store' }),
       ]);
-      if (ovRes.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
+      if (ovRes.status === 401) { clearOperatorSession(); setRedirecting(true); router.replace('/operator/login'); return; }
       if (ovRes.ok) setOverview(await ovRes.json());
       if (costsRes.ok) setApiCosts(await costsRes.json());
       if (schoolsRes.ok) {
@@ -91,7 +98,7 @@ export default function OperatorPage() {
     { id: 'schools', label: 'Enterprise', icon: <School className="size-4" /> },
   ];
 
-  if (loading && !overview) {
+  if (redirecting || (loading && !overview)) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-[#F8FAFC] dark:bg-neutral-900/50">
         <Loader2 className="size-8 animate-spin text-[#10B981]" />
