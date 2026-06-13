@@ -95,7 +95,7 @@ pub const GEMINI_FLASH: ModelDefinition = ModelDefinition::new(
 
 pub const DEEPSEEK_V3: ModelDefinition = ModelDefinition::new(
     Provider::OpenRouter,
-    "deepseek/deepseek-chat-v3-0324",
+    "deepseek/deepseek-chat",
     "DeepSeek Chat V3",
     128_000,
     true,

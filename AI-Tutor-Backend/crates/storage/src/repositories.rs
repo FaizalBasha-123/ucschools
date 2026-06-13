@@ -316,6 +316,13 @@ pub trait ApiUsageRepository: Send + Sync {
         &self,
         since: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String>;
+
+    /// Fetch all usage records for a specific lesson, for operator cost visibility.
+    /// Returns an empty Vec if the table doesn't exist or no records found.
+    async fn list_api_usage_by_lesson_id(
+        &self,
+        lesson_id: &str,
+    ) -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String>;
 }
 
 /// Repository for the dual-bucket wallet (promo + paid credits).

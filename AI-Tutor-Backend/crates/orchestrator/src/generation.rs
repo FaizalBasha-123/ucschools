@@ -19,9 +19,8 @@ use ai_tutor_domain::{
     },
 };
 use ai_tutor_providers::request_params::GenerationParams;
-use ai_tutor_providers::traits::LlmProvider;
+use ai_tutor_providers::traits::{LlmProvider, ProviderUsage};
 
-use crate::engine;
 use crate::pipeline::LessonGenerationPipeline;
 
 pub struct LlmGenerationPipeline {
@@ -133,7 +132,7 @@ impl LlmGenerationPipeline {
         llm: &dyn LlmProvider,
         system_prompt: &str,
         user_prompt: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Option<ProviderUsage>)> {
         let Some(_web_search) = &self.web_search else {
             return self.generate_with_retry_using(llm, system_prompt, user_prompt).await;
         };
@@ -169,9 +168,11 @@ You may invoke the tool at most {max_calls} times total.
 
         let augmented_system = format!("{system_prompt}\n{tool_prompt}");
         let mut current_user = user_prompt.to_string();
+        let mut accumulated_usage: Option<ProviderUsage> = None;
 
         for _round in 0..MAX_SEARCH_TOOL_CALLS {
-            let response = self.generate_with_retry_using(llm, &augmented_system, &current_user).await?;
+            let (response, usage) = self.generate_with_retry_using(llm, &augmented_system, &current_user).await?;
+            accumulate_usage(&mut accumulated_usage, usage);
 
             if let Some(query) = parse_web_search_tool_call(&response) {
                 let results = match self.execute_tavily_search(&query).await {
@@ -180,12 +181,13 @@ You may invoke the tool at most {max_calls} times total.
                 };
                 current_user = format!("{user_prompt}\n\n{results}");
             } else {
-                return Ok(response);
+                return Ok((response, accumulated_usage));
             }
         }
 
-        // Final attempt without the web search prompt to force a response
-        self.generate_with_retry_using(llm, system_prompt, &current_user).await
+        let (final_response, usage) = self.generate_with_retry_using(llm, system_prompt, &current_user).await?;
+        accumulate_usage(&mut accumulated_usage, usage);
+        Ok((final_response, accumulated_usage))
     }
 
     /// Convenience wrapper using the default scene content LLM.
@@ -193,7 +195,7 @@ You may invoke the tool at most {max_calls} times total.
         &self,
         system_prompt: &str,
         user_prompt: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Option<ProviderUsage>)> {
         self.generate_with_search_tool_using(self.scene_content_llm(), system_prompt, user_prompt)
             .await
     }
@@ -255,14 +257,12 @@ You may invoke the tool at most {max_calls} times total.
         llm: &dyn LlmProvider,
         system_prompt: &str,
         user_prompt: &str,
-    ) -> Result<String> {
+    ) -> Result<(String, Option<ProviderUsage>)> {
         let mut last_error = None;
 
-        let params = GenerationParams::json_object();
-
         for attempt in 0..MAX_LLM_ATTEMPTS {
-            match llm.generate_text_with_params(system_prompt, user_prompt, &params).await {
-                Ok((response, _)) => return Ok(response),
+            match llm.generate_text_with_usage(system_prompt, user_prompt).await {
+                Ok((response, usage)) => return Ok((response, usage)),
                 Err(err) => {
                     let should_retry = should_retry_llm_error(&err);
                     last_error = Some(err);
@@ -280,7 +280,7 @@ You may invoke the tool at most {max_calls} times total.
         Err(last_error.unwrap_or_else(|| anyhow!("LLM request failed without an error")))
     }
 
-    async fn generate_with_retry(&self, system_prompt: &str, user_prompt: &str) -> Result<String> {
+    async fn generate_with_retry(&self, system_prompt: &str, user_prompt: &str) -> Result<(String, Option<ProviderUsage>)> {
         self.generate_with_retry_using(self.scene_content_llm(), system_prompt, user_prompt)
             .await
     }
@@ -333,7 +333,7 @@ You may invoke the tool at most {max_calls} times total.
             outline.key_points.join(" | ")
         );
 
-        let response = self.generate_with_search_tool(&system, &user).await.ok()?;
+        let response = self.generate_with_search_tool(&system, &user).await.ok().map(|(r, _)| r).unwrap_or_default();
         let parsed: ScientificModelEnvelope = parse_json_with_repair(&response).ok()?;
         if parsed.core_formulas.is_empty()
             && parsed.mechanism.is_empty()
@@ -400,7 +400,7 @@ You may invoke the tool at most {max_calls} times total.
             revision_notes,
         );
 
-        let response = self.generate_with_retry(system, &user).await.ok()?;
+        let response = self.generate_with_retry(system, &user).await.ok().map(|(r, _)| r).unwrap_or_default();
         let parsed: ScientificModelEnvelope = parse_json_with_repair(&response).ok()?;
         Some(ScientificModel {
             core_formulas: parsed.core_formulas,
@@ -427,6 +427,13 @@ const WEB_SEARCH_TOOL_CALL_MARKER: &str = "TOOL_CALL: web_search";
 const WEB_SEARCH_QUERY_MARKER: &str = "QUERY:";
 
 #[derive(Deserialize)]
+struct OutlineResponseEnvelope {
+    #[serde(default, alias = "languageDirective")]
+    language_directive: Option<String>,
+    outlines: Vec<OutlineDto>,
+}
+
+#[derive(Deserialize)]
 struct OutlineEnvelope {
     outlines: Vec<OutlineDto>,
 }
@@ -443,6 +450,7 @@ struct OutlineDto {
     order: Option<i32>,
     #[serde(default, alias = "suggestedImageIds", alias = "suggested_image_ids")]
     suggested_image_ids: Vec<String>,
+    #[serde(default, alias = "keyPoints")]
     key_points: Vec<String>,
     #[serde(alias = "type", alias = "sceneType")]
     scene_type: String,
@@ -450,7 +458,7 @@ struct OutlineDto {
     #[serde(default, alias = "visualType", alias = "visual_type")]
     visual_type: Option<String>,
     #[allow(dead_code)]
-    #[serde(default)]
+    #[serde(default, alias = "mediaGenerations")]
     media_generations: Vec<MediaGenerationDto>,
     #[serde(default, alias = "quizConfig", alias = "quiz_config")]
     quiz_config: Option<QuizConfigDto>,
@@ -508,6 +516,38 @@ struct SlideElementDto {
     height: f32,
     #[serde(default)]
     rotate: f32,
+    #[serde(default)]
+    path: Option<String>,
+    #[serde(default, alias = "viewBox")]
+    view_box: Option<Vec<f32>>,
+    #[serde(default)]
+    start: Option<Vec<f32>>,
+    #[serde(default)]
+    end: Option<Vec<f32>>,
+    #[serde(default)]
+    style: Option<String>,
+    #[serde(default)]
+    color: Option<String>,
+    #[serde(default)]
+    points: Option<Vec<String>>,
+    #[serde(default)]
+    broken: Option<Vec<f32>>,
+    #[serde(default)]
+    broken2: Option<Vec<f32>>,
+    #[serde(default)]
+    curve: Option<Vec<f32>>,
+    #[serde(default)]
+    cubic: Option<Vec<Vec<f32>>>,
+    #[serde(default)]
+    data: Option<serde_json::Value>,
+    #[serde(default, alias = "themeColors")]
+    theme_colors: Option<Vec<String>>,
+    #[serde(default, alias = "colWidths")]
+    col_widths: Option<Vec<f32>>,
+    #[serde(default)]
+    outline: Option<serde_json::Value>,
+    #[serde(default)]
+    align: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -685,63 +725,67 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         pdf_context: Option<&str>,
     ) -> Result<Vec<SceneOutline>> {
         let language = language_code(&request.requirements.language);
-        let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
 
-        let system = "You are an instructional planner. Return strict JSON only.".to_string();
-
-        let learning_profile = engine::compute_learning_profile(request);
-        let layout = engine::compute_layout_constraints(request);
-        let budget = engine::compute_generation_budget(request);
-
-        let image_note = if request.enable_image_generation {
-            "AI image gen is available but EXPENSIVE. Use \"image\" visual_type ONLY for photorealistic scenes, real-world photos, or historical artwork where no other visual type suffices."
+        // Build available images description for the template
+        let has_source_images = !request.pdf_images.is_empty();
+        let available_images = if has_source_images {
+            format!("Available PDF images: {} image(s) available from the uploaded document. Use their IDs when referencing them in slide scenes.", request.pdf_images.len())
         } else {
-            "AI image gen is DISABLED. Do NOT use \"image\" visual_type. Use chart/latex/html/none instead."
+            "No images available".to_string()
         };
 
-        let user = format!(
-"Lesson outline for: {requirement}
-{pdf}Language: {lang}
+        // Build user profile for the template
+        let user_profile = match (&request.requirements.user_nickname, &request.requirements.user_bio) {
+            (Some(nickname), Some(bio)) => format!("## Student Profile\n\nStudent: {} — {}\n\nConsider this student's background when designing the course. Adapt difficulty, examples, and teaching approach accordingly.\n\n---", nickname, bio),
+            (Some(nickname), None) => format!("## Student Profile\n\nStudent: {}\n\nConsider this student's background when designing the course.\n\n---", nickname),
+            _ => String::new(),
+        };
 
-{learning}
+        let image_enabled = request.enable_image_generation;
+        let video_enabled = request.enable_video_generation;
+        let media_enabled = image_enabled || video_enabled;
 
-{layout}
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("requirement", request.requirements.requirement.clone());
+        vars.insert("pdfContent", pdf_context.unwrap_or("None").to_string());
+        vars.insert("availableImages", available_images);
+        vars.insert("userProfile", user_profile);
+        vars.insert("hasSourceImages", if has_source_images { "true".to_string() } else { "false".to_string() });
+        vars.insert("imageEnabled", if image_enabled { "true".to_string() } else { "false".to_string() });
+        vars.insert("videoEnabled", if video_enabled { "true".to_string() } else { "false".to_string() });
+        vars.insert("mediaEnabled", if media_enabled { "true".to_string() } else { "false".to_string() });
+        vars.insert("researchContext", "None".to_string());
+        vars.insert("teacherContext", String::new());
 
-{budget}
+        let (system, user) = crate::prompt_builder::build_prompt("requirements-to-outlines", &vars).unwrap_or_else(|| {
+            (
+                "You are an instructional planner. Return strict JSON only.".to_string(),
+                format!("Lesson outline for: {}", request.requirements.requirement)
+            )
+        });
 
-Rules:
-- {scene_cap}
-- Each scene: title (≤6 words), description (1 line), 2-3 key points
-- Mix slide scenes with 1 quiz scene max
-- Flow: introduce → explain → practice → assess
-
-Visual type decision (choose ONE per slide scene, omit for quiz/pbl):
-  \"none\"  → text-only (vocabulary, steps, definitions)
-  \"chart\" → data/comparisons/statistics/percentages (bar, pie, line)
-  \"latex\" → math formulas, chemical equations, physics expressions
-  \"html\"  → interactive simulations (pendulum, sorting, cell cycle animation)
-  \"image\" → {image_note}
-
-Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_points\":[\"...\"],\"scene_type\":\"slide|quiz\",\"visual_type\":\"none|chart|latex|html|image\"}}]}}",
-    requirement = request.requirements.requirement,
-    pdf = pdf_info,
-    lang = language,
-    learning = learning_profile.to_prompt_block(),
-    layout = layout.to_prompt_block(),
-    budget = budget.to_budget_prompt_block(),
-    scene_cap = layout.to_scene_cap_prompt(),
-    image_note = image_note,
-);
-
-        let final_response = self
+        let (final_response, _usage) = self
             .generate_with_search_tool_using(self.outlines_llm(), &system, &user)
             .await?;
 
-        let payload: OutlineEnvelope = parse_json_with_repair(&final_response)
-            .unwrap_or_else(|_| OutlineEnvelope { outlines: vec![] });
+        // Parse response — try full envelope with languageDirective first,
+        // fall back to bare outlines array for backwards compatibility
+        let (language_directive, outline_dtos) = match parse_json_with_repair::<OutlineResponseEnvelope>(&final_response) {
+            Ok(envelope) => (envelope.language_directive, envelope.outlines),
+            Err(_) => {
+                // Fallback: try the old envelope format (without languageDirective)
+                match parse_json_with_repair::<OutlineEnvelope>(&final_response) {
+                    Ok(envelope) => (None, envelope.outlines),
+                    Err(_) => (None, vec![]),
+                }
+            }
+        };
 
-        let outlines = payload
-            .outlines
+        let language_directive = language_directive.unwrap_or_else(|| {
+            format!("Teach in {}. All content, explanations, and examples must be in this language. Use terminology appropriate for the subject matter.", language)
+        });
+
+        let outlines = outline_dtos
             .into_iter()
             .enumerate()
             .map(|(index, item)| {
@@ -751,10 +795,6 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
                 let key_points = item.key_points;
                 let visual_type = map_visual_type(item.visual_type.as_deref());
 
-                // AI image generation is ONLY triggered when:
-                // 1. The LLM explicitly chose visual_type = Image (not by default)
-                // 2. The operator kill-switch (enable_image_generation) is ON
-                // 3. The scene is a Slide (not Quiz/PBL)
                 let media_generations = if matches!(visual_type, Some(VisualType::Image))
                     && request.enable_image_generation
                     && matches!(scene_type, SceneType::Slide)
@@ -766,7 +806,6 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
                         aspect_ratio: Some("16:9".to_string()),
                     }]
                 } else {
-                    // No AI image — the scene content phase will generate the right visual
                     vec![]
                 };
 
@@ -783,7 +822,7 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
                     &title,
                     &description,
                     &key_points,
-                    language,
+                    &language_directive,
                 );
 
                 SceneOutline {
@@ -795,7 +834,7 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
                     teaching_objective: item.teaching_objective,
                     estimated_duration: item.estimated_duration,
                     order: item.order.unwrap_or((index + 1) as i32),
-                    language: Some(language.to_string()),
+                    language: Some(language_directive.clone()),
                     suggested_image_ids: item.suggested_image_ids,
                     visual_type,
                     media_generations,
@@ -838,7 +877,7 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
         let (system, user) =
             build_scene_action_prompt(request, outline, content, pdf_context)?;
 
-        let primary_response = self
+        let (primary_response, _usage) = self
             .generate_with_search_tool_using(self.scene_actions_llm(), &system, &user)
             .await?;
         let mut actions =
@@ -847,7 +886,7 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
         let needs_escalation = actions.is_empty();
         if needs_escalation {
             if let Some(fallback_llm) = self.scene_actions_fallback_llm.as_deref() {
-                let fallback_response = self
+                let (fallback_response, _usage) = self
                     .generate_with_retry_using(fallback_llm, &system, &user)
                     .await?;
                 let fallback_actions =
@@ -898,7 +937,7 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
             scene_list = scene_list,
         );
 
-        let raw = self
+        let (raw, _usage) = self
             .generate_with_retry_using(self.outlines_llm(), &system, &user)
             .await?;
 
@@ -916,14 +955,10 @@ Return JSON: {{\"outlines\":[{{\"title\":\"...\",\"description\":\"...\",\"key_p
 impl LlmGenerationPipeline {
     async fn generate_slide_content(
         &self,
-        request: &LessonGenerationRequest,
+        _request: &LessonGenerationRequest,
         outline: &SceneOutline,
-        pdf_context: Option<&str>,
+        _pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
-        let language = language_code(&request.requirements.language);
-        let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-        let layout = engine::compute_layout_constraints(request);
-
         let mut vars = std::collections::HashMap::new();
         vars.insert("title", outline.title.clone());
         vars.insert("description", outline.description.clone());
@@ -954,9 +989,9 @@ impl LlmGenerationPipeline {
         }
         vars.insert("assignedImages", assigned_images_text);
         vars.insert("canvas_width", "1000".to_string());
-        vars.insert("canvas_height", "563".to_string());
+        vars.insert("canvas_height", "562.5".to_string());
         vars.insert("teacherContext", "".to_string());
-        vars.insert("languageDirective", format!("Language: {}", language));
+        vars.insert("languageDirective", outline.language.as_deref().unwrap_or("Teach in English.").to_string());
         
         let has_image = outline.media_generations.iter().any(|x| matches!(x.media_type, ai_tutor_domain::scene::MediaType::Image));
         let has_vid = outline.media_generations.iter().any(|x| matches!(x.media_type, ai_tutor_domain::scene::MediaType::Video));
@@ -973,7 +1008,7 @@ impl LlmGenerationPipeline {
             )
         });
 
-        let response = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
         let payload: SlideContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| SlideContentEnvelope { background: None, elements: vec![] });
 
@@ -1038,7 +1073,7 @@ Rules:
     points = outline.key_points.join(" | "),
 );
 
-        let response = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
         let payload: QuizContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| QuizContentEnvelope { questions: vec![] });
         let questions = if payload.questions.is_empty() {
@@ -1108,7 +1143,7 @@ Rules:
     lang = language_code(&request.requirements.language),
 );
 
-        let response = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
         let payload: InteractiveContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(InteractiveContentEnvelope {
                 html: None,
@@ -1169,7 +1204,7 @@ Rules:
     config = project_outline_summary(outline),
 );
 
-        let response = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
         let mut payload: ProjectContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(ProjectContentEnvelope {
                 summary: fallback_project_summary(outline),
@@ -1287,7 +1322,7 @@ Rules:
             repair_notes,
             html
         );
-        let response = self.generate_with_retry(system, &user).await?;
+        let (response, _usage) = self.generate_with_retry(system, &user).await?;
         let repaired = extract_html_document(&response).unwrap_or(response);
         Ok(post_process_interactive_html(
             &repaired,
@@ -1328,7 +1363,7 @@ Rules:
                 .map(|items| items.join(" | "))
                 .unwrap_or_else(|| "Not specified".to_string()),
         );
-        let response = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
         parse_json_with_repair(&response)
     }
 
@@ -1356,7 +1391,7 @@ Rules:
             serde_json::to_string(payload).unwrap_or_default(),
             revision_notes,
         );
-        let response = self.generate_with_retry(system, &user).await?;
+        let (response, _usage) = self.generate_with_retry(system, &user).await?;
         parse_json_with_repair(&response)
     }
 
@@ -1403,7 +1438,7 @@ Rules:
             roles_summary,
             issue_count,
         );
-        let response = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
         parse_json_with_repair(&response)
     }
 }
@@ -1598,6 +1633,8 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             rotate,
             shape_name: element.shape_name,
             fill: element.fill.unwrap_or_else(|| "#5b9bd5".to_string()),
+            path: element.path,
+            view_box: element.view_box,
         },
         "line" => SlideElement::Line {
             id,
@@ -1606,6 +1643,15 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             width,
             height,
             rotate,
+            start: element.start,
+            end: element.end,
+            style: element.style,
+            color: element.color,
+            points: element.points,
+            broken: element.broken,
+            broken2: element.broken2,
+            curve: element.curve,
+            cubic: element.cubic,
         },
         "chart" => SlideElement::Chart {
             id,
@@ -1615,6 +1661,8 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             height,
             rotate,
             chart_type: element.chart_type,
+            data: element.data,
+            theme_colors: element.theme_colors,
         },
         "latex" => SlideElement::Latex {
             id,
@@ -1624,6 +1672,8 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             height,
             rotate,
             latex: element.latex.unwrap_or_default(),
+            color: element.color,
+            align: element.align,
         },
         "table" => SlideElement::Table {
             id,
@@ -1632,6 +1682,9 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             width,
             height,
             rotate,
+            col_widths: element.col_widths,
+            data: element.data,
+            outline: element.outline,
         },
         _ => SlideElement::Text {
             id,
@@ -1813,6 +1866,7 @@ fn build_scene_action_prompt(
             let mut vars = std::collections::HashMap::new();
             vars.insert("title", outline.title.clone());
             vars.insert("description", outline.description.clone());
+            vars.insert("pdfContext", pdf_info.clone());
             let key_points = outline.key_points.iter().enumerate().map(|(i, p)| format!("{}. {}", i + 1, p)).collect::<Vec<_>>().join("\n");
             vars.insert("keyPoints", key_points);
             
@@ -2669,6 +2723,8 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             rotate,
             shape_name,
             fill,
+            path,
+            view_box,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Shape {
                 id,
@@ -2679,6 +2735,8 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 rotate,
                 shape_name,
                 fill,
+                path,
+                view_box,
             }
         }),
         SlideElement::Line {
@@ -2688,6 +2746,15 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             width,
             height,
             rotate,
+            start,
+            end,
+            style,
+            color,
+            points,
+            broken,
+            broken2,
+            curve,
+            cubic,
         } => normalize_box(left, top, width.max(2.0), height.max(2.0)).map(
             |(left, top, width, height)| SlideElement::Line {
                 id,
@@ -2696,6 +2763,15 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 width,
                 height,
                 rotate,
+                start,
+                end,
+                style,
+                color,
+                points,
+                broken,
+                broken2,
+                curve,
+                cubic,
             },
         ),
         SlideElement::Chart {
@@ -2706,6 +2782,8 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             height,
             rotate,
             chart_type,
+            data,
+            theme_colors,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Chart {
                 id,
@@ -2715,6 +2793,8 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 height,
                 rotate,
                 chart_type,
+                data,
+                theme_colors,
             }
         }),
         SlideElement::Latex {
@@ -2725,6 +2805,8 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             height,
             rotate,
             latex,
+            color,
+            align,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Latex {
                 id,
@@ -2734,6 +2816,8 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 height,
                 rotate,
                 latex,
+                color,
+                align,
             }
         }),
         SlideElement::Table {
@@ -2743,6 +2827,9 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
             width,
             height,
             rotate,
+            col_widths,
+            data,
+            outline,
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
             SlideElement::Table {
                 id,
@@ -2751,6 +2838,9 @@ fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
                 width,
                 height,
                 rotate,
+                col_widths,
+                data,
+                outline,
             }
         }),
     }
@@ -2775,6 +2865,20 @@ where
     }
 
     Err(anyhow!("failed to parse repaired JSON payload"))
+}
+
+/// Accumulate LLM usage from a single call into an accumulator.
+/// Sums input and output tokens across multiple LLM calls.
+fn accumulate_usage(acc: &mut Option<ProviderUsage>, new: Option<ProviderUsage>) {
+    match (acc.as_mut(), new) {
+        (Some(ref mut a), Some(n)) => {
+            a.input_tokens += n.input_tokens;
+            a.output_tokens += n.output_tokens;
+            a.total_tokens = Some(a.total_tokens.unwrap_or(0) + n.total_tokens.unwrap_or(0));
+        }
+        (None, Some(n)) => *acc = Some(n),
+        _ => {}
+    }
 }
 
 fn should_retry_llm_error(error: &anyhow::Error) -> bool {

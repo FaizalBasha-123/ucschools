@@ -4649,6 +4649,52 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
         .map_err(|e| e.to_string())?
 
     }
+
+    async fn list_api_usage_by_lesson_id(
+        &self,
+        lesson_id: &str,
+    ) -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String> {
+        let postgres_url = self.postgres_url.clone();
+        let lesson_id = lesson_id.to_string();
+        tokio::task::spawn_blocking(move || -> Result<Vec<ai_tutor_domain::billing::ApiUsageRecord>, String> {
+            let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
+            let table_exists: bool = client.query_one(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'api_usage_records')",
+                &[],
+            ).map(|row| row.get::<_, bool>(0)).unwrap_or(false);
+
+            if !table_exists {
+                return Ok(vec![]);
+            }
+
+            let rows = client.query(
+                "SELECT id, account_id, component, provider, model_id,
+                        input_tokens, output_tokens, cost_usd_millicents, created_at,
+                        lesson_id
+                 FROM api_usage_records
+                 WHERE lesson_id = $1
+                 ORDER BY created_at ASC",
+                &[&lesson_id],
+            ).map_err(|e| e.to_string())?;
+
+            rows.into_iter().map(|row| {
+                Ok(ai_tutor_domain::billing::ApiUsageRecord {
+                    id:                  row.get(0),
+                    account_id:          row.get(1),
+                    component:           row.get(2),
+                    provider:            row.get(3),
+                    model_id:            row.get(4),
+                    input_tokens:        row.get(5),
+                    output_tokens:       row.get(6),
+                    cost_usd_millicents: row.get(7),
+                    created_at:          row.get(8),
+                    lesson_id:           row.get(9),
+                })
+            }).collect()
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
 }
 
 

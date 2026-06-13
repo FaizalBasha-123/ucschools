@@ -9,8 +9,8 @@ export function useFilter(filters?: ImageElementFilters) {
   const filter = useMemo(() => {
     if (!filters) return '';
     let filterStr = '';
-    for (const f of Object.values(filters)) {
-      filterStr += `${f.type}(${f.value}) `;
+    for (const [key, value] of Object.entries(filters)) {
+      filterStr += `${key}(${value}) `;
     }
     return filterStr.trim();
   }, [filters]);

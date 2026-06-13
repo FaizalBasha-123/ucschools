@@ -10,9 +10,9 @@ pub enum LessonAction {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
         text: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "audioId", skip_serializing_if = "Option::is_none")]
         audio_id: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "audioUrl", skip_serializing_if = "Option::is_none")]
         audio_url: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         voice: Option<String>,
@@ -25,8 +25,9 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
+        #[serde(rename = "elementId")]
         element_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "dimOpacity", skip_serializing_if = "Option::is_none")]
         dim_opacity: Option<f32>,
     },
     Laser {
@@ -35,6 +36,7 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
+        #[serde(rename = "elementId")]
         element_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<String>,
@@ -45,6 +47,7 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
+        #[serde(rename = "elementId")]
         element_id: String,
     },
     Discussion {
@@ -56,7 +59,7 @@ pub enum LessonAction {
         topic: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         prompt: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "agentId", skip_serializing_if = "Option::is_none")]
         agent_id: Option<String>,
     },
     WhiteboardOpen {
@@ -72,7 +75,7 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "elementId", skip_serializing_if = "Option::is_none")]
         element_id: Option<String>,
         content: String,
         x: f32,
@@ -81,7 +84,7 @@ pub enum LessonAction {
         width: Option<f32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         height: Option<f32>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "fontSize", skip_serializing_if = "Option::is_none")]
         font_size: Option<f32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<String>,
@@ -92,14 +95,14 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "elementId", skip_serializing_if = "Option::is_none")]
         element_id: Option<String>,
         shape: WhiteboardShape,
         x: f32,
         y: f32,
         width: f32,
         height: f32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "fillColor", skip_serializing_if = "Option::is_none")]
         fill_color: Option<String>,
     },
     WhiteboardDrawChart {
@@ -108,15 +111,16 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "elementId", skip_serializing_if = "Option::is_none")]
         element_id: Option<String>,
+        #[serde(rename = "chartType")]
         chart_type: WhiteboardChartType,
         x: f32,
         y: f32,
         width: f32,
         height: f32,
         data: ChartData,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "themeColors", skip_serializing_if = "Option::is_none")]
         theme_colors: Option<Vec<String>>,
     },
     WhiteboardDrawLatex {
@@ -125,7 +129,7 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "elementId", skip_serializing_if = "Option::is_none")]
         element_id: Option<String>,
         latex: String,
         x: f32,
@@ -143,7 +147,7 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "elementId", skip_serializing_if = "Option::is_none")]
         element_id: Option<String>,
         x: f32,
         y: f32,
@@ -162,11 +166,15 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "elementId", skip_serializing_if = "Option::is_none")]
         element_id: Option<String>,
+        #[serde(rename = "startX")]
         start_x: f32,
+        #[serde(rename = "startY")]
         start_y: f32,
+        #[serde(rename = "endX")]
         end_x: f32,
+        #[serde(rename = "endY")]
         end_y: f32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<String>,
@@ -185,7 +193,7 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "elementId", skip_serializing_if = "Option::is_none")]
         element_id: Option<String>,
         /// Ephemeral public URL from asset store (R2 or local).
         url: String,
@@ -209,6 +217,7 @@ pub enum LessonAction {
         title: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
+        #[serde(rename = "elementId")]
         element_id: String,
     },
     WhiteboardClose {

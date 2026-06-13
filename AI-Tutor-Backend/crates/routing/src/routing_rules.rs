@@ -23,7 +23,7 @@ fn with_override<'a>(default: &'static str, override_val: Option<String>) -> Cow
 
 const GEMINI_FLASH_LITE: &str = "openrouter:google/gemini-2.5-flash-lite";
 const GEMINI_FLASH: &str = "openrouter:google/gemini-2.5-flash";
-const DEEPSEEK_V3: &str = "openrouter:deepseek/deepseek-chat-v3-0324";
+const DEEPSEEK_V3: &str = "openrouter:deepseek/deepseek-chat";
 const CLAUDE_SONNET_46: &str = "openrouter:anthropic/claude-sonnet-4.6";
 const CLAUDE_35_HAIKU: &str = "openrouter:anthropic/claude-3-5-haiku";
 const LLAMA_31_8B: &str = "openrouter:meta-llama/llama-3.1-8b-instruct";

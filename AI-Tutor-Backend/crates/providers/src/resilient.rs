@@ -957,6 +957,15 @@ impl LlmProvider for ResilientLlmProvider {
         )
     }
 
+    async fn generate_text_with_usage(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        self.generate_text_with_params(system_prompt, user_prompt, &GenerationParams::json_object())
+            .await
+    }
+
     async fn generate_text_with_history(&self, messages: &[(String, String)]) -> Result<String> {
         let mut failures = Vec::new();
         let mut effective_messages = messages.to_vec();

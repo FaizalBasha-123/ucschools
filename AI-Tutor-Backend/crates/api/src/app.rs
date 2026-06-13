@@ -1240,6 +1240,26 @@ pub struct OperatorApiCostsResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LessonApiCostsResponse {
+    pub lesson_id: String,
+    pub records: Vec<OperatorUsageRecord>,
+    pub total_cost_usd: f64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperatorUsageRecord {
+    pub component: String,
+    pub provider: String,
+    pub model_id: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cost_usd: f64,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiCostQuery {
     pub days: Option<i64>,
 }
@@ -1728,6 +1748,8 @@ pub trait LessonAppService: Send + Sync {
     /// Returns aggregated API cost data for the operator console.
     /// Returns zeroes gracefully when api_usage_records table is empty.
     async fn get_api_usage_costs(&self, days: Option<i64>) -> Result<OperatorApiCostsResponse>;
+    /// Returns per-call API usage records for a specific lesson.
+    async fn get_lesson_api_costs(&self, lesson_id: &str) -> Result<LessonApiCostsResponse>;
     /// SRE burn rate: cost aggregation per provider, hourly breakdown, top models.
     async fn get_burn_rate(&self, hours: i64, _per_user: bool) -> Result<BurnRateResponse>;
     /// Record an API usage event from frontend generation routes.
@@ -5851,6 +5873,40 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
+    async fn get_lesson_api_costs(&self, lesson_id: &str) -> Result<LessonApiCostsResponse> {
+        let records = self.storage
+            .list_api_usage_by_lesson_id(lesson_id)
+            .await
+            .unwrap_or_default();
+
+        let mut total_input_tokens = 0i64;
+        let mut total_output_tokens = 0i64;
+        let mut total_cost_millicents = 0i64;
+
+        let usage_records: Vec<OperatorUsageRecord> = records.iter().map(|r| {
+            total_input_tokens += r.input_tokens;
+            total_output_tokens += r.output_tokens;
+            total_cost_millicents += r.cost_usd_millicents;
+            OperatorUsageRecord {
+                component: r.component.clone(),
+                provider: r.provider.clone(),
+                model_id: r.model_id.clone(),
+                input_tokens: r.input_tokens,
+                output_tokens: r.output_tokens,
+                cost_usd: r.cost_usd_millicents as f64 / 100_000.0,
+                created_at: r.created_at.to_rfc3339(),
+            }
+        }).collect();
+
+        Ok(LessonApiCostsResponse {
+            lesson_id: lesson_id.to_string(),
+            records: usage_records,
+            total_cost_usd: total_cost_millicents as f64 / 100_000.0,
+            total_input_tokens,
+            total_output_tokens,
+        })
+    }
+
     async fn get_burn_rate(&self, hours: i64, _per_user: bool) -> Result<BurnRateResponse> {
         let window = chrono::Utc::now() - chrono::Duration::hours(hours);
 
@@ -7927,6 +7983,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/operator/settings/emails", get(list_operator_emails).post(add_operator_email))
         .route("/api/operator/settings/emails/{email}", delete(remove_operator_email))
         .route("/api/operator/api-costs", get(get_operator_api_costs))
+        .route("/api/operator/lesson-costs/{lesson_id}", get(get_lesson_api_costs))
         .route("/api/operator/burn-rate", get(get_operator_burn_rate))
         .route("/api/internal/usage", post(post_internal_usage))
         .route("/api/operator/system/toggle-maintenance", post(toggle_maintenance))
@@ -9488,6 +9545,19 @@ async fn get_operator_api_costs(
     state
         .service
         .get_api_usage_costs(query.days)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
+}
+
+async fn get_lesson_api_costs(
+    State(state): State<AppState>,
+    Extension(_account): Extension<AuthenticatedAccountContext>,
+    Path(lesson_id): Path<String>,
+) -> Result<Json<LessonApiCostsResponse>, ApiError> {
+    state
+        .service
+        .get_lesson_api_costs(&lesson_id)
         .await
         .map(Json)
         .map_err(ApiError::internal)
@@ -13366,6 +13436,16 @@ mod tests {
                     estimated_margin_30d: 0.0,
                     by_component: vec![],
                     per_user: vec![],
+                })
+            }
+
+            async fn get_lesson_api_costs(&self, _lesson_id: &str) -> Result<LessonApiCostsResponse> {
+                Ok(LessonApiCostsResponse {
+                    lesson_id: _lesson_id.to_string(),
+                    records: vec![],
+                    total_cost_usd: 0.0,
+                    total_input_tokens: 0,
+                    total_output_tokens: 0,
                 })
             }
 

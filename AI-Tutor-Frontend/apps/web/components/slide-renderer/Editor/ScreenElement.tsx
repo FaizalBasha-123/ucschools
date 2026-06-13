@@ -22,10 +22,9 @@ interface ScreenElementProps {
 }
 
 export function ScreenElement({ elementInfo, elementIndex, animate }: ScreenElementProps) {
+  const type = elementInfo.type ?? (elementInfo as any).kind;
+
   const CurrentElementComponent = useMemo(() => {
-    // Robust type identification with fallback to 'kind' (legacy)
-    const type = elementInfo.type ?? (elementInfo as any).kind;
-    
     const elementTypeMap: Record<string, any> = {
       [ElementTypes.IMAGE]: BaseImageElement,
       [ElementTypes.TEXT]: BaseTextElement,
@@ -38,7 +37,7 @@ export function ScreenElement({ elementInfo, elementIndex, animate }: ScreenElem
       [ElementTypes.SVG]: BaseSvgElement,
     };
     return elementTypeMap[type] || null;
-  }, [elementInfo.type, (elementInfo as any).kind]);
+  }, [type]);
 
   const theme = useSceneSelector<SceneContent, { fontColor: string; fontName: string }>(
     (content) => {
@@ -53,6 +52,7 @@ export function ScreenElement({ elementInfo, elementIndex, animate }: ScreenElem
   );
 
   if (!CurrentElementComponent) {
+    console.warn(`[ScreenElement] Unknown element type: ${type}`, elementInfo);
     return null;
   }
 

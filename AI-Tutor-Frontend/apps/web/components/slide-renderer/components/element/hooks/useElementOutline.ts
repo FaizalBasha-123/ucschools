@@ -11,7 +11,7 @@ export function useElementOutline(outline?: PPTElementOutline) {
 
   const outlineStyle = useMemo(() => outline?.style || 'solid', [outline?.style]);
 
-  const outlineColor = useMemo(() => outline?.color || '#d14424', [outline?.color]);
+  const outlineColor = useMemo(() => outline?.color || '#333333', [outline?.color]);
 
   const strokeDashArray = useMemo(() => {
     const size = outlineWidth;

@@ -102,6 +102,10 @@ pub enum SlideElement {
         shape_name: Option<String>,
         #[serde(default = "default_fill")]
         fill: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, rename = "viewBox", skip_serializing_if = "Option::is_none")]
+        view_box: Option<Vec<f32>>,
     },
     Line {
         id: String,
@@ -111,6 +115,24 @@ pub enum SlideElement {
         height: f32,
         #[serde(default)]
         rotate: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start: Option<Vec<f32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        end: Option<Vec<f32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        style: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        points: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        broken: Option<Vec<f32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        broken2: Option<Vec<f32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        curve: Option<Vec<f32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cubic: Option<Vec<Vec<f32>>>,
     },
     Chart {
         id: String,
@@ -122,6 +144,10 @@ pub enum SlideElement {
         rotate: f32,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chart_type: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data: Option<serde_json::Value>,
+        #[serde(default, rename = "themeColors", skip_serializing_if = "Option::is_none")]
+        theme_colors: Option<Vec<String>>,
     },
     Latex {
         id: String,
@@ -132,6 +158,10 @@ pub enum SlideElement {
         #[serde(default)]
         rotate: f32,
         latex: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        color: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        align: Option<String>,
     },
     Table {
         id: String,
@@ -141,6 +171,12 @@ pub enum SlideElement {
         height: f32,
         #[serde(default)]
         rotate: f32,
+        #[serde(default, rename = "colWidths", skip_serializing_if = "Option::is_none")]
+        col_widths: Option<Vec<f32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outline: Option<serde_json::Value>,
     },
     Video {
         id: String,

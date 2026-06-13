@@ -131,20 +131,10 @@ Interaction: {interaction_frequency}",
 
 impl LayoutConstraints {
     pub fn to_prompt_block(&self) -> String {
-        format!(
-            "Max {max_bullets} bullets/slide
-Max {max_chars_per_bullet} chars/bullet
-Max {max_lines} lines
-No paragraphs. No fluff. Concise only.",
-            max_bullets = self.max_bullets,
-            max_chars_per_bullet = self.max_chars_per_bullet,
-            max_lines = self.max_lines,
-        )
+        String::new()
     }
 
     pub fn to_scene_cap_prompt(&self) -> String {
-        format!(
-            "Include 1 quiz. No interactive/PBL unless concept requires."
-        )
+        String::new()
     }
 }
