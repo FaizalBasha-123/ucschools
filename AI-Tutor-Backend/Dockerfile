@@ -2,6 +2,7 @@ FROM rust:1.87-bookworm AS builder
 WORKDIR /app
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates/ crates/
+COPY migrations/ migrations/
 RUN cargo build --release -p ai_tutor_api --bin ai_tutor_api
 
 FROM debian:bookworm-slim
