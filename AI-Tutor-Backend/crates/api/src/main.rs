@@ -343,6 +343,8 @@ async fn main() -> Result<()> {
     };
     info!(provider = "PostgreSQL (NeonDB)", "Initializing Postgres-backed lesson queue");
     let pg_pool = sqlx::PgPool::connect(&postgres_url).await.expect("connect to Postgres for queue via sqlx");
+    info!("Running Postgres database migrations...");
+    sqlx::migrate!("../../migrations").run(&pg_pool).await.expect("failed to run Postgres migrations");
     let queue: Arc<dyn LessonQueue> = {
         Arc::new(ai_tutor_api::queue_postgres::PgLessonQueue::new(pg_pool))
     };
