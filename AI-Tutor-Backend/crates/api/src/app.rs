@@ -8366,7 +8366,19 @@ async fn bind_phone(
         .service
         .bind_phone(payload)
         .await
-        .map_err(ApiError::internal)?;
+        .map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("phone number is already linked")
+                || msg.contains("invalid")
+                || msg.contains("missing")
+                || msg.contains("no longer exists")
+                || msg.contains("not found")
+            {
+                ApiError::bad_request(msg)
+            } else {
+                ApiError::internal(e)
+            }
+        })?;
     Ok(auth_response_to_http(response))
 }
 
