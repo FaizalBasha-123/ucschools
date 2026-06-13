@@ -66,6 +66,10 @@ function VerifyPhoneContent() {
       } else {
         setError(`Failed to send OTP: ${msg}`);
       }
+      try {
+        const { clearRecaptchaVerifier } = await import('@/lib/auth/firebase');
+        clearRecaptchaVerifier();
+      } catch (e) {}
     } finally {
       setLoading(false);
     }
@@ -296,11 +300,15 @@ function VerifyPhoneContent() {
             <div className="text-center">
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   setOtp(['', '', '', '', '', '']);
                   setConfirmationResult(null);
                   setError(null);
                   setStep('phone');
+                  try {
+                    const { clearRecaptchaVerifier } = await import('@/lib/auth/firebase');
+                    clearRecaptchaVerifier();
+                  } catch (e) {}
                 }}
                 disabled={loading}
                 className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
