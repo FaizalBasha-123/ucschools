@@ -344,7 +344,7 @@ struct ChatCompletionRequest<'a> {
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 enum OpenAiResponseFormat {
     Text,
     JsonObject,
