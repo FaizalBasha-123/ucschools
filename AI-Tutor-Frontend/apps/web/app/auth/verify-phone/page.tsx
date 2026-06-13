@@ -50,18 +50,9 @@ function VerifyPhoneContent() {
     }
     setLoading(true);
     try {
-      let currentRecaptchaId = 'recaptcha-container';
-      if (recaptchaRef.current) {
-        recaptchaRef.current.innerHTML = '';
-        const newDiv = document.createElement('div');
-        currentRecaptchaId = `recaptcha-${Date.now()}`;
-        newDiv.id = currentRecaptchaId;
-        recaptchaRef.current.appendChild(newDiv);
-      }
-
       // Dynamic import to avoid SSR issues with Firebase
       const { sendPhoneOtp } = await import('@/lib/auth/firebase');
-      const result = await sendPhoneOtp(fullPhone, currentRecaptchaId);
+      const result = await sendPhoneOtp(fullPhone);
       setConfirmationResult(result);
       setStep('otp');
     } catch (err: unknown) {
@@ -194,7 +185,7 @@ function VerifyPhoneContent() {
       </button>
 
       {/* Hidden reCAPTCHA container */}
-      <div ref={recaptchaRef} />
+      <div id="recaptcha-container" ref={recaptchaRef} />
 
       {/* Top Header */}
       <div className="mb-6 flex flex-col items-center justify-center">
