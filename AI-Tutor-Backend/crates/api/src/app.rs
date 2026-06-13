@@ -222,12 +222,14 @@ fn build_cors_layer() -> CorsLayer {
 
     CorsLayer::new()
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::DELETE, Method::OPTIONS])
+        .allow_credentials(true)
         .allow_headers([
             header::AUTHORIZATION,
             header::CONTENT_TYPE,
             header::HeaderName::from_static("x-account-id"),
             header::HeaderName::from_static("x-auth-token"),
             header::HeaderName::from_static("x-session-token"),
+            header::HeaderName::from_static("x-operator-header"),
         ])
         .allow_origin(allowed_origins)
 }
@@ -11866,10 +11868,12 @@ fn parse_cookie(header_value: &str, name: &str) -> Option<String> {
     for part in header_value.split(';') {
         let trimmed = part.trim();
         let mut pair = trimmed.splitn(2, '=');
-        let key = pair.next()?.trim();
-        let value = pair.next()?.trim();
-        if key == name && !value.is_empty() {
-            return Some(value.to_string());
+        if let (Some(key), Some(value)) = (pair.next(), pair.next()) {
+            let key = key.trim();
+            let value = value.trim();
+            if key == name && !value.is_empty() {
+                return Some(value.to_string());
+            }
         }
     }
     None
