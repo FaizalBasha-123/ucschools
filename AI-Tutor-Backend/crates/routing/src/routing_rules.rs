@@ -85,8 +85,10 @@ fn resolve_outlines_model(tier: QualityTier) -> &'static str {
 }
 
 fn resolve_scene_content_model(tier: QualityTier) -> &'static str {
-    let _ = tier;
-    DEEPSEEK_V3
+    match tier {
+        QualityTier::Basic | QualityTier::Standard => DEEPSEEK_V3,
+        QualityTier::Premium => CLAUDE_SONNET_46,
+    }
 }
 
 fn resolve_scene_actions_model(tier: QualityTier) -> &'static str {
