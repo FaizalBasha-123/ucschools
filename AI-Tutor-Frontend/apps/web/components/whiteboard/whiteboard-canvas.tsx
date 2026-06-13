@@ -87,7 +87,7 @@ function AnimatedElement({
       style={{ pointerEvents: isClearing ? 'none' : undefined }}
     >
       <div style={{ pointerEvents: 'auto' }}>
-        <ScreenElement elementInfo={element} elementIndex={index} animate />
+        <ScreenElement elementInfo={element} elementIndex={index} animationEffect={null} />
       </div>
     </motion.div>
   );

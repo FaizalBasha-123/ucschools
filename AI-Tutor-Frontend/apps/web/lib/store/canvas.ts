@@ -46,6 +46,13 @@ export interface LaserOptions {
  * Note: Does not manage slide data (elements, background, etc.), which is managed by Scene Context
  */
 
+// ==================== Animation ====================
+
+export interface AnimationInfo {
+  effect: string;
+  duration: number;
+}
+
 // ==================== Store Interface ====================
 
 interface CanvasState {
@@ -95,6 +102,9 @@ interface CanvasState {
   // ===== Format painter =====
   textFormatPainter: TextFormatPainter | null; // Text format painter
   shapeFormatPainter: ShapeFormatPainter | null; // Shape format painter
+
+  // ===== Animations =====
+  animatingElementIds: Record<string, AnimationInfo>; // Elements currently being animated (effect + duration)
 
   // ===== Video playback =====
   playingVideoElementId: string; // Video element currently playing
@@ -147,6 +157,11 @@ interface CanvasState {
   // ----- Format painter -----
   setTextFormatPainter: (painter: TextFormatPainter | null) => void;
   setShapeFormatPainter: (painter: ShapeFormatPainter | null) => void;
+
+  // ----- Animations -----
+  setAnimatingElement: (elementId: string, info: AnimationInfo) => void;
+  clearAnimation: (elementId: string) => void;
+  clearAllAnimations: () => void;
 
   // ----- Video playback -----
   playVideo: (elementId: string) => void;
@@ -220,6 +235,9 @@ const initialState = {
   // Format painter
   textFormatPainter: null,
   shapeFormatPainter: null,
+
+  // Animations
+  animatingElementIds: {},
 
   // Video playback
   playingVideoElementId: '',
@@ -329,6 +347,21 @@ const useCanvasStoreBase = create<CanvasState>((set, get) => ({
   setTextFormatPainter: (painter) => set({ textFormatPainter: painter }),
 
   setShapeFormatPainter: (painter) => set({ shapeFormatPainter: painter }),
+
+  // ===== Animation Actions =====
+
+  setAnimatingElement: (elementId, info) =>
+    set((state) => ({
+      animatingElementIds: { ...state.animatingElementIds, [elementId]: info },
+    })),
+
+  clearAnimation: (elementId) =>
+    set((state) => {
+      const { [elementId]: _, ...rest } = state.animatingElementIds;
+      return { animatingElementIds: rest };
+    }),
+
+  clearAllAnimations: () => set({ animatingElementIds: {} }),
 
   // ===== Video Playback Actions =====
 
@@ -450,6 +483,7 @@ const useCanvasStoreBase = create<CanvasState>((set, get) => ({
       laserElementId: '',
       laserOptions: null,
       zoomTarget: null,
+      animatingElementIds: {},
       // Note: playingVideoElementId intentionally NOT cleared here.
       // Video playback has its own lifecycle (playVideo/pauseVideo/onEnded)
       // and must not be interrupted by visual effect auto-clear timers.
@@ -459,11 +493,12 @@ const useCanvasStoreBase = create<CanvasState>((set, get) => ({
   // ===== Batch Operations =====
 
   resetCanvasState: () => {
+    const { viewportSize, viewportRatio } = get();
     set({
       ...initialState,
       // Preserve viewport settings
-      viewportSize: get().viewportSize,
-      viewportRatio: get().viewportRatio,
+      viewportSize,
+      viewportRatio,
     });
   },
 }));

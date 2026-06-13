@@ -12,10 +12,10 @@ use ai_tutor_domain::{
     action::LessonAction,
     generation::{Language, LessonGenerationRequest},
     scene::{
-        InteractiveConfig, MediaGenerationRequest, MediaType, ProjectAgentRole, ProjectConfig,
-        ProjectIssue, ProjectOutlineConfig, QuizConfig, QuizOption, QuizQuestion, QuizQuestionType,
-        SceneContent, SceneOutline, SceneType, ScientificModel, SlideCanvas, SlideElement,
-        SlideTheme, VisualType,
+        GeneratedAgentConfig, InteractiveConfig, MediaGenerationRequest, MediaType,
+        ProjectAgentRole, ProjectConfig, ProjectIssue, ProjectOutlineConfig, QuizConfig, QuizOption,
+        QuizQuestion, QuizQuestionType, SceneContent, SceneOutline, SceneType, ScientificModel,
+        SlideCanvas, SlideElement, SlideTheme, VisualType,
     },
 };
 use ai_tutor_providers::request_params::GenerationParams;
@@ -200,6 +200,81 @@ You may invoke the tool at most {max_calls} times total.
             .await
     }
 
+    /// Like `generate_with_search_tool_using` but uses `response_format: json_object` for
+    /// structured JSON generation — provides more reliable, correctly-formatted output.
+    async fn generate_json_with_search_tool_using(
+        &self,
+        llm: &dyn LlmProvider,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        let Some(_web_search) = &self.web_search else {
+            return self.generate_json_with_retry_using(llm, system_prompt, user_prompt).await;
+        };
+
+        let tool_prompt = format!(
+            r#"
+WEB SEARCH TOOL AVAILABLE:
+You have access to a web search tool. Use it ONLY when you genuinely lack reliable information.
+
+SEARCH when ALL of these are true:
+- The topic requires facts you cannot confidently provide from training data
+- The topic involves recent events, real-time data, or rapidly-changing statistics
+- Precise, verifiable figures are needed (e.g. current prices, live regulations, recent research)
+
+DO NOT SEARCH when:
+- The topic is standard curriculum content (science, math, history, language, programming fundamentals)
+- A PDF context has already been provided — use it instead of searching
+- You already have sufficient knowledge to create accurate, educationally-sound content
+- The topic is conceptual or definitional (how gravity works, what photosynthesis is, etc.)
+
+To invoke, respond with EXACTLY:
+{marker}
+{query_marker} <specific search query>
+
+Then continue with your response after receiving results.
+If you have sufficient knowledge, respond DIRECTLY without invoking the tool.
+You may invoke the tool at most {max_calls} times total.
+"#,
+            marker = WEB_SEARCH_TOOL_CALL_MARKER,
+            query_marker = WEB_SEARCH_QUERY_MARKER,
+            max_calls = MAX_SEARCH_TOOL_CALLS
+        );
+
+        let augmented_system = format!("{system_prompt}\n{tool_prompt}");
+        let mut current_user = user_prompt.to_string();
+        let mut accumulated_usage: Option<ProviderUsage> = None;
+
+        for _round in 0..MAX_SEARCH_TOOL_CALLS {
+            let (response, usage) = self.generate_json_with_retry_using(llm, &augmented_system, &current_user).await?;
+            accumulate_usage(&mut accumulated_usage, usage);
+
+            if let Some(query) = parse_web_search_tool_call(&response) {
+                let results = match self.execute_tavily_search(&query).await {
+                    Some(ctx) => format!("Web search results for \"{query}\":\n{ctx}"),
+                    None => format!("Web search for \"{query}\" returned no results. Continue with your existing knowledge."),
+                };
+                current_user = format!("{user_prompt}\n\n{results}");
+            } else {
+                return Ok((response, accumulated_usage));
+            }
+        }
+
+        let (final_response, usage) = self.generate_json_with_retry_using(llm, system_prompt, &current_user).await?;
+        accumulate_usage(&mut accumulated_usage, usage);
+        Ok((final_response, accumulated_usage))
+    }
+
+    /// Convenience wrapper for JSON generation using the default scene content LLM.
+    async fn generate_json_with_search_tool(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        self.generate_json_with_search_tool_using(self.scene_content_llm(), system_prompt, user_prompt)
+            .await
+    }
+
     /// Execute a Tavily web search and return the formatted context string.
     /// Called when the LLM requests the web_search tool during generation.
     async fn execute_tavily_search(&self, query: &str) -> Option<String> {
@@ -280,8 +355,44 @@ You may invoke the tool at most {max_calls} times total.
         Err(last_error.unwrap_or_else(|| anyhow!("LLM request failed without an error")))
     }
 
+    /// Like `generate_with_retry_using` but requests `response_format: json_object` from the LLM
+    /// for more reliable structured JSON output (slide content, actions, etc.).
+    async fn generate_json_with_retry_using(
+        &self,
+        llm: &dyn LlmProvider,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> Result<(String, Option<ProviderUsage>)> {
+        let params = GenerationParams::json_object();
+        let mut last_error = None;
+
+        for attempt in 0..MAX_LLM_ATTEMPTS {
+            match llm.generate_text_with_params(system_prompt, user_prompt, &params).await {
+                Ok((response, usage)) => return Ok((response, usage)),
+                Err(err) => {
+                    let should_retry = should_retry_llm_error(&err);
+                    last_error = Some(err);
+
+                    if !should_retry || attempt + 1 == MAX_LLM_ATTEMPTS {
+                        break;
+                    }
+
+                    let backoff_ms = RETRY_BACKOFF_MS * (attempt as u64 + 1);
+                    sleep(Duration::from_millis(backoff_ms)).await;
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow!("LLM request failed without an error")))
+    }
+
     async fn generate_with_retry(&self, system_prompt: &str, user_prompt: &str) -> Result<(String, Option<ProviderUsage>)> {
         self.generate_with_retry_using(self.scene_content_llm(), system_prompt, user_prompt)
+            .await
+    }
+
+    async fn generate_json_with_retry(&self, system_prompt: &str, user_prompt: &str) -> Result<(String, Option<ProviderUsage>)> {
+        self.generate_json_with_retry_using(self.scene_content_llm(), system_prompt, user_prompt)
             .await
     }
 
@@ -333,7 +444,7 @@ You may invoke the tool at most {max_calls} times total.
             outline.key_points.join(" | ")
         );
 
-        let response = self.generate_with_search_tool(&system, &user).await.ok().map(|(r, _)| r).unwrap_or_default();
+        let response = self.generate_json_with_search_tool(&system, &user).await.ok().map(|(r, _)| r).unwrap_or_default();
         let parsed: ScientificModelEnvelope = parse_json_with_repair(&response).ok()?;
         if parsed.core_formulas.is_empty()
             && parsed.mechanism.is_empty()
@@ -400,7 +511,7 @@ You may invoke the tool at most {max_calls} times total.
             revision_notes,
         );
 
-        let response = self.generate_with_retry(system, &user).await.ok().map(|(r, _)| r).unwrap_or_default();
+        let response = self.generate_json_with_retry(system, &user).await.ok().map(|(r, _)| r).unwrap_or_default();
         let parsed: ScientificModelEnvelope = parse_json_with_repair(&response).ok()?;
         Some(ScientificModel {
             core_formulas: parsed.core_formulas,
@@ -765,7 +876,7 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         });
 
         let (final_response, _usage) = self
-            .generate_with_search_tool_using(self.outlines_llm(), &system, &user)
+            .generate_json_with_search_tool_using(self.outlines_llm(), &system, &user)
             .await?;
 
         // Parse response — try full envelope with languageDirective first,
@@ -873,12 +984,15 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         outline: &SceneOutline,
         content: &SceneContent,
         pdf_context: Option<&str>,
+        all_outlines: &[SceneOutline],
+        outline_index: usize,
+        agents: &[GeneratedAgentConfig],
     ) -> Result<Vec<LessonAction>> {
         let (system, user) =
-            build_scene_action_prompt(request, outline, content, pdf_context)?;
+            build_scene_action_prompt(request, outline, content, pdf_context, all_outlines, outline_index, agents)?;
 
         let (primary_response, _usage) = self
-            .generate_with_search_tool_using(self.scene_actions_llm(), &system, &user)
+            .generate_json_with_search_tool_using(self.scene_actions_llm(), &system, &user)
             .await?;
         let mut actions =
             parse_actions_from_generation_response(&primary_response, outline, content);
@@ -887,7 +1001,7 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         if needs_escalation {
             if let Some(fallback_llm) = self.scene_actions_fallback_llm.as_deref() {
                 let (fallback_response, _usage) = self
-                    .generate_with_retry_using(fallback_llm, &system, &user)
+                    .generate_json_with_retry_using(fallback_llm, &system, &user)
                     .await?;
                 let fallback_actions =
                     parse_actions_from_generation_response(&fallback_response, outline, content);
@@ -1008,7 +1122,7 @@ impl LlmGenerationPipeline {
             )
         });
 
-        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         let payload: SlideContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| SlideContentEnvelope { background: None, elements: vec![] });
 
@@ -1073,7 +1187,7 @@ Rules:
     points = outline.key_points.join(" | "),
 );
 
-        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         let payload: QuizContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| QuizContentEnvelope { questions: vec![] });
         let questions = if payload.questions.is_empty() {
@@ -1204,7 +1318,7 @@ Rules:
     config = project_outline_summary(outline),
 );
 
-        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         let mut payload: ProjectContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(ProjectContentEnvelope {
                 summary: fallback_project_summary(outline),
@@ -1363,7 +1477,7 @@ Rules:
                 .map(|items| items.join(" | "))
                 .unwrap_or_else(|| "Not specified".to_string()),
         );
-        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         parse_json_with_repair(&response)
     }
 
@@ -1391,7 +1505,7 @@ Rules:
             serde_json::to_string(payload).unwrap_or_default(),
             revision_notes,
         );
-        let (response, _usage) = self.generate_with_retry(system, &user).await?;
+        let (response, _usage) = self.generate_json_with_retry(system, &user).await?;
         parse_json_with_repair(&response)
     }
 
@@ -1438,7 +1552,7 @@ Rules:
             roles_summary,
             issue_count,
         );
-        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         parse_json_with_repair(&response)
     }
 }
@@ -1852,115 +1966,150 @@ fn build_fallback_image_prompt(title: &str, description: &str, key_points: &[Str
 }
 
 
+fn build_course_context(all_outlines: &[SceneOutline], outline_index: usize) -> String {
+    if all_outlines.is_empty() {
+        return String::new();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("Course Outline:".to_string());
+    for (i, o) in all_outlines.iter().enumerate() {
+        let marker = if i == outline_index { " ← current" } else { "" };
+        lines.push(format!("  {}. {}{}", i + 1, o.title, marker));
+    }
+    lines.push(String::new());
+    lines.push(
+        "IMPORTANT: All pages belong to the SAME class session. Do NOT greet again after the first page. When referencing content from earlier pages, say \"we just covered\" or \"as mentioned on page N\" — NEVER say \"last class\" or \"previous session\" because there is no previous session.".to_string(),
+    );
+    lines.push(String::new());
+    if outline_index == 0 {
+        lines.push("Position: This is the FIRST page. Open with a greeting and course introduction.".to_string());
+    } else if outline_index == all_outlines.len() - 1 {
+        lines.push("Position: This is the LAST page. Conclude the course with a summary and closing.".to_string());
+        lines.push("Transition: Continue naturally from the previous page. Do NOT greet or re-introduce.".to_string());
+    } else {
+        lines.push(format!("Position: Page {} of {} (middle of the course).", outline_index + 1, all_outlines.len()));
+        lines.push("Transition: Continue naturally from the previous page. Do NOT greet or re-introduce.".to_string());
+    }
+    lines.join("\n")
+}
+
+fn format_agents_for_prompt(agents: &[GeneratedAgentConfig]) -> String {
+    if agents.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec!["Classroom Agents:".to_string()];
+    for a in agents {
+        let persona_part = if !a.persona.is_empty() {
+            format!(" — {}", a.persona)
+        } else {
+            String::new()
+        };
+        lines.push(format!("- id: \"{}\", name: \"{}\", role: {}{}", a.id, a.name, a.role, persona_part));
+    }
+    lines.join("\n")
+}
+
 fn build_scene_action_prompt(
     request: &LessonGenerationRequest,
     outline: &SceneOutline,
     content: &SceneContent,
     pdf_context: Option<&str>,
+    all_outlines: &[SceneOutline],
+    outline_index: usize,
+    agents: &[GeneratedAgentConfig],
 ) -> Result<(String, String)> {
     let content_summary = scene_content_summary(content)?;
     let language = language_code(&request.requirements.language);
     let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-    let prompt = match outline.scene_type {
-        SceneType::Slide => {
-            let mut vars = std::collections::HashMap::new();
-            vars.insert("title", outline.title.clone());
-            vars.insert("description", outline.description.clone());
-            vars.insert("pdfContext", pdf_info.clone());
-            let key_points = outline.key_points.iter().enumerate().map(|(i, p)| format!("{}. {}", i + 1, p)).collect::<Vec<_>>().join("\n");
-            vars.insert("keyPoints", key_points);
-            
-            // To provide the elements as JSON
-            vars.insert("elements", slide_focus_targets(content));
-            vars.insert("content", content_summary.clone());
-            vars.insert("languageDirective", format!("Language: {}", language));
-            vars.insert("teacherContext", "".to_string());
-            
-            if let Some((sys, usr)) = crate::prompt_builder::build_prompt("slide-actions", &vars) {
-                return Ok((sys, usr));
-            }
-            // fallback
-            return Ok(("You are an instructional designer. Return strict JSON only.".to_string(), "Fallback prompt".to_string()));
-        },
-        SceneType::Quiz => format!(
-"You are a professional instructional designer scripting teaching actions for a quiz scene.
+    let course_ctx = build_course_context(all_outlines, outline_index);
+    let agents_str = format_agents_for_prompt(agents);
 
-Quiz: {title}
-Requirement: {req}
-Original Key points: {points}
-Content JSON: {content}
-
-Output a JSON array ONLY. Items: {{\"type\":\"text\",\"content\":\"...\"}}; optional final {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\"}}}}
-
-### CRITICAL Speech Content Rules:
-1. Speech MUST be natural, professional teacher narration introducing the quiz to students.
-2. Encourage the students and briefly explain the context of the quiz based on the key points.
-3. DO NOT use Markdown in speech.
-4. You are scripting a monologue. NEVER write dialogue or include speaker tags.
-5. DO NOT provide the answers in the speech! The students need to take the quiz themselves.
-
-Speech must be in {lang}.",
-    req = request.requirements.requirement,
-    title = outline.title,
-    points = outline.key_points.join(" | "),
-    content = content_summary,
-    lang = language
-),
-        SceneType::Interactive => format!(
-"You are a professional instructional designer scripting teaching actions for an interactive simulation.
-
-Interactive narration: {title}
-Requirement: {req}
-Original Key points: {points}
-Interactive JSON: {content}
-Scientific model: {model}
-
-Output a JSON array ONLY. Items: {{\"type\":\"text\",\"content\":\"...\"}} only.
-
-### CRITICAL Speech Content Rules:
-1. Speech MUST be natural, professional teacher narration guiding students on how to use the interactive simulation.
-2. Explain what variables they can adjust and what they should observe based on the scientific model.
-3. DO NOT use Markdown in speech.
-4. You are scripting a monologue. NEVER write dialogue or include speaker tags.
-
-Speech must be in {lang}.",
-    req = request.requirements.requirement,
-    title = outline.title,
-    points = outline.key_points.join(" | "),
-    content = content_summary,
-    model = interactive_scene_summary(content),
-    lang = language
-),
-        SceneType::Pbl => format!(
-"You are a professional instructional designer scripting teaching actions for a Project-Based Learning (PBL) activity.
-
-PBL narration: {title}
-Requirement: {req}
-Original Key points: {points}
-PBL JSON: {content}
-Facilitation: {facilitation}
-
-Output a JSON array ONLY. Items: {{\"type\":\"text\",\"content\":\"...\"}}; optional final {{\"type\":\"action\",\"name\":\"discussion\",\"params\":{{\"topic\":\"...\"}}}}
-
-### CRITICAL Speech Content Rules:
-1. Speech MUST be natural, professional teacher narration setting up the project scenario and goals.
-2. Hook the students with the real-world application of this project based on the key points.
-3. DO NOT use Markdown in speech.
-4. You are scripting a monologue. NEVER write dialogue or include speaker tags.
-
-Speech must be in {lang}.",
-    req = request.requirements.requirement,
-    title = outline.title,
-    points = outline.key_points.join(" | "),
-    content = content_summary,
-    facilitation = interactive_scene_summary(content),
-    lang = language
-),
+    let user_profile = {
+        let nick = request.requirements.user_nickname.as_deref().unwrap_or_default();
+        let bio = request.requirements.user_bio.as_deref().unwrap_or_default();
+        if nick.is_empty() && bio.is_empty() {
+            String::new()
+        } else {
+            format!("User Profile:\nNickname: {}\nBio: {}", nick, bio)
+        }
     };
 
+    let (template_id, template_vars): (&str, Vec<(&str, String)>) = match outline.scene_type {
+        SceneType::Slide => {
+            let key_points = outline.key_points.iter().enumerate()
+                .map(|(i, p)| format!("{}. {}", i + 1, p))
+                .collect::<Vec<_>>().join("\n");
+            ("slide-actions", vec![
+                ("title", outline.title.clone()),
+                ("description", outline.description.clone()),
+                ("pdfContext", pdf_info),
+                ("keyPoints", key_points),
+                ("elements", slide_focus_targets(content)),
+                ("content", content_summary.clone()),
+                ("courseContext", course_ctx),
+                ("agents", agents_str),
+                ("userProfile", user_profile),
+                ("languageDirective", format!("Language: {}", language)),
+                ("teacherContext", String::new()),
+            ])
+        },
+        SceneType::Quiz => {
+            let questions = match content {
+                SceneContent::Quiz { questions } => serde_json::to_string(questions).unwrap_or_default(),
+                _ => String::new(),
+            };
+            let key_points = outline.key_points.join(" | ");
+            ("quiz-actions", vec![
+                ("title", outline.title.clone()),
+                ("description", outline.description.clone()),
+                ("questions", questions),
+                ("keyPoints", key_points),
+                ("courseContext", course_ctx),
+                ("agents", agents_str),
+                ("languageDirective", format!("Language: {}", language)),
+            ])
+        },
+        SceneType::Interactive => {
+            let concept_name = outline.title.clone();
+            let design_idea = interactive_scene_summary(content);
+            let key_points = outline.key_points.join(" | ");
+            ("interactive-actions", vec![
+                ("title", outline.title.clone()),
+                ("description", outline.description.clone()),
+                ("conceptName", concept_name),
+                ("designIdea", design_idea),
+                ("keyPoints", key_points),
+                ("courseContext", course_ctx),
+                ("agents", agents_str),
+                ("languageDirective", format!("Language: {}", language)),
+            ])
+        },
+        SceneType::Pbl => {
+            let project_topic = outline.title.clone();
+            let project_description = outline.description.clone();
+            let key_points = outline.key_points.join(" | ");
+            ("pbl-actions", vec![
+                ("title", outline.title.clone()),
+                ("description", outline.description.clone()),
+                ("projectTopic", project_topic),
+                ("projectDescription", project_description),
+                ("keyPoints", key_points),
+                ("courseContext", course_ctx),
+                ("agents", agents_str),
+                ("languageDirective", format!("Language: {}", language)),
+            ])
+        },
+    };
+
+    let vars_map: std::collections::HashMap<&str, String> = template_vars.into_iter().collect();
+    if let Some((sys, usr)) = crate::prompt_builder::build_prompt(template_id, &vars_map) {
+        return Ok((sys, usr));
+    }
+
+    // fallback
     Ok((
         "You are an instructional designer. Return strict JSON only.".to_string(),
-        prompt,
+        format!("Teaching actions for: {}", outline.title),
     ))
 }
 

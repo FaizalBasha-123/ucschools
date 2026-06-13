@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+async-stream = "0.3.5"
 async-trait.workspace = true
 axum = { workspace = true, features = ["multipart"] }
 chrono.workspace = true
@@ -45,6 +46,7 @@ ai_tutor_providers = { path = "../providers" }
 ai_tutor_routing = { path = "../routing" }
 ai_tutor_runtime = { path = "../runtime" }
 ai_tutor_storage = { path = "../storage" }
+sqlx.workspace = true
 
 [dev-dependencies]
 filetime = "0.2"

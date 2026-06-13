@@ -1821,6 +1821,12 @@ pub trait LessonAppService: Send + Sync {
         &self,
         payload: PblRuntimeChatRequest,
     ) -> Result<PblRuntimeChatResponse>;
+    async fn runtime_chat_stream(
+        &self,
+        payload: PblRuntimeChatRequest,
+        account_id: Option<&str>,
+        tx: tokio::sync::mpsc::Sender<ai_tutor_domain::runtime::StatelessEvent>,
+    ) -> Result<()>;
     async fn transcribe(
         &self,
         payload: AsrRequest,
@@ -7218,6 +7224,91 @@ impl LessonAppService for LiveLessonAppService {
         })
     }
 
+    async fn runtime_chat_stream(
+        &self,
+        payload: PblRuntimeChatRequest,
+        _account_id: Option<&str>,
+        tx: tokio::sync::mpsc::Sender<ai_tutor_domain::runtime::StatelessEvent>,
+    ) -> Result<()> {
+        let model_string = routing_rules::resolve_specialized_model_with_override(routing_rules::SpecializedTask::PblRuntime, QualityTier::Standard);
+        let resolved = resolve_model(
+            &self.provider_config,
+            Some(&model_string),
+            None,
+            None,
+            None,
+            Some(false),
+        )?;
+        let llm = self.provider_factory.build(resolved.model_config)?;
+
+        let mut available_agent_ids = vec![];
+        let mut agent_config_overrides = std::collections::HashMap::new();
+        if let Some(agent_roles) = &payload.project_config.agent_roles {
+            for agent in agent_roles {
+                available_agent_ids.push(agent.name.clone());
+                agent_config_overrides.insert(
+                    agent.name.clone(),
+                    ai_tutor_domain::runtime::GeneratedChatAgentConfig {
+                        id: agent.name.clone(),
+                        name: agent.name.clone(),
+                        role: agent.responsibility.clone(),
+                        persona: "".to_string(),
+                        avatar: "".to_string(),
+                        color: "".to_string(),
+                        allowed_actions: vec![],
+                        bound_stage_id: None,
+                        is_generated: Some(false),
+                        priority: 0,
+                    }
+                );
+            }
+        }
+
+        let mut messages = vec![];
+        for msg in payload.recent_messages {
+            messages.push(ai_tutor_domain::runtime::ChatMessage {
+                id: uuid::Uuid::new_v4().to_string(),
+                role: msg.kind,
+                content: msg.message,
+                metadata: None,
+            });
+        }
+        messages.push(ai_tutor_domain::runtime::ChatMessage {
+            id: uuid::Uuid::new_v4().to_string(),
+            role: "user".to_string(),
+            content: payload.message,
+            metadata: None,
+        });
+
+        let store_state = ai_tutor_domain::runtime::ClientStageState {
+            stage: None,
+            scenes: vec![],
+            current_scene_id: payload.workspace.active_issue_id,
+            mode: ai_tutor_domain::runtime::RuntimeMode::Live,
+            whiteboard_open: false,
+        };
+
+        let state = ai_tutor_orchestrator::live_director::OrchestratorState {
+            messages,
+            store_state,
+            available_agent_ids,
+            discussion_context: None,
+            trigger_agent_id: None,
+            user_profile: None,
+            agent_config_overrides,
+            current_agent_id: None,
+            turn_count: 0,
+            agent_responses: vec![],
+            whiteboard_ledger: vec![],
+            should_end: false,
+            total_actions: 0,
+        };
+
+        ai_tutor_orchestrator::live_director::run_director_graph(state, llm.as_ref(), tx).await?;
+        
+        Ok(())
+    }
+
     async fn transcribe(&self, payload: AsrRequest) -> Result<AsrResponse> {
         let model_string = payload
             .model_string
@@ -8016,6 +8107,7 @@ fn build_router_with_auth(service: Arc<dyn LessonAppService>, auth: ApiAuthConfi
         .route("/api/lessons/jobs/{id}/resume", post(resume_job))
         .route("/api/runtime/actions/ack", post(acknowledge_runtime_action))
         .route("/api/runtime/pbl/chat", post(runtime_pbl_chat))
+        .route("/api/runtime/pbl/chat-stream", post(runtime_pbl_chat_stream))
         .route("/api/runtime/transcribe", post(transcribe))
         .route("/api/lessons/jobs/{id}", get(get_job))
         // ── Whiteboard Doubt Session ──────────────────────────────────────────
@@ -10191,6 +10283,32 @@ async fn runtime_pbl_chat(
         .await
         .map(Json)
         .map_err(ApiError::internal)
+}
+
+async fn runtime_pbl_chat_stream(
+    State(state): State<AppState>,
+    account: Option<Extension<AuthenticatedAccountContext>>,
+    Json(payload): Json<PblRuntimeChatRequest>,
+) -> Result<axum::response::sse::Sse<impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, ApiError> {
+    let account_id = account.map(|c| c.0.account_id.clone());
+    
+    let (tx, mut rx) = tokio::sync::mpsc::channel(100);
+    
+    let service = state.service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = service.runtime_chat_stream(payload, account_id.as_deref(), tx.clone()).await {
+            let _ = tx.send(ai_tutor_domain::runtime::StatelessEvent::Error { message: e.to_string() }).await;
+        }
+    });
+
+    let stream = async_stream::stream! {
+        while let Some(event) = rx.recv().await {
+            let json = serde_json::to_string(&event).unwrap_or_default();
+            yield Ok(axum::response::sse::Event::default().data(json));
+        }
+    };
+    
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::new()))
 }
 
 async fn transcribe(
@@ -13748,12 +13866,21 @@ mod tests {
             Ok(PblRuntimeChatResponse {
                 messages: vec![PblRuntimeChatMessage {
                     kind: "agent".to_string(),
-                    agent_name: "Question Agent".to_string(),
-                    message: "Let's break the issue into the next concrete step.".to_string(),
+                    agent_name: "Mock Agent".to_string(),
+                    message: "Mock response".to_string(),
                 }],
                 workspace: None,
-                resolved_agent: "Question Agent".to_string(),
+                resolved_agent: "Mock Agent".to_string(),
             })
+        }
+
+        async fn runtime_chat_stream(
+            &self,
+            _payload: PblRuntimeChatRequest,
+            _account_id: Option<&str>,
+            _tx: tokio::sync::mpsc::Sender<ai_tutor_domain::runtime::StatelessEvent>,
+        ) -> Result<()> {
+            Ok(())
         }
 
         async fn explain_doubt(

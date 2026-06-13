@@ -17,7 +17,7 @@ use ai_tutor_domain::{
     },
     lesson::Lesson,
     routing::{compute_generation_budget, tier_limits, QualityTier, TopicComplexity},
-    scene::{Scene, SceneContent, SceneOutline, Stage},
+    scene::{GeneratedAgentConfig, Scene, SceneContent, SceneOutline, Stage},
 };
 use ai_tutor_media::{
     apply_tts_results, collect_media_tasks, collect_tts_tasks, persist_inline_audio_assets,
@@ -55,6 +55,9 @@ pub trait LessonGenerationPipeline: Send + Sync {
         outline: &SceneOutline,
         content: &SceneContent,
         pdf_context: Option<&str>,
+        all_outlines: &[SceneOutline],
+        outline_index: usize,
+        agents: &[GeneratedAgentConfig],
     ) -> Result<Vec<LessonAction>>;
 
     /// Generate a concise, engaging lesson title (4-6 words) using a lightweight model.
@@ -580,6 +583,9 @@ where
                     outline,
                     &content,
                     state.pdf_context.as_deref(),
+                    &state.outlines,
+                    index,
+                    &state.stage.generated_agent_configs,
                 )
                 .await?;
 
@@ -1294,6 +1300,9 @@ mod tests {
             outline: &SceneOutline,
             _content: &SceneContent,
             _pdf_context: Option<&str>,
+            _all_outlines: &[SceneOutline],
+            _outline_index: usize,
+            _agents: &[GeneratedAgentConfig],
         ) -> Result<Vec<LessonAction>> {
             Ok(vec![LessonAction::Speech {
                 id: format!("action-{}", outline.id),
@@ -1452,6 +1461,9 @@ mod tests {
             outline: &SceneOutline,
             _content: &SceneContent,
             _pdf_context: Option<&str>,
+            _all_outlines: &[SceneOutline],
+            _outline_index: usize,
+            _agents: &[GeneratedAgentConfig],
         ) -> Result<Vec<LessonAction>> {
             Ok(vec![LessonAction::Speech {
                 id: format!("action-{}", outline.id),
@@ -1535,6 +1547,9 @@ mod tests {
             outline: &SceneOutline,
             _content: &SceneContent,
             _pdf_context: Option<&str>,
+            _all_outlines: &[SceneOutline],
+            _outline_index: usize,
+            _agents: &[GeneratedAgentConfig],
         ) -> Result<Vec<LessonAction>> {
             Ok(vec![LessonAction::Speech {
                 id: format!("action-{}", outline.id),

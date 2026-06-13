@@ -258,3 +258,37 @@ pub struct ChatMessageMetadata {
     pub created_at: Option<i64>,
     pub interrupted: Option<bool>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data", rename_all = "snake_case")]
+pub enum StatelessEvent {
+    Thinking {
+        stage: String,
+        agent_id: Option<String>,
+    },
+    AgentStart {
+        message_id: String,
+        agent_id: String,
+        agent_name: String,
+        agent_avatar: Option<String>,
+        agent_color: Option<String>,
+    },
+    TextDelta {
+        content: String,
+        message_id: String,
+    },
+    Action {
+        action_id: String,
+        action_name: String,
+        params: serde_json::Value,
+        agent_id: String,
+        message_id: String,
+    },
+    CueUser {
+        from_agent_id: Option<String>,
+    },
+    Error {
+        message: String,
+    },
+}
+

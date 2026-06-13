@@ -17,6 +17,9 @@ interface PBLWorkspaceProps {
   readonly onReset: () => void;
 }
 
+
+import { useCanvasStore } from '@/lib/store/canvas';
+
 export function PBLWorkspace({
   sceneId,
   projectConfig,
@@ -27,6 +30,7 @@ export function PBLWorkspace({
   const { t } = useI18n();
   const [showConfirm, setShowConfirm] = useState(false);
 
+
   const { messages, isLoading, sendMessage, currentIssue } = usePBLChat({
     sessionId: `scene:${sceneId}`,
     projectConfig,
@@ -35,7 +39,7 @@ export function PBLWorkspace({
   });
 
   return (
-    <div className="flex h-full w-full">
+    <div className="flex h-full w-full relative">
       {/* Left: Issueboard (~35%) */}
       <div className="w-[35%] min-w-[280px] border-r overflow-hidden flex flex-col">
         {/* Back button bar */}

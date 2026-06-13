@@ -153,6 +153,14 @@ export interface PlayVideoAction extends ActionBase {
   elementId: string;
 }
 
+/** Slide animation — animate a slide element with a visual effect */
+export interface SlideAnimationAction extends ActionBase {
+  type: 'slide_animation';
+  elementId: string;
+  effect: 'fadeIn' | 'fadeOut' | 'slideInLeft' | 'slideInRight' | 'slideInUp' | 'slideInDown' | 'bounce' | 'pulse' | 'shake';
+  duration?: number; // ms, default 500
+}
+
 /** Discussion — trigger a roundtable discussion */
 export interface DiscussionAction extends ActionBase {
   type: 'discussion';
@@ -166,6 +174,7 @@ export interface DiscussionAction extends ActionBase {
 export type Action =
   | SpotlightAction
   | LaserAction
+  | SlideAnimationAction
   | PlayVideoAction
   | SpeechAction
   | WbOpenAction
@@ -183,10 +192,10 @@ export type Action =
 export type ActionType = Action['type'];
 
 /** Action types that fire immediately without blocking */
-export const FIRE_AND_FORGET_ACTIONS: ActionType[] = ['spotlight', 'laser'];
+export const FIRE_AND_FORGET_ACTIONS: ActionType[] = ['spotlight', 'laser', 'slide_animation'];
 
 /** Action types that only work on slide scenes (require slide canvas elements) */
-export const SLIDE_ONLY_ACTIONS: ActionType[] = ['spotlight', 'laser'];
+export const SLIDE_ONLY_ACTIONS: ActionType[] = ['spotlight', 'laser', 'slide_animation'];
 
 /** Action types that must complete before the next action runs */
 export const SYNC_ACTIONS: ActionType[] = [

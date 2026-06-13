@@ -10,6 +10,7 @@ pub mod llm_proxy;
 pub mod notifications;
 pub mod payment_gateway;
 pub mod queue;
+pub mod queue_postgres;
 pub mod queue_redis;
 pub mod redis_balance_cache;
 pub mod redis_storage;

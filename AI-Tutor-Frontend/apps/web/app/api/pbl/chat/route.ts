@@ -14,7 +14,8 @@ const log = createLogger('PBL Chat');
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();    const backendRes = await fetch(`${backendUrl()}/api/runtime/pbl/chat`, {
+    const body = await req.json();
+    const backendRes = await fetch(`${backendUrl()}/api/runtime/pbl/chat-stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -38,14 +39,16 @@ export async function POST(req: NextRequest) {
       return apiError('INTERNAL_ERROR', backendRes.status, 'Backend PBL chat failed', errorText);
     }
 
-    const data = await backendRes.json();
-    return new Response(JSON.stringify(data), {
+    return new Response(backendRes.body, {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      },
     });
   } catch (error) {
     log.error(`PBL proxy chat failed:`, error);
     return apiError('INTERNAL_ERROR', 500, error instanceof Error ? error.message : String(error));
   }
 }
-

@@ -14,6 +14,7 @@ import type { PercentageGeometry } from '@/lib/types/action';
 import { useViewportSize } from './Canvas/hooks/useViewportSize';
 import { useRef, useMemo } from 'react';
 import { AnimatePresence } from 'motion/react';
+import type { AnimationInfo } from '@/lib/store/canvas';
 
 export function ScreenCanvas() {
   const canvasScale = useCanvasStore.use.canvasScale();
@@ -37,6 +38,7 @@ export function ScreenCanvas() {
   const laserElementId = useCanvasStore.use.laserElementId();
   const laserOptions = useCanvasStore.use.laserOptions();
   const zoomTarget = useCanvasStore.use.zoomTarget();
+  const animatingElementIds = useCanvasStore.use.animatingElementIds();
 
   // Compute laser pointer geometry
   const laserGeometry = useMemo<PercentageGeometry | null>(() => {
@@ -93,7 +95,12 @@ export function ScreenCanvas() {
           }}
         >
           {elements.map((element, index) => (
-            <ScreenElement key={element.id} elementInfo={element} elementIndex={index + 1} />
+            <ScreenElement
+              key={element.id}
+              elementInfo={element}
+              elementIndex={index + 1}
+              animationEffect={animatingElementIds[element.id] ?? null}
+            />
           ))}
 
           {/* Highlight overlay - stacked above elements */}

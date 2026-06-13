@@ -20,6 +20,7 @@ import type {
   Action,
   SpotlightAction,
   LaserAction,
+  SlideAnimationAction,
   SpeechAction,
   PlayVideoAction,
   WbDrawTextAction,
@@ -93,6 +94,9 @@ export class ActionEngine {
       case 'laser':
         this.executeLaser(action);
         return;
+      case 'slide_animation':
+        this.executeSlideAnimation(action as SlideAnimationAction);
+        return;
       // Synchronous — Video
       case 'play_video':
         return this.executePlayVideo(action as PlayVideoAction);
@@ -158,6 +162,14 @@ export class ActionEngine {
   private executeLaser(action: LaserAction): void {
     useCanvasStore.getState().setLaser(action.elementId, {
       color: action.color ?? '#ff0000',
+    });
+    this.scheduleEffectClear();
+  }
+
+  private executeSlideAnimation(action: SlideAnimationAction): void {
+    useCanvasStore.getState().setAnimatingElement(action.elementId, {
+      effect: action.effect,
+      duration: action.duration ?? 500,
     });
     this.scheduleEffectClear();
   }

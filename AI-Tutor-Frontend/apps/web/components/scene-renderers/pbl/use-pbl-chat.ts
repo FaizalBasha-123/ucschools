@@ -4,8 +4,11 @@
  * PBL Chat Hook - Manages chat state, @mention parsing, and API calls
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import type { PBLProjectConfig, PBLChatMessage, PBLAgent, PBLIssue, PBLIssueboard } from '@/lib/pbl/types';
+import { createParser, EventSourceMessage } from 'eventsource-parser';
+import { ActionEngine } from '@/lib/action/engine';
+import { useStageStore } from '@/lib/store/stage';
 import { getCurrentModelConfig } from '@/lib/utils/model-config';
 import { createLogger } from '@/lib/logger';
 
@@ -50,6 +53,8 @@ export function usePBLChat({ sessionId, projectConfig, userRole, onConfigUpdate 
   const messages = projectConfig.chat.messages;
 
   const currentIssue = projectConfig.issueboard.issues.find((i) => i.is_active) || null;
+
+  const actionEngine = useMemo(() => new ActionEngine(useStageStore), []);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -113,28 +118,110 @@ export function usePBLChat({ sessionId, projectConfig, userRole, onConfigUpdate 
           throw new Error(errorText || `PBL runtime chat failed with status ${response.status}`);
         }
 
-        const data = (await response.json()) as RuntimeChatResponse;
+        if (!response.body) throw new Error('No response body for stream');
 
-        const newMessages = (data.messages ?? [])
-          .filter((msg) => typeof msg.message === 'string' && msg.message.trim().length > 0)
-          .map((msg) => ({
-            id: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-            agent_name: msg.agent_name || 'System',
-            message: msg.message as string,
-            timestamp: Date.now(),
-            read_by: [],
-          }));
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
 
-        const afterConfig = {
-          ...updatedConfig,
-          chat: { messages: [...updatedConfig.chat.messages, ...newMessages] },
+        let currentMessageId = `msg_${Date.now()}`;
+        let targetAgentName = targetAgent.name;
+        let accumulatedMessage = '';
+        
+        const streamMsg: PBLChatMessage = {
+          id: currentMessageId,
+          agent_name: targetAgentName,
+          message: '',
+          timestamp: Date.now(),
+          read_by: [],
         };
+        
+        let liveConfig = {
+          ...updatedConfig,
+          chat: { messages: [...updatedConfig.chat.messages, streamMsg] },
+        };
+        onConfigUpdate(liveConfig);
 
-        if (data.workspace) {
-          afterConfig.issueboard = fromRuntimeWorkspace(data.workspace, updatedConfig.issueboard);
+        const parser = createParser({
+          onEvent: (event: EventSourceMessage) => {
+            if (event.event === 'ping') return;
+            try {
+              const parsed = JSON.parse(event.data);
+              if (parsed.type === 'agent_start') {
+                targetAgentName = parsed.data.agentName || targetAgentName;
+                liveConfig = {
+                  ...liveConfig,
+                  chat: {
+                    ...liveConfig.chat,
+                    messages: liveConfig.chat.messages.map(m => 
+                      m.id === currentMessageId ? { ...m, agent_name: targetAgentName } : m
+                    )
+                  }
+                };
+                onConfigUpdate(liveConfig);
+              } else if (parsed.type === 'text_delta') {
+                accumulatedMessage += parsed.data.content;
+                liveConfig = {
+                  ...liveConfig,
+                  chat: {
+                    ...liveConfig.chat,
+                    messages: liveConfig.chat.messages.map(m => 
+                      m.id === currentMessageId ? { ...m, message: accumulatedMessage } : m
+                    )
+                  }
+                };
+                onConfigUpdate(liveConfig);
+              } else if (parsed.type === 'action') {
+                 if (parsed.data.actionName === 'complete_issue' && currentIssue) {
+                    if (liveConfig.issueboard) {
+                       const issue = liveConfig.issueboard.issues.find((i: PBLIssue) => i.id === currentIssue.id);
+                       if (issue) {
+                          issue.is_done = true;
+                          issue.is_active = false;
+                       }
+                       
+                       // Activate next incomplete issue
+                       const nextIssue = liveConfig.issueboard.issues
+                         .filter((i: PBLIssue) => !i.is_done && i.id !== currentIssue.id)
+                         .sort((a: PBLIssue, b: PBLIssue) => a.index - b.index)[0];
+
+                       if (nextIssue) {
+                         nextIssue.is_active = true;
+                         liveConfig.issueboard.current_issue_id = nextIssue.id;
+                         
+                         liveConfig.chat.messages.push({
+                           id: `msg_${Date.now()}_sys`,
+                           agent_name: 'System',
+                           message: `Issue complete: ${issue?.title}. Next issue activated: ${nextIssue.title}.`,
+                           timestamp: Date.now(),
+                           read_by: [],
+                         });
+                       } else {
+                         liveConfig.chat.messages.push({
+                           id: `msg_${Date.now()}_sys`,
+                           agent_name: 'System',
+                           message: `All issues are complete!`,
+                           timestamp: Date.now(),
+                           read_by: [],
+                         });
+                       }
+                       onConfigUpdate(liveConfig);
+                    }
+                 } else if (parsed.data.actionName.startsWith('wb_')) {
+                    const actionObj = { type: parsed.data.actionName, ...parsed.data.params };
+                    actionEngine.execute(actionObj as any).catch(e => log.error('Action execution failed', e));
+                 }
+              }
+            } catch (e) {
+              log.error('Failed to parse event', e, event);
+            }
+          }
+        });
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          parser.feed(decoder.decode(value, { stream: true }));
         }
-
-        onConfigUpdate(afterConfig);
       } catch (error) {
         log.error('[usePBLChat] Error:', error);
 

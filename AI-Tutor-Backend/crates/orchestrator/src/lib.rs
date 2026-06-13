@@ -17,3 +17,4 @@ pub mod telemetry;
 pub mod validator;
 pub mod whiteboard_doubt;
 pub mod workflow;
+pub mod live_director;

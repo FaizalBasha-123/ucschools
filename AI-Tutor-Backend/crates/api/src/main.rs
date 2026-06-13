@@ -299,10 +299,34 @@ async fn main() -> Result<()> {
         .await
         .expect("startup readiness checks");
 
-    let asset_store = Arc::new(LocalFileAssetStore::new(
-        storage.root_dir(),
-        &base_url,
-    ));
+    let asset_store_type = std::env::var("AI_TUTOR_ASSET_STORE").unwrap_or_else(|_| "local".to_string());
+    let asset_store: ai_tutor_media::storage::DynAssetStore = if asset_store_type == "r2" {
+        let ak = std::env::var("AI_TUTOR_R2_ACCESS_KEY_ID").or_else(|_| std::env::var("R2_ACCESS_KEY_ID")).expect("R2 access key");
+        let sk = std::env::var("AI_TUTOR_R2_SECRET_ACCESS_KEY").or_else(|_| std::env::var("R2_SECRET_ACCESS_KEY")).expect("R2 secret key");
+        let endpoint = std::env::var("AI_TUTOR_R2_ENDPOINT").or_else(|_| std::env::var("R2_ENDPOINT")).expect("R2 endpoint");
+        let bucket = std::env::var("AI_TUTOR_R2_BUCKET").or_else(|_| std::env::var("R2_BUCKET")).expect("R2 bucket");
+        let pub_url = std::env::var("AI_TUTOR_R2_PUBLIC_BASE_URL").or_else(|_| std::env::var("R2_PUBLIC_BASE_URL")).unwrap_or_default();
+        
+        info!(provider = "Cloudflare R2", "Initializing R2-backed asset store");
+        Arc::new(
+            ai_tutor_media::storage::R2AssetStore::new(
+                endpoint,
+                bucket,
+                ak,
+                sk,
+                pub_url,
+                "", // key_prefix
+            )
+            .await
+            .expect("initialize R2 asset store"),
+        )
+    } else {
+        info!(provider = "Local File", "Initializing local file asset store");
+        Arc::new(LocalFileAssetStore::new(
+            storage.root_dir(),
+            &base_url,
+        ))
+    };
     let redis_url = std::env::var("AI_TUTOR_AIVEN_REDIS_URL")
         .ok()
         .or_else(|| {
@@ -317,9 +341,10 @@ async fn main() -> Result<()> {
     } else {
         "Render KV"
     };
-    info!(provider = %redis_provider, "Initializing Redis-backed lesson queue");
+    info!(provider = "PostgreSQL (NeonDB)", "Initializing Postgres-backed lesson queue");
+    let pg_pool = sqlx::PgPool::connect(&postgres_url).await.expect("connect to Postgres for queue via sqlx");
     let queue: Arc<dyn LessonQueue> = {
-        Arc::new(RedisLessonQueue::new(&redis_url)?)
+        Arc::new(ai_tutor_api::queue_postgres::PgLessonQueue::new(pg_pool))
     };
 
     info!(provider = %redis_provider, "Initializing Redis-backed runtime session storage");
