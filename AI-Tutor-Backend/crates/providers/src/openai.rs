@@ -118,6 +118,7 @@ impl OpenAiCompatibleProvider {
                 include_usage: true,
             }),
             response_format: None,
+            max_tokens: Some(8192),
         };
 
         let response = self
@@ -338,6 +339,8 @@ struct ChatCompletionRequest<'a> {
     stream_options: Option<OpenAiStreamOptions>,
     #[serde(skip_serializing_if = "Option::is_none")]
     response_format: Option<OpenAiResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -500,6 +503,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             stream: None,
             stream_options: None,
             response_format: None,
+            max_tokens: Some(8192),
         };
 
         let response = self
@@ -561,6 +565,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             stream: None,
             stream_options: None,
             response_format: params.response_format.as_ref().map(response_format_to_openai),
+            max_tokens: Some(params.max_tokens.unwrap_or(8192)),
         };
 
         let response = self
@@ -630,6 +635,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             stream: None,
             stream_options: None,
             response_format: None,
+            max_tokens: Some(8192),
         };
 
         let response = self
