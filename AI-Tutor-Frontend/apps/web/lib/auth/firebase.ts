@@ -47,12 +47,13 @@ export function getFirebaseAuth(): Auth {
 
 let _recaptchaVerifier: RecaptchaVerifier | null = null;
 
-/**
- * Initialises an invisible reCAPTCHA verifier bound to a DOM element.
- * Must be called after mount with the element ID that will host the widget.
- */
 export function getRecaptchaVerifier(elementId: string): RecaptchaVerifier {
-  if (_recaptchaVerifier) return _recaptchaVerifier;
+  if (_recaptchaVerifier) {
+    try {
+      _recaptchaVerifier.clear();
+    } catch {}
+    _recaptchaVerifier = null;
+  }
   const auth = getFirebaseAuth();
   _recaptchaVerifier = new RecaptchaVerifier(auth, elementId, { size: 'invisible' });
   return _recaptchaVerifier;
@@ -73,8 +74,8 @@ export function clearRecaptchaVerifier(): void {
  * Send an OTP to the given phone number via Firebase.
  * Returns a ConfirmationResult that must be confirmed with the OTP code.
  */
-export async function sendPhoneOtp(phoneNumber: string): Promise<ConfirmationResult> {
+export async function sendPhoneOtp(phoneNumber: string, elementId: string = 'recaptcha-container'): Promise<ConfirmationResult> {
   const auth = getFirebaseAuth();
-  const verifier = getRecaptchaVerifier('recaptcha-container');
+  const verifier = getRecaptchaVerifier(elementId);
   return signInWithPhoneNumber(auth, phoneNumber, verifier);
 }

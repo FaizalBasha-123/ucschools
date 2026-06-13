@@ -18,6 +18,7 @@ function VerifyPhoneContent() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [recaptchaId, setRecaptchaId] = useState('recaptcha-container');
 
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const recaptchaRef = useRef<HTMLDivElement>(null);
@@ -52,7 +53,7 @@ function VerifyPhoneContent() {
     try {
       // Dynamic import to avoid SSR issues with Firebase
       const { sendPhoneOtp } = await import('@/lib/auth/firebase');
-      const result = await sendPhoneOtp(fullPhone);
+      const result = await sendPhoneOtp(fullPhone, recaptchaId);
       setConfirmationResult(result);
       setStep('otp');
     } catch (err: unknown) {
@@ -66,10 +67,7 @@ function VerifyPhoneContent() {
       } else {
         setError(`Failed to send OTP: ${msg}`);
       }
-      try {
-        const { clearRecaptchaVerifier } = await import('@/lib/auth/firebase');
-        clearRecaptchaVerifier();
-      } catch (e) {}
+      setRecaptchaId(`recaptcha-${Date.now()}`);
     } finally {
       setLoading(false);
     }
@@ -189,7 +187,7 @@ function VerifyPhoneContent() {
       </button>
 
       {/* Hidden reCAPTCHA container */}
-      <div id="recaptcha-container" ref={recaptchaRef} />
+      <div id={recaptchaId} ref={recaptchaRef} />
 
       {/* Top Header */}
       <div className="mb-6 flex flex-col items-center justify-center">
@@ -305,10 +303,7 @@ function VerifyPhoneContent() {
                   setConfirmationResult(null);
                   setError(null);
                   setStep('phone');
-                  try {
-                    const { clearRecaptchaVerifier } = await import('@/lib/auth/firebase');
-                    clearRecaptchaVerifier();
-                  } catch (e) {}
+                  setRecaptchaId(`recaptcha-${Date.now()}`);
                 }}
                 disabled={loading}
                 className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
