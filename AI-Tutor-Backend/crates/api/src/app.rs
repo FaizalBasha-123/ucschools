@@ -238,6 +238,13 @@ fn build_cors_layer() -> CorsLayer {
 /// an operator/operator role. These endpoints extract the account from the JWT
 /// session token. The middleware will return 401 if the session is missing.
 fn session_auth_required(path: &str) -> bool {
+    // Operator job control actions go through role-based auth, not user session auth
+    if (path.starts_with("/api/lessons/jobs/") && path.ends_with("/cancel"))
+        || (path.starts_with("/api/lessons/jobs/") && path.ends_with("/resume"))
+    {
+        return false;
+    }
+
     path == "/api/credits/me"
         || path == "/api/credits/ledger"
         || path == "/api/credits/redeem"

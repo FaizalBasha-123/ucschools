@@ -86,7 +86,7 @@ fn resolve_outlines_model(tier: QualityTier) -> &'static str {
 
 fn resolve_scene_content_model(tier: QualityTier) -> &'static str {
     match tier {
-        QualityTier::Basic | QualityTier::Standard => DEEPSEEK_V3,
+        QualityTier::Basic | QualityTier::Standard => GEMINI_FLASH,
         QualityTier::Premium => CLAUDE_SONNET_46,
     }
 }
@@ -94,7 +94,7 @@ fn resolve_scene_content_model(tier: QualityTier) -> &'static str {
 fn resolve_scene_actions_model(tier: QualityTier) -> &'static str {
     match tier {
         QualityTier::Basic => LLAMA_31_8B,
-        QualityTier::Standard | QualityTier::Premium => DEEPSEEK_V3,
+        QualityTier::Standard | QualityTier::Premium => GEMINI_FLASH,
     }
 }
 

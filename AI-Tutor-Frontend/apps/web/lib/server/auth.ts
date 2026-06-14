@@ -36,6 +36,14 @@ function internalApiToken(): string | null {
  *   - Otherwise (PATH B) → inject static token as Authorization, user JWT as cookie
  */
 function isSessionAuthRequired(pathname: string): boolean {
+  // Operator job control actions use role-based auth, not user session auth
+  if (
+    (pathname.startsWith('/api/lessons/jobs/') && pathname.endsWith('/cancel')) ||
+    (pathname.startsWith('/api/lessons/jobs/') && pathname.endsWith('/resume'))
+  ) {
+    return false;
+  }
+
   return (
     pathname === '/api/lesson-shelf' ||
     pathname === '/api/lesson-shelf/mark-opened' ||
@@ -117,8 +125,10 @@ export function authHeadersFrom(request: NextRequest): HeadersInit {
   } else {
     const authorization = request.headers.get('authorization');
     const cookie = request.headers.get('cookie');
+    const opHeader = request.headers.get('x-operator-header');
     if (authorization) headers['Authorization'] = authorization;
     if (cookie) headers['Cookie'] = cookie;
+    if (opHeader) headers['X-Operator-Header'] = opHeader;
   }
 
   return headers;

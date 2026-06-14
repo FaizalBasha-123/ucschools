@@ -21,7 +21,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://www.google.com https://www.gstatic.com https://*.firebaseapp.com; style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com; img-src 'self' data: blob: https://grainy-gradients.vercel.app; font-src 'self' data:; connect-src 'self' *; frame-src 'self' https://accounts.google.com https://www.google.com https://www.gstatic.com https://*.firebaseapp.com;",
+            value: "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://www.google.com https://www.gstatic.com https://*.firebaseapp.com; style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com; img-src 'self' data: blob: https://grainy-gradients.vercel.app https://*.r2.cloudflarestorage.com; font-src 'self' data:; connect-src 'self' *; frame-src 'self' https://accounts.google.com https://www.google.com https://www.gstatic.com https://*.firebaseapp.com; media-src 'self' blob: data: https://*.r2.cloudflarestorage.com;",
           },
         ],
       },

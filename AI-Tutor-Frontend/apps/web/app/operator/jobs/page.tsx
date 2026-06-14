@@ -67,8 +67,12 @@ export default function OperatorJobsPage() {
   const handleAction = async (jobId: string, action: 'cancel' | 'resume') => {
     setActionLoading(jobId);
     try {
+      const tok = getOperatorToken();
+      const headers: Record<string, string> = { 'X-Operator-Header': 'true' };
+      if (tok) headers['Authorization'] = `Bearer ${tok}`;
       const res = await fetch(`/api/lessons/jobs/${jobId}/${action}`, {
         method: 'POST',
+        headers,
       });
       if (!res.ok) throw new Error(`Failed to ${action} job`);
       await fetchJobs();

@@ -199,8 +199,7 @@ impl AssetStore for R2AssetStore {
             .error_for_status()?;
 
         Ok(format!(
-            "{}/{}",
-            self.public_base_url.trim_end_matches('/'),
+            "/api/assets/{}",
             key
         ))
     }
