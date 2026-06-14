@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from 'next/server';
+import { type NextRequest } from 'next/server';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { backendUrl } from '@/lib/server/backend-url';
 
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       return apiError('INTERNAL_ERROR', backendRes.status, 'Failed to logout operator session', json?.error || text);
     }
 
-    const response = NextResponse.json(apiSuccess(json));
+    const response = apiSuccess(json);
     if (setCookie) {
       response.headers.append('set-cookie', setCookie);
     }
