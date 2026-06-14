@@ -27,6 +27,18 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return [
+      {
+        source: '/api/assets/:path*',
+        destination: `${process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || 'http://localhost:8000'}/api/assets/:path*`,
+      },
+      {
+        source: '/api/classroom-media/:path*',
+        destination: `${process.env.NEXT_PUBLIC_AI_TUTOR_API_BASE_URL || 'http://localhost:8000'}/api/classroom-media/:path*`,
+      }
+    ];
+  },
   webpack: (config, { isServer, webpack }) => {
     if (!isServer) {
       config.plugins.push(

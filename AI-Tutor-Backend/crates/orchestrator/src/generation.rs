@@ -854,6 +854,13 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         let video_enabled = request.enable_video_generation;
         let media_enabled = image_enabled || video_enabled;
 
+        let mut research_context = "None".to_string();
+        if request.enable_web_search {
+            if let Some(context) = self.execute_tavily_search(&request.requirements.requirement).await {
+                research_context = context;
+            }
+        }
+
         let mut vars = std::collections::HashMap::new();
         vars.insert("requirement", request.requirements.requirement.clone());
         vars.insert("pdfContent", pdf_context.unwrap_or("None").to_string());
@@ -863,7 +870,7 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
         vars.insert("imageEnabled", if image_enabled { "true".to_string() } else { "false".to_string() });
         vars.insert("videoEnabled", if video_enabled { "true".to_string() } else { "false".to_string() });
         vars.insert("mediaEnabled", if media_enabled { "true".to_string() } else { "false".to_string() });
-        vars.insert("researchContext", "None".to_string());
+        vars.insert("researchContext", research_context);
         vars.insert("teacherContext", String::new());
 
         let (system, user) = crate::prompt_builder::build_prompt("requirements-to-outlines", &vars).unwrap_or_else(|| {
