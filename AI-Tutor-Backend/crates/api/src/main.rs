@@ -260,14 +260,22 @@ async fn main() -> Result<()> {
 
     overrides::init_overrides("model-overrides.json");
 
-    let host = std::env::var("AI_TUTOR_API_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = std::env::var("AI_TUTOR_API_PORT").unwrap_or_else(|_| "8099".to_string());
-    let storage_root =
-        std::env::var("AI_TUTOR_STORAGE_ROOT").expect("AI_TUTOR_STORAGE_ROOT is required");
-    let postgres_url = std::env::var("AI_TUTOR_NEON_DATABASE_URL")
-        .ok()
-        .or_else(|| std::env::var("AI_TUTOR_POSTGRES_URL").ok())
-        .expect("AI_TUTOR_POSTGRES_URL is required for production persistence");
+    let host = std::env::var("AI_TUTOR_API_HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let port = std::env::var("PORT")
+        .or_else(|_| std::env::var("AI_TUTOR_API_PORT"))
+        .unwrap_or_else(|_| "10000".to_string());
+    let storage_root = std::env::var("AI_TUTOR_STORAGE_ROOT")
+        .unwrap_or_else(|_| "/tmp/ai-tutor".to_string());
+    
+    let postgres_url = match std::env::var("AI_TUTOR_NEON_DATABASE_URL")
+        .or_else(|_| std::env::var("AI_TUTOR_POSTGRES_URL"))
+    {
+        Ok(url) => url,
+        Err(_) => {
+            tracing::error!("FATAL STARTUP ERROR: AI_TUTOR_NEON_DATABASE_URL or AI_TUTOR_POSTGRES_URL is missing. Please add it to your Render Environment Variables.");
+            std::process::exit(1);
+        }
+    };
     let base_url =
         std::env::var("AI_TUTOR_BASE_URL").unwrap_or_else(|_| format!("http://{}:{}", host, port));
 
