@@ -5731,9 +5731,9 @@ impl LessonAppService for LiveLessonAppService {
     ) -> Result<Vec<WhiteboardActionEvent>> {
         let llm: Arc<dyn LlmProvider> = {
             let quality = session.quality_mode.as_str();
-            let tier = if quality == "premium" { ai_tutor_routing::QualityTier::Premium } else { ai_tutor_routing::QualityTier::Standard };
+            let tier = if quality == "premium" { ai_tutor_domain::routing::QualityTier::Premium } else { ai_tutor_domain::routing::QualityTier::Standard };
             let model_id = ai_tutor_routing::routing_rules::resolve_chat_reasoning_model_with_override(tier);
-            let resolved = ai_tutor_providers::resolve_model(&self.provider_config, Some(&model_id), None, None, None, None)?;
+            let resolved = ai_tutor_providers::resolve::resolve_model(&self.provider_config, Some(&model_id), None, None, None, None)?;
             Arc::from(self.provider_factory.build(resolved.model_config)?)
         };
         let image_provider: Option<Arc<dyn ImageProvider>> = {
@@ -5753,9 +5753,9 @@ impl LessonAppService for LiveLessonAppService {
     ) -> Result<Vec<WhiteboardActionEvent>> {
         let llm: Arc<dyn LlmProvider> = {
             let quality = session.quality_mode.as_str();
-            let tier = if quality == "premium" { ai_tutor_routing::QualityTier::Premium } else { ai_tutor_routing::QualityTier::Standard };
+            let tier = if quality == "premium" { ai_tutor_domain::routing::QualityTier::Premium } else { ai_tutor_domain::routing::QualityTier::Standard };
             let model_id = ai_tutor_routing::routing_rules::resolve_chat_reasoning_model_with_override(tier);
-            let resolved = ai_tutor_providers::resolve_model(&self.provider_config, Some(&model_id), None, None, None, None)?;
+            let resolved = ai_tutor_providers::resolve::resolve_model(&self.provider_config, Some(&model_id), None, None, None, None)?;
             Arc::from(self.provider_factory.build(resolved.model_config)?)
         };
         let image_provider: Option<Arc<dyn ImageProvider>> = {
