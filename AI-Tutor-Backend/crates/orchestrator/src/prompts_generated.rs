@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 pub fn get_snippet(id: &str) -> Option<&'static str> {
     match id {
         "action-types" => Some(include_str!("prompts/snippets/action-types.md")),

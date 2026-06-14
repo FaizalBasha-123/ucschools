@@ -13,7 +13,6 @@ use ai_tutor_api::redis_balance_cache::RedisBalanceCache;
 use ai_tutor_routing::{operator_emails, overrides};
 use ai_tutor_api::llm_proxy::{llm_proxy_router, LlmProxyState};
 use ai_tutor_api::queue::LessonQueue;
-use ai_tutor_api::queue_redis::RedisLessonQueue;
 use ai_tutor_api::redis_storage::RedisRuntimeSessionRepository;
 use ai_tutor_api::telemetry::TelemetryService;
 use ai_tutor_media::storage::LocalFileAssetStore;

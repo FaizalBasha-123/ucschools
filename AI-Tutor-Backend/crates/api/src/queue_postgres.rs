@@ -1,7 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
-use chrono::Utc;
 
 use crate::queue::{LessonQueue, QueueCancelResult, QueueLeaseCounts, QueuedLessonRequest};
 

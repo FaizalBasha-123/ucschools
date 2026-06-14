@@ -751,8 +751,6 @@ struct ActionDto {
     text: Option<String>,
     element_id: Option<String>,
     topic: Option<String>,
-    name: Option<String>,
-    params: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -2493,28 +2491,7 @@ fn project_outline_summary(outline: &SceneOutline) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
-fn media_generation_summary(outline: &SceneOutline) -> String {
-    if outline.media_generations.is_empty() {
-        return "none".to_string();
-    }
 
-    outline
-        .media_generations
-        .iter()
-        .map(|media| {
-            format!(
-                "{}:{}:{}",
-                media.element_id,
-                match media.media_type {
-                    MediaType::Image => "image",
-                    MediaType::Video => "video",
-                },
-                media.aspect_ratio.as_deref().unwrap_or("unspecified")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
 
 fn scene_content_summary(content: &SceneContent) -> Result<String> {
     Ok(serde_json::to_string(content)?)

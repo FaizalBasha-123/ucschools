@@ -1,16 +1,16 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::info;
 
 use ai_tutor_domain::runtime::{
-    AgentTurnSummary, ChatMessage, ClientStageState, DirectorState, GeneratedChatAgentConfig,
+    AgentTurnSummary, ChatMessage, ClientStageState, GeneratedChatAgentConfig,
     StatelessEvent, UserProfile, WhiteboardActionRecord,
 };
 use ai_tutor_providers::traits::LlmProvider;
 
 use crate::prompt_builder::build_prompt;
-use crate::response_parser::{create_stream_parser_state, parse_stream_chunk, ParsedAction};
+use crate::response_parser::{create_stream_parser_state, parse_stream_chunk};
 
 pub struct OrchestratorState {
     pub messages: Vec<ChatMessage>,
@@ -204,7 +204,7 @@ async fn agent_generate_node(
         }
     };
 
-    let generated = llm.generate_text_stream_with_history(&history, &mut on_delta).await?;
+    let _generated = llm.generate_text_stream_with_history(&history, &mut on_delta).await?;
 
     // Record turn summary
     state.agent_responses.push(AgentTurnSummary {
