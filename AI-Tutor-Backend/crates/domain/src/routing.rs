@@ -205,7 +205,7 @@ pub fn tier_limits(tier: QualityTier) -> TierLimits {
         QualityTier::Premium => TierLimits {
             max_slides: 14,
             max_examples_per_slide: 3,
-            max_tokens_per_response: 8192,
+            max_tokens_per_response: 4096,
             enable_refinement: true,
             max_pdf_context_chars: 1000,
             max_cost_usd_per_request: 0.15,
