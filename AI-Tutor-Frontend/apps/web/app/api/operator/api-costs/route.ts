@@ -22,25 +22,13 @@ export async function GET(request: NextRequest) {
     });
 
     if (!res.ok) {
-      if (res.status === 404) {
-        return NextResponse.json({
-          success: true,
-          total_cost_usd_30d: 0, openrouter_cost_usd: 0, groq_cost_usd: 0,
-          tts_cost_usd: 0, estimated_margin_30d: 0,
-          by_component: [], per_user: [],
-        });
-      }
-      return NextResponse.json({ success: false, error: `Backend error: ${res.status}` }, { status: res.status });
+      const text = await res.text();
+      return NextResponse.json({ success: false, error: text || `Backend error: ${res.status}` }, { status: res.status });
     }
 
     const data = await res.json();
     return NextResponse.json({ success: true, ...data });
   } catch (error) {
-    return NextResponse.json({
-      success: true,
-      total_cost_usd_30d: 0, openrouter_cost_usd: 0, groq_cost_usd: 0,
-      tts_cost_usd: 0, estimated_margin_30d: 0,
-      by_component: [], per_user: [],
-    });
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Internal Server Error' }, { status: 500 });
   }
 }

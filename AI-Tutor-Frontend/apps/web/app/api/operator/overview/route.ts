@@ -21,7 +21,8 @@ export async function GET(request: NextRequest) {
     });
 
     if (!res.ok) {
-      return NextResponse.json({ success: false, error: `Backend error: ${res.status}` }, { status: res.status });
+      const text = await res.text();
+      return NextResponse.json({ success: false, error: text || `Backend error: ${res.status}` }, { status: res.status });
     }
 
     const data = await res.json();

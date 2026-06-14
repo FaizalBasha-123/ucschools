@@ -75,7 +75,7 @@ export default function OperatorPage() {
         fetch('/api/operator/api-costs', { headers: headers(), cache: 'no-store' }),
         fetch('/api/operator/schools', { headers: headers(), cache: 'no-store' }),
       ]);
-      if (ovRes.status === 401) { clearOperatorSession(); setRedirecting(true); router.replace('/operator/login'); return; }
+      if (ovRes.status === 401 || costsRes.status === 401 || schoolsRes.status === 401) { clearOperatorSession(); setRedirecting(true); router.replace('/operator/login'); return; }
       if (ovRes.ok) setOverview(await ovRes.json());
       if (costsRes.ok) setApiCosts(await costsRes.json());
       if (schoolsRes.ok) {
@@ -231,7 +231,7 @@ export default function OperatorPage() {
                   value={loading ? '…' : (overview?.payments ? fmt(overview.payments.total_revenue_inr ?? overview.payments.total_revenue, 'INR') : '—')}
                   sub="From Easebuzz (India)" />
                 <StatCard icon={<DollarSign className="size-5" />} label="Total Revenue (USD)" color="text-blue-500"
-                  value={loading ? '…' : (overview?.payments ? fmt(overview.payments.total_revenue_usd ?? 0) : '—')}
+                  value={loading ? '…' : (overview?.payments ? fmt((overview.payments.total_revenue ?? 0) / 84) : '—')}
                   sub="From Stripe (international)" />
                 <StatCard icon={<TrendingUp className="size-5" />} label="Payment Success Rate" color="text-purple-500"
                   value={loading ? '…' : (overview?.payments ? pct(overview.payments.success_rate) : '—')}
@@ -246,14 +246,14 @@ export default function OperatorPage() {
                 </div>
                 {loading ? (
                   <div className="p-16 text-center"><Loader2 className="size-6 animate-spin opacity-40 mx-auto text-[#10B981]" /></div>
-                ) : overview?.top_paying_users?.length > 0 ? (
+                ) : apiCosts?.per_user?.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
                       <thead className="bg-[#F8FAFC] dark:bg-neutral-900 border-b border-neutral-100 dark:border-neutral-800">
                         <tr>{['Email','Plan','Credits Used','Revenue Paid','API Cost','Margin'].map(h => <th key={h} className="px-6 py-4 font-black text-neutral-400 uppercase text-[10px] tracking-widest">{h}</th>)}</tr>
                       </thead>
                       <tbody className="divide-y divide-neutral-50 dark:divide-neutral-800">
-                        {(overview.top_paying_users as any[]).map((u: any, i: number) => (
+                        {(apiCosts.per_user as any[]).map((u: any, i: number) => (
                           <tr key={i} className="hover:bg-neutral-50 dark:hover:bg-neutral-900/50 transition-colors">
                             <td className="px-6 py-4 font-bold text-[#0F172A] dark:text-white">{u.email ?? u.account_id}</td>
                             <td className="px-6 py-4"><span className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider">{u.plan ?? 'free'}</span></td>

@@ -36,10 +36,13 @@ export async function POST(request: NextRequest) {
       headers: { 'X-Operator-Header': '1', 'Cookie': `ai_tutor_ops_session=${sessionId.value}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) return NextResponse.json({ success: false, error: `Backend: ${res.status}` }, { status: res.status });
+    if (!res.ok) {
+      const text = await res.text();
+      return NextResponse.json({ success: false, error: text || `Backend: ${res.status}` }, { status: res.status });
+    }
     const data = await res.json();
     return NextResponse.json({ success: true, ...data });
   } catch (error) {
-    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Internal Server Error' }, { status: 500 });
   }
 }
