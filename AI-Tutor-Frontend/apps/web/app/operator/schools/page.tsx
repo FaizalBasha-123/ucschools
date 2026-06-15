@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, GraduationCap, Landmark, Briefcase, Loader2, Plus, Users, CreditCard, ChevronRight, X, BookOpen } from 'lucide-react';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
-import { operatorSignOut, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, clearOperatorSession, apiFetch } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -88,7 +88,7 @@ export default function OperatorSchoolsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/operator/schools', { cache: 'no-store' });
+      const res = await apiFetch('/api/operator/schools', { cache: 'no-store' });
       if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
       if (!res.ok) throw new Error(`Failed to fetch enterprises (${res.status})`);
       const data = await res.json();
@@ -105,7 +105,7 @@ export default function OperatorSchoolsPage() {
     if (!newName.trim() || !newEmail.trim()) return;
     setCreating(true);
     try {
-      const res = await fetch('/api/operator/schools', {
+      const res = await apiFetch('/api/operator/schools', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -131,7 +131,7 @@ export default function OperatorSchoolsPage() {
   const fetchMembers = async (id: string) => {
     setMembersLoading(true);
     try {
-      const res = await fetch(`/api/operator/schools/${id}/members`);
+      const res = await apiFetch(`/api/operator/schools/${id}/members`);
       if (res.ok) {
         const data = await res.json();
         setMembers(data.members || []);
@@ -143,7 +143,7 @@ export default function OperatorSchoolsPage() {
   const fetchInvoices = async (id: string) => {
     setInvoicesLoading(true);
     try {
-      const res = await fetch(`/api/operator/schools/${id}/invoices`);
+      const res = await apiFetch(`/api/operator/schools/${id}/invoices`);
       if (res.ok) {
         const data = await res.json();
         setInvoices(data.data || []);
@@ -164,7 +164,7 @@ export default function OperatorSchoolsPage() {
     setProvisioning(true);
     try {
       const emails = bulkEmails.split(/[\n,]+/).map(e => e.trim()).filter(Boolean);
-      const res = await fetch('/api/operator/schools/members/bulk', {
+      const res = await apiFetch('/api/operator/schools/members/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ school_id: selected.id, emails, plan_code: selected.plan }),
@@ -182,7 +182,7 @@ export default function OperatorSchoolsPage() {
     setGeneratingInvoice(true);
     try {
       const due = new Date(); due.setDate(due.getDate() + 30);
-      const res = await fetch(`/api/operator/schools/${selected.id}/invoices`, {
+      const res = await apiFetch(`/api/operator/schools/${selected.id}/invoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ school_id: selected.id, due_date: due.toISOString() }),

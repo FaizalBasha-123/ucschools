@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Users, Loader2, Search, CreditCard, Ticket, History, X, ArrowUpRight, ArrowDownRight, Coins, Plus, Minus, Check, AlertCircle, Link as LinkIcon } from 'lucide-react';
-import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, getOperatorToken, clearOperatorSession, apiFetch } from '@/lib/auth/session';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
@@ -65,7 +65,7 @@ function HistoryModal({ accountId, email, onClose }: { accountId: string; email:
     const fetchLedger = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/operator/users/${accountId}/ledger`, { cache: 'no-store' });
+        const res = await apiFetch(`/api/operator/users/${accountId}/ledger`, { cache: 'no-store' });
         if (!res.ok) throw new Error('Failed to fetch ledger');
         const data = await res.json();
         if (data.success && data.entries) {
@@ -178,13 +178,10 @@ function TopupLinkModal({
     setLoading(true);
     setError(null);
     try {
-      const token = getOperatorToken();
-      const res = await fetch(`/api/operator/users/${user.account_id}/topup-link`, {
+      const res = await apiFetch(`/api/operator/users/${user.account_id}/topup-link`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          'X-Operator-Header': 'true',
         },
         body: JSON.stringify({
           credits_amount: creditsNum,
@@ -324,7 +321,7 @@ function CreditModal({
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`/api/operator/users/${user.account_id}/credits`, {
+      const res = await apiFetch(`/api/operator/users/${user.account_id}/credits`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -483,7 +480,7 @@ export default function OperatorUsersPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/operator/users', { cache: 'no-store' });
+      const res = await apiFetch('/api/operator/users', { cache: 'no-store' });
       if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
       if (!res.ok) throw new Error('Failed to fetch users');
       const data = await res.json();

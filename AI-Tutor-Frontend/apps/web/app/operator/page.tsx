@@ -9,7 +9,7 @@ import {
   School, Receipt, Zap, ChevronRight, RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, getOperatorToken, clearOperatorSession, apiFetch } from '@/lib/auth/session';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
 import { createLogger } from '@/lib/logger';
 import { cn } from '@/lib/utils';
@@ -55,13 +55,6 @@ export default function OperatorPage() {
 
   const [redirecting, setRedirecting] = useState(false);
 
-  const headers = (): HeadersInit => {
-    const tok = getOperatorToken();
-    const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
-    if (tok) h['Authorization'] = `Bearer ${tok}`;
-    return h;
-  };
-
   const load = async () => {
     if (!getOperatorToken()) {
       setRedirecting(true);
@@ -71,9 +64,9 @@ export default function OperatorPage() {
     setLoading(true); setError(null);
     try {
       const [ovRes, costsRes, schoolsRes] = await Promise.all([
-        fetch('/api/operator/overview', { headers: headers(), cache: 'no-store' }),
-        fetch('/api/operator/api-costs', { headers: headers(), cache: 'no-store' }),
-        fetch('/api/operator/schools', { headers: headers(), cache: 'no-store' }),
+        apiFetch('/api/operator/overview', { cache: 'no-store' }),
+        apiFetch('/api/operator/api-costs', { cache: 'no-store' }),
+        apiFetch('/api/operator/schools', { cache: 'no-store' }),
       ]);
       if (ovRes.status === 401 || costsRes.status === 401 || schoolsRes.status === 401) { clearOperatorSession(); setRedirecting(true); router.replace('/operator/login'); return; }
       if (ovRes.ok) setOverview(await ovRes.json());

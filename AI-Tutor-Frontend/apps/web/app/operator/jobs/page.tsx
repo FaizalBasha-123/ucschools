@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ListTodo, Loader2, Play, Square, RotateCcw, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
-import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, getOperatorToken, clearOperatorSession, apiFetch } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -35,7 +35,7 @@ export default function OperatorJobsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/operator/jobs', { cache: 'no-store' });
+      const res = await apiFetch('/api/operator/jobs', { cache: 'no-store' });
       
       if (res.status === 401) {
         clearOperatorSession(); router.push('/operator/login');
@@ -67,12 +67,8 @@ export default function OperatorJobsPage() {
   const handleAction = async (jobId: string, action: 'cancel' | 'resume') => {
     setActionLoading(jobId);
     try {
-      const tok = getOperatorToken();
-      const headers: Record<string, string> = { 'X-Operator-Header': 'true' };
-      if (tok) headers['Authorization'] = `Bearer ${tok}`;
-      const res = await fetch(`/api/lessons/jobs/${jobId}/${action}`, {
+      const res = await apiFetch(`/api/lessons/jobs/${jobId}/${action}`, {
         method: 'POST',
-        headers,
       });
       if (!res.ok) throw new Error(`Failed to ${action} job`);
       await fetchJobs();

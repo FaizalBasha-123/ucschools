@@ -7,7 +7,7 @@ import {
   TrendingUp, BarChart3, RefreshCw, Zap, Activity, Server,
 } from 'lucide-react';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
-import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, getOperatorToken, clearOperatorSession, apiFetch } from '@/lib/auth/session';
 import * as echarts from 'echarts';
 
 const log = console;
@@ -75,19 +75,11 @@ export default function BillingPage() {
   const [queueDepth, setQueueDepth] = useState<any>(null);
   const [queueLoading, setQueueLoading] = useState(false);
 
-  const headers = (): HeadersInit => {
-    const tok = getOperatorToken();
-    const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
-    if (tok) h['Authorization'] = `Bearer ${tok}`;
-    return h;
-  };
-
   const load = async (r: Range) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/operator/api-costs?days=${r}`, {
-        headers: headers(),
+      const res = await apiFetch(`/api/operator/api-costs?days=${r}`, {
         cache: 'no-store',
       });
       if (res.status === 401) {
@@ -112,8 +104,7 @@ export default function BillingPage() {
 
   // Fetch revenue timeseries
   useEffect(() => {
-    const h = headers();
-    fetch(`/api/operator/stats/revenue-timeseries?days=${range}`, { headers: h, cache: 'no-store' })
+    apiFetch(`/api/operator/stats/revenue-timeseries?days=${range}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(d => setRevenueData(d))
       .catch(() => {});
@@ -122,7 +113,7 @@ export default function BillingPage() {
   // Fetch queue depth (refresh every 30s)
   const fetchQueueDepth = useCallback(() => {
     setQueueLoading(true);
-    fetch('/api/operator/stats/queue-depth', { headers: headers(), cache: 'no-store' })
+    apiFetch('/api/operator/stats/queue-depth', { cache: 'no-store' })
       .then(r => r.ok ? r.json() : null)
       .then(d => setQueueDepth(d))
       .catch(() => {})

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Settings, Shield, Server, Key, Info, Loader2, Plus, Trash2, Mail, Check, AlertCircle } from 'lucide-react';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
-import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, getOperatorToken, clearOperatorSession, apiFetch } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('OperatorSettings');
@@ -35,7 +35,7 @@ export default function OperatorSettingsPage() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch('/api/operator/settings', { cache: 'no-store' });
+        const res = await apiFetch('/api/operator/settings', { cache: 'no-store' });
         if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
         if (!res.ok) throw new Error('Failed to fetch settings');
         const data = await res.json();
@@ -58,7 +58,7 @@ export default function OperatorSettingsPage() {
   const fetchEmails = async () => {
     setEmailsLoading(true);
     try {
-      const res = await fetch('/api/operator/settings/emails', { cache: 'no-store' });
+      const res = await apiFetch('/api/operator/settings/emails', { cache: 'no-store' });
       if (!res.ok) throw new Error('Failed to fetch emails');
       const data = await res.json();
       if (data.success && data.emails) {
@@ -87,7 +87,7 @@ export default function OperatorSettingsPage() {
     setAddError(null);
     setAddSuccess(null);
     try {
-      const res = await fetch('/api/operator/settings/emails', {
+      const res = await apiFetch('/api/operator/settings/emails', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
@@ -109,7 +109,7 @@ export default function OperatorSettingsPage() {
   const handleRemoveEmail = async (email: string) => {
     setRemovingEmail(email);
     try {
-      const res = await fetch(`/api/operator/settings/emails/${encodeURIComponent(email)}`, {
+      const res = await apiFetch(`/api/operator/settings/emails/${encodeURIComponent(email)}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to remove email');

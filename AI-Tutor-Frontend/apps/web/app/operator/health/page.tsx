@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Database, Activity, CheckCircle2, AlertCircle, Loader2, Server, Cpu, ShieldCheck } from 'lucide-react';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
-import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, getOperatorToken, clearOperatorSession, apiFetch } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -38,7 +38,7 @@ export default function OperatorHealthPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/operator/health', { cache: 'no-store' });
+      const res = await apiFetch('/api/operator/health', { cache: 'no-store' });
       
       if (res.status === 401) {
         clearOperatorSession(); router.push('/operator/login');
@@ -244,7 +244,7 @@ export default function OperatorHealthPage() {
                   onClick={async () => {
                     if (confirm('Are you absolutely sure you want to toggle Global Maintenance Mode?')) {
                       try {
-                        const res = await fetch('/api/operator/health/toggle', { method: 'POST' });
+                        const res = await apiFetch('/api/operator/health/toggle', { method: 'POST' });
                         if (res.ok) fetchHealth();
                       } catch (e) {
                         alert('Failed to toggle maintenance mode');

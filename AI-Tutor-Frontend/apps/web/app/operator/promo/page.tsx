@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Ticket, Loader2, Plus, Search, Calendar, Users, Trash2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { DashboardShell } from '@/components/layout/dashboard-shell';
-import { operatorSignOut, getOperatorToken, clearOperatorSession } from '@/lib/auth/session';
+import { operatorSignOut, getOperatorToken, clearOperatorSession, apiFetch } from '@/lib/auth/session';
 import { createLogger } from '@/lib/logger';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -40,17 +40,10 @@ export default function OperatorPromoPage() {
   const [createLoading, setCreateLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  const headers = (): HeadersInit => {
-    const tok = getOperatorToken();
-    const h: any = { 'Content-Type': 'application/json', 'X-Operator-Header': 'true' };
-    if (tok) h['Authorization'] = `Bearer ${tok}`;
-    return h;
-  };
-
   const fetchPromos = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/operator/promo-codes', { headers: headers(), cache: 'no-store' });
+      const res = await apiFetch('/api/operator/promo-codes', { cache: 'no-store' });
       if (res.status === 401) { clearOperatorSession(); router.push('/operator/login'); return; }
       if (!res.ok) throw new Error('Failed to fetch promo codes');
       const data = await res.json();
@@ -69,9 +62,9 @@ export default function OperatorPromoPage() {
     setCreateLoading(true);
     setMessage(null);
     try {
-      const res = await fetch('/api/operator/promo-codes', {
+      const res = await apiFetch('/api/operator/promo-codes', {
         method: 'POST',
-        headers: headers(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code: newCode.toUpperCase().trim(),
           grant_credits: Number(credits),
