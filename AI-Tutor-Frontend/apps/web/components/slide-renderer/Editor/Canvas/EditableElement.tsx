@@ -216,6 +216,18 @@ export function EditableElement({
     ];
   };
 
+  const theme = useSceneSelector<SceneContent, { fontColor: string; fontName: string }>(
+    (content) => {
+      if (content.type === 'slide') {
+        return content.canvas.theme;
+      }
+      return {
+        fontColor: '#333333',
+        fontName: 'Microsoft YaHei',
+      };
+    },
+  );
+
   if (!CurrentElementComponent) {
     return (
       <div
@@ -234,18 +246,6 @@ export function EditableElement({
       </div>
     );
   }
-
-  const theme = useSceneSelector<SceneContent, { fontColor: string; fontName: string }>(
-    (content) => {
-      if (content.type === 'slide') {
-        return content.canvas.theme;
-      }
-      return {
-        fontColor: '#333333',
-        fontName: 'Microsoft YaHei',
-      };
-    },
-  );
 
   return (
     <div

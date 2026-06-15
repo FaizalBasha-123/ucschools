@@ -1,8 +1,7 @@
 import { type NextRequest } from 'next/server';
+import { cookies } from 'next/headers';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { backendUrl } from '@/lib/server/backend-url';
-
-
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,7 +13,6 @@ export async function POST(request: NextRequest) {
       cache: 'no-store',
     });
 
-    const setCookie = backendRes.headers.get('set-cookie');
     const text = await backendRes.text();
     let json;
     try {
@@ -28,9 +26,8 @@ export async function POST(request: NextRequest) {
     }
 
     const response = apiSuccess(json);
-    if (setCookie) {
-      response.headers.append('set-cookie', setCookie);
-    }
+    const cookieStore = await cookies();
+    cookieStore.delete('ai_tutor_ops_session');
     return response;
   } catch (error) {
     return apiError(

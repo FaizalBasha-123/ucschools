@@ -5,7 +5,11 @@ import { backendUrl } from '@/lib/server/backend-url';
 export async function GET(request: NextRequest) {
   try {
     const cookieStore = await cookies();
-    const sessionId = cookieStore.get('ai_tutor_ops_session');
+    let sessionId = cookieStore.get('ai_tutor_ops_session');
+    if (!sessionId) {
+      const token = request.headers.get('x-operator-token') || request.headers.get('authorization')?.replace('Bearer ', '');
+      if (token) sessionId = { name: 'ai_tutor_ops_session', value: token } as any;
+    }
 
     if (!sessionId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

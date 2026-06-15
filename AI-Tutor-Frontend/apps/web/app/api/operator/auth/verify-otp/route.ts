@@ -1,4 +1,5 @@
 import { type NextRequest } from 'next/server';
+import { cookies } from 'next/headers';
 import { apiError, apiSuccess } from '@/lib/server/api-response';
 import { backendUrl } from '@/lib/server/backend-url';
 
@@ -34,8 +35,17 @@ export async function POST(request: NextRequest) {
     }
 
     const response = apiSuccess(json);
-    if (setCookie) {
-      response.headers.append('set-cookie', setCookie);
+    if (json.operator_token) {
+      const cookieStore = await cookies();
+      cookieStore.set({
+        name: 'ai_tutor_ops_session',
+        value: json.operator_token,
+        httpOnly: true,
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 3456000 // 40 days
+      });
     }
     return response;
   } catch (error) {

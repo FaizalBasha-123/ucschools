@@ -10,7 +10,11 @@ export async function GET(
     const { id } = await params;
     const apiBaseUrl = backendUrl();
     const cookieStore = await cookies();
-    const sessionId = cookieStore.get('ai_tutor_ops_session');
+    let sessionId = cookieStore.get('ai_tutor_ops_session');
+    if (!sessionId) {
+      const token = _request.headers.get('x-operator-token') || _request.headers.get('authorization')?.replace('Bearer ', '');
+      if (token) sessionId = { name: 'ai_tutor_ops_session', value: token } as any;
+    }
     if (!sessionId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
