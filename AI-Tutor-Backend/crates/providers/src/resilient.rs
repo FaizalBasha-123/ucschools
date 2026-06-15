@@ -223,9 +223,17 @@ pub fn is_non_retryable(err: &anyhow::Error) -> bool {
 }
 
 /// Check if an error indicates the context window has been exceeded.
-/// These errors are recoverable by truncating conversation history.
+/// These errors are recoverable by truncating conversation history or reducing max_tokens.
 pub fn is_context_window_exceeded(err: &anyhow::Error) -> bool {
-    let lower = err.to_string().to_lowercase();
+    let msg = err.to_string();
+    let lower = msg.to_lowercase();
+
+    // 402 Payment Required (often from OpenRouter) specifically mentioning token affordability
+    // Example: "You requested up to 4096 tokens, but can only afford 2846"
+    if msg.contains("402") && lower.contains("tokens") && lower.contains("afford") {
+        return true;
+    }
+
     let hints = [
         "exceeds the context window",
         "exceeds the available context size",
