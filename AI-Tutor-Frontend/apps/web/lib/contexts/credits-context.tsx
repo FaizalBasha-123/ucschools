@@ -79,10 +79,13 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Fetch on mount only
+  // Fetch on mount AND whenever authentication status changes (e.g. after login redirect)
   useEffect(() => {
     refreshCredits();
-  }, [refreshCredits]);
+    
+    // Optional: add a polling interval or event listener if the app 
+    // needs to stay synced without manual refresh calls.
+  }, [refreshCredits, typeof window !== 'undefined' ? hasAuthSessionHint() : false]);
 
   return (
     <CreditsContext.Provider value={{ credits, planName, refreshCredits, loading }}>
