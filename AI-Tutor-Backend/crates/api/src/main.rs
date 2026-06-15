@@ -254,6 +254,34 @@ async fn run_startup_readiness_checks(
     Ok(())
 }
 
+trait GracefulExpect<T> {
+    fn graceful_expect(self, msg: &str) -> T;
+}
+
+impl<T, E: std::fmt::Debug> GracefulExpect<T> for Result<T, E> {
+    fn graceful_expect(self, msg: &str) -> T {
+        match self {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("FATAL STARTUP ERROR: {}: {:?}", msg, e);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+impl<T> GracefulExpect<T> for Option<T> {
+    fn graceful_expect(self, msg: &str) -> T {
+        match self {
+            Some(v) => v,
+            None => {
+                tracing::error!("FATAL STARTUP ERROR: {}", msg);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
@@ -304,14 +332,14 @@ async fn main() -> Result<()> {
 
     run_startup_readiness_checks(storage.as_ref(), provider_config.as_ref())
         .await
-        .expect("startup readiness checks");
+        .graceful_expect("startup readiness checks");
 
     let asset_store_type = std::env::var("AI_TUTOR_ASSET_STORE").unwrap_or_else(|_| "local".to_string());
     let asset_store: ai_tutor_media::storage::DynAssetStore = if asset_store_type == "r2" {
-        let ak = std::env::var("AI_TUTOR_R2_ACCESS_KEY_ID").or_else(|_| std::env::var("R2_ACCESS_KEY_ID")).expect("R2 access key");
-        let sk = std::env::var("AI_TUTOR_R2_SECRET_ACCESS_KEY").or_else(|_| std::env::var("R2_SECRET_ACCESS_KEY")).expect("R2 secret key");
-        let endpoint = std::env::var("AI_TUTOR_R2_ENDPOINT").or_else(|_| std::env::var("R2_ENDPOINT")).expect("R2 endpoint");
-        let bucket = std::env::var("AI_TUTOR_R2_BUCKET").or_else(|_| std::env::var("R2_BUCKET")).expect("R2 bucket");
+        let ak = std::env::var("AI_TUTOR_R2_ACCESS_KEY_ID").or_else(|_| std::env::var("R2_ACCESS_KEY_ID")).graceful_expect("R2 access key");
+        let sk = std::env::var("AI_TUTOR_R2_SECRET_ACCESS_KEY").or_else(|_| std::env::var("R2_SECRET_ACCESS_KEY")).graceful_expect("R2 secret key");
+        let endpoint = std::env::var("AI_TUTOR_R2_ENDPOINT").or_else(|_| std::env::var("R2_ENDPOINT")).graceful_expect("R2 endpoint");
+        let bucket = std::env::var("AI_TUTOR_R2_BUCKET").or_else(|_| std::env::var("R2_BUCKET")).graceful_expect("R2 bucket");
         let pub_url = std::env::var("AI_TUTOR_R2_PUBLIC_BASE_URL").or_else(|_| std::env::var("R2_PUBLIC_BASE_URL")).unwrap_or_default();
         
         info!(provider = "Cloudflare R2", "Initializing R2-backed asset store");
@@ -325,7 +353,7 @@ async fn main() -> Result<()> {
                 "", // key_prefix
             )
             .await
-            .expect("initialize R2 asset store"),
+            .graceful_expect("initialize R2 asset store"),
         )
     } else {
         info!(provider = "Local File", "Initializing local file asset store");
@@ -341,7 +369,7 @@ async fn main() -> Result<()> {
                 .ok()
                 .or_else(|| std::env::var("REDIS_URL").ok())
         })
-        .expect("AI_TUTOR_AIVEN_REDIS_URL, AI_TUTOR_REDIS_URL, or REDIS_URL is required for production queue and sessions");
+        .graceful_expect("AI_TUTOR_AIVEN_REDIS_URL, AI_TUTOR_REDIS_URL, or REDIS_URL is required for production queue and sessions");
 
     let redis_provider = if std::env::var("AI_TUTOR_AIVEN_REDIS_URL").is_ok() {
         "Aiven Valkey"
@@ -349,9 +377,9 @@ async fn main() -> Result<()> {
         "Render KV"
     };
     info!(provider = "PostgreSQL (NeonDB)", "Initializing Postgres-backed lesson queue");
-    let pg_pool = sqlx::PgPool::connect(&postgres_url).await.expect("connect to Postgres for queue via sqlx");
+    let pg_pool = sqlx::PgPool::connect(&postgres_url).await.graceful_expect("connect to Postgres for queue via sqlx");
     info!("Running Postgres database migrations...");
-    sqlx::migrate!("../../migrations").run(&pg_pool).await.expect("failed to run Postgres migrations");
+    sqlx::migrate!("../../migrations").run(&pg_pool).await.graceful_expect("failed to run Postgres migrations");
     let queue: Arc<dyn LessonQueue> = {
         Arc::new(ai_tutor_api::queue_postgres::PgLessonQueue::new(pg_pool))
     };
@@ -390,11 +418,11 @@ async fn main() -> Result<()> {
     // Lago-inspired: Redis Streams event queue + processor + renewal scheduler.
     {
         let billing_redis_client = redis::Client::open(redis_url.as_str())
-            .expect("billing Redis client");
+            .graceful_expect("billing Redis client");
 
         let billing_queue = Arc::new(
             BillingEventQueue::new(&redis_url)
-                .expect("billing event queue")
+                .graceful_expect("billing event queue")
         );
 
         // Ensure all consumer groups exist (best-effort — non-fatal).
@@ -443,11 +471,11 @@ async fn main() -> Result<()> {
 
     let addr: SocketAddr = format!("{}:{}", host, port)
         .parse()
-        .expect("parse api socket address");
+        .graceful_expect("parse api socket address");
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .expect("bind api listener");
+        .graceful_expect("bind api listener");
 
     info!("AI-Tutor-Backend API listening on {}", addr);
     
@@ -470,7 +498,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    axum::serve(listener, app).await.expect("serve api");
+    axum::serve(listener, app).await.graceful_expect("serve api");
 
     Ok(())
 }

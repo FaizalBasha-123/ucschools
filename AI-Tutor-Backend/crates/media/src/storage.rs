@@ -198,10 +198,12 @@ impl AssetStore for R2AssetStore {
             .await?
             .error_for_status()?;
 
-        Ok(format!(
-            "/api/assets/{}",
-            key
-        ))
+        let base = self.public_base_url.trim_end_matches('/');
+        if base.is_empty() {
+            Ok(format!("/api/assets/{}", key))
+        } else {
+            Ok(format!("{}/api/assets/{}", base, key))
+        }
     }
 
     async fn get_asset(
