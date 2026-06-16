@@ -4527,21 +4527,6 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
         let record = record.clone();
         tokio::task::spawn_blocking(move || -> Result<(), String> {
             let mut client = get_pg_client(&postgres_url).map_err(|e| e.to_string())?;
-            // CREATE TABLE IF NOT EXISTS — avoids requiring a migration on existing deployments.
-            client.execute(
-                "CREATE TABLE IF NOT EXISTS api_usage_records (
-                    id TEXT PRIMARY KEY,
-                    account_id TEXT NOT NULL,
-                    component TEXT NOT NULL,
-                    provider TEXT NOT NULL,
-                    model_id TEXT NOT NULL,
-                    input_tokens BIGINT NOT NULL DEFAULT 0,
-                    output_tokens BIGINT NOT NULL DEFAULT 0,
-                    cost_usd_millicents BIGINT NOT NULL DEFAULT 0,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )",
-                &[],
-            ).map_err(|e| e.to_string())?;
             client.execute(
                 "INSERT INTO api_usage_records
                     (id, account_id, component, provider, model_id, input_tokens, output_tokens, cost_usd_millicents, created_at, lesson_id)
@@ -4579,8 +4564,8 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
             for record in &batch {
                 tx.execute(
                     "INSERT INTO api_usage_records
-                        (id, account_id, component, provider, model_id, input_tokens, output_tokens, cost_usd_millicents, created_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        (id, account_id, component, provider, model_id, input_tokens, output_tokens, cost_usd_millicents, created_at, lesson_id)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                      ON CONFLICT (id) DO NOTHING",
                     &[
                         &record.id,
@@ -4592,6 +4577,7 @@ impl crate::repositories::ApiUsageRepository for FileStorage {
                         &record.output_tokens,
                         &record.cost_usd_millicents,
                         &record.created_at,
+                        &record.lesson_id,
                     ],
                 ).map_err(|e| e.to_string())?;
             }
