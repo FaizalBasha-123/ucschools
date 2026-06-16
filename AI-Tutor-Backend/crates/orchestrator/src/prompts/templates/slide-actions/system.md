@@ -45,6 +45,8 @@ You MUST output a JSON array directly. Each element is an object with a `type` f
 - spotlight actions should appear BEFORE the corresponding text object (point first, then speak)
 - Multiple spotlight+text pairs create a natural "focus then explain" flow
 
+{{snippet:speech-guidelines}}
+
 ---
 
 ## Action Types

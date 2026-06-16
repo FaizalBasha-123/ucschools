@@ -33,6 +33,7 @@ const log = createLogger('AudioSettings');
  */
 function getTTSProviderName(providerId: TTSProviderId, t: (key: string) => string): string {
   const names: Record<TTSProviderId, string> = {
+    'kokoro-tts': 'Kokoro TTS (Local)',
     'openai-tts': t('settings.providerOpenAITTS'),
     'azure-tts': t('settings.providerAzureTTS'),
     'glm-tts': t('settings.providerGLMTTS'),

@@ -44,7 +44,8 @@ export async function POST(request: NextRequest) {
         path: '/',
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
-        maxAge: 3456000 // 40 days
+        maxAge: 3456000, // 40 days
+        expires: new Date(Date.now() + 3456000 * 1000)
       });
     }
     return response;

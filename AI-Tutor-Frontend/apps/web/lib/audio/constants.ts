@@ -715,6 +715,25 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
     },
   },
 
+  'kokoro-tts': {
+    id: 'kokoro-tts',
+    name: 'Kokoro TTS (SSML Parsing)',
+    requiresApiKey: false,
+    defaultBaseUrl: 'http://localhost:8880/v1',
+    icon: '/logos/openai.svg', // generic icon
+    models: [{ id: 'kokoro', name: 'Kokoro v1' }],
+    defaultModelId: 'kokoro',
+    voices: [
+      { id: 'af_heart', name: 'AF Heart (Female)', language: 'en', gender: 'female' },
+      { id: 'af_bella', name: 'AF Bella (Female)', language: 'en', gender: 'female' },
+      { id: 'am_adam', name: 'AM Adam (Male)', language: 'en', gender: 'male' },
+      { id: 'af_alloy', name: 'AF Alloy (Female)', language: 'en', gender: 'female' },
+      { id: 'am_echo', name: 'AM Echo (Male)', language: 'en', gender: 'male' }
+    ],
+    supportedFormats: ['mp3', 'wav'],
+    speedRange: { min: 0.5, max: 2.0, default: 1.0 },
+  },
+
   'doubao-tts': {
     id: 'doubao-tts',
     name: '豆包 TTS 2.0（火山引擎）',
@@ -1110,6 +1129,7 @@ export function getTTSProvider(providerId: TTSProviderId): TTSProviderConfig | u
  * Used when switching providers or testing a non-active provider.
  */
 export const DEFAULT_TTS_VOICES: Record<TTSProviderId, string> = {
+  'kokoro-tts': 'af_heart',
   'openai-tts': 'alloy',
   'azure-tts': 'zh-CN-XiaoxiaoNeural',
   'glm-tts': 'tongtong',
@@ -1121,6 +1141,7 @@ export const DEFAULT_TTS_VOICES: Record<TTSProviderId, string> = {
 };
 
 export const DEFAULT_TTS_MODELS: Record<TTSProviderId, string> = {
+  'kokoro-tts': 'kokoro-v1_0',
   'openai-tts': 'gpt-4o-mini-tts',
   'azure-tts': '',
   'glm-tts': 'glm-tts',

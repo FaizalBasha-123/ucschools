@@ -33,6 +33,7 @@ impl LearningMode {
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for LearningMode {
     fn default() -> Self {
         Self::Explain
@@ -69,6 +70,7 @@ impl QualityTier {
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for QualityTier {
     fn default() -> Self {
         Self::Standard
@@ -87,6 +89,7 @@ pub enum DifficultyLevel {
     Advanced,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for DifficultyLevel {
     fn default() -> Self {
         Self::Intermediate
@@ -101,6 +104,7 @@ pub enum LearningState {
     Mastered,
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for LearningState {
     fn default() -> Self {
         Self::Understanding

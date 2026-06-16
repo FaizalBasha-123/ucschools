@@ -29,6 +29,8 @@ You MUST output a JSON array directly. Each element is a text object:
 2. `type:"text"` objects contain `content` (speech text)
 3. The `]` closing bracket marks the end of your response
 
+{{snippet:speech-guidelines}}
+
 ## Design Principles
 
 The user prompt includes a **Course Outline** and **Position** indicator — use them to determine the tone.

@@ -777,6 +777,189 @@ struct TtsRequest<'a> {
     speed: Option<f32>,
 }
 
+struct TtsSegment {
+    text: Option<String>,
+    voice: String,
+    speed: f32,
+    silence_ms: Option<u64>,
+}
+
+fn parse_ssml_naive(text: &str, default_voice: &str, default_speed: f32) -> Vec<TtsSegment> {
+    let mut segments = Vec::new();
+    let mut current_voice = default_voice.to_string();
+    let mut current_speed = default_speed;
+    
+    let parts: Vec<&str> = text.split('<').collect();
+    for (i, part) in parts.iter().enumerate() {
+        if i == 0 {
+            if !part.trim().is_empty() {
+                segments.push(TtsSegment {
+                    text: Some(part.trim().to_string()),
+                    voice: current_voice.clone(),
+                    speed: current_speed,
+                    silence_ms: None,
+                });
+            }
+            continue;
+        }
+        
+        if let Some(idx) = part.find('>') {
+            let tag = &part[..idx];
+            let after_tag = &part[idx+1..];
+            
+            if tag.starts_with("voice") {
+                if let Some(n_idx) = tag.find("name=\"") {
+                    let s = n_idx + 6;
+                    if let Some(e) = tag[s..].find('"') {
+                        current_voice = tag[s..s+e].to_string();
+                    }
+                }
+            } else if tag.starts_with("/voice") {
+                current_voice = default_voice.to_string();
+            } else if tag.starts_with("prosody") {
+                if let Some(r_idx) = tag.find("rate=\"") {
+                    let s = r_idx + 6;
+                    if let Some(e) = tag[s..].find('"') {
+                        let mut rate_str = &tag[s..s+e];
+                        rate_str = rate_str.trim_end_matches('x');
+                        if let Ok(r) = rate_str.parse::<f32>() {
+                            current_speed = r;
+                        }
+                    }
+                }
+            } else if tag.starts_with("/prosody") {
+                current_speed = default_speed;
+            } else if tag.starts_with("break") {
+                if let Some(t_idx) = tag.find("time=\"") {
+                    let s = t_idx + 6;
+                    if let Some(e) = tag[s..].find('"') {
+                        let mut time_str = &tag[s..s+e];
+                        time_str = time_str.trim_end_matches("ms");
+                        if let Ok(ms) = time_str.parse::<u64>() {
+                            segments.push(TtsSegment {
+                                text: None,
+                                voice: current_voice.clone(),
+                                speed: current_speed,
+                                silence_ms: Some(ms),
+                            });
+                        }
+                    }
+                }
+            }
+            
+            if !after_tag.trim().is_empty() {
+                segments.push(TtsSegment {
+                    text: Some(after_tag.trim().to_string()),
+                    voice: current_voice.clone(),
+                    speed: current_speed,
+                    silence_ms: None,
+                });
+            }
+        } else {
+            if !part.trim().is_empty() {
+                segments.push(TtsSegment {
+                    text: Some(format!("<{}", part.trim())),
+                    voice: current_voice.clone(),
+                    speed: current_speed,
+                    silence_ms: None,
+                });
+            }
+        }
+    }
+    
+    if segments.is_empty() && !text.trim().is_empty() {
+        segments.push(TtsSegment {
+            text: Some(text.trim().to_string()),
+            voice: current_voice.clone(),
+            speed: current_speed,
+            silence_ms: None,
+        });
+    }
+    
+    segments
+}
+
+fn encode_wav(samples: &[u8], sample_rate: u32, num_channels: u16, bits_per_sample: u16) -> Vec<u8> {
+    let byte_rate = sample_rate * (num_channels as u32) * ((bits_per_sample / 8) as u32);
+    let block_align = num_channels * (bits_per_sample / 8);
+    let mut buffer = Vec::with_capacity(44 + samples.len());
+    
+    buffer.extend_from_slice(b"RIFF");
+    buffer.extend_from_slice(&(36u32 + samples.len() as u32).to_le_bytes());
+    buffer.extend_from_slice(b"WAVE");
+    buffer.extend_from_slice(b"fmt ");
+    buffer.extend_from_slice(&16u32.to_le_bytes());
+    buffer.extend_from_slice(&1u16.to_le_bytes());
+    buffer.extend_from_slice(&num_channels.to_le_bytes());
+    buffer.extend_from_slice(&sample_rate.to_le_bytes());
+    buffer.extend_from_slice(&byte_rate.to_le_bytes());
+    buffer.extend_from_slice(&block_align.to_le_bytes());
+    buffer.extend_from_slice(&bits_per_sample.to_le_bytes());
+    buffer.extend_from_slice(b"data");
+    buffer.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+    buffer.extend_from_slice(samples);
+    
+    buffer
+}
+
+impl OpenAiCompatibleTtsProvider {
+    async fn synthesize_kokoro(
+        &self,
+        text: &str,
+        voice: Option<&str>,
+        speed: Option<f32>,
+    ) -> Result<String> {
+        let default_voice = voice.unwrap_or_else(|| default_tts_voice(&self.model_config.model_id));
+        let default_speed = speed.unwrap_or(1.0);
+        let segments = parse_ssml_naive(text, default_voice, default_speed);
+        
+        let mut pcm_buffers = Vec::new();
+        
+        for seg in segments {
+            if let Some(ms) = seg.silence_ms {
+                let sample_rate = 24000;
+                let samples = (sample_rate as f32 * (ms as f32 / 1000.0)) as usize;
+                pcm_buffers.push(vec![0u8; samples * 2]);
+            } else if let Some(txt) = seg.text {
+                let request = TtsRequest {
+                    model: &self.model_config.model_id,
+                    input: &txt,
+                    voice: &seg.voice,
+                    response_format: "pcm",
+                    speed: Some(seg.speed),
+                };
+
+                let response = self
+                    .client
+                    .post(self.endpoint())
+                    .header("Authorization", format!("Bearer {}", self.model_config.api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&request)
+                    .send()
+                    .await?;
+
+                if !response.status().is_success() {
+                    let err = response.text().await.unwrap_or_default();
+                    return Err(anyhow!("Kokoro TTS API error: {}", err));
+                }
+
+                let audio = response.bytes().await?;
+                pcm_buffers.push(audio.to_vec());
+            }
+        }
+        
+        let total_len: usize = pcm_buffers.iter().map(|b| b.len()).sum();
+        let mut combined = Vec::with_capacity(total_len);
+        for buf in pcm_buffers {
+            combined.extend_from_slice(&buf);
+        }
+        
+        let wav_data = encode_wav(&combined, 24000, 1, 16);
+        let encoded = STANDARD.encode(&wav_data);
+        Ok(format!("data:audio/wav;base64,{}", encoded))
+    }
+}
+
 #[async_trait]
 impl TtsProvider for OpenAiCompatibleTtsProvider {
     async fn synthesize(
@@ -785,6 +968,10 @@ impl TtsProvider for OpenAiCompatibleTtsProvider {
         voice: Option<&str>,
         speed: Option<f32>,
     ) -> Result<String> {
+        if self.model_config.model_id.contains("kokoro") {
+            return self.synthesize_kokoro(text, voice, speed).await;
+        }
+
         let resolved_voice = voice.unwrap_or_else(|| default_tts_voice(&self.model_config.model_id));
         let request = TtsRequest {
             model: &self.model_config.model_id,

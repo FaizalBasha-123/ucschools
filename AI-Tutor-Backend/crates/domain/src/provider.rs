@@ -8,21 +8,16 @@ pub enum ProviderType {
     Google,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderStrategy {
     /// Use OpenRouter as the inference gateway. Adds referer headers.
+    #[default]
     OpenRouter,
     /// Use the provider directly (no gateway).
     Direct,
     /// Try primary first; fall back to secondary on failure.
     Fallback(Box<ProviderStrategy>, Box<ProviderStrategy>),
-}
-
-impl Default for ProviderStrategy {
-    fn default() -> Self {
-        Self::OpenRouter
-    }
 }
 
 impl ProviderStrategy {

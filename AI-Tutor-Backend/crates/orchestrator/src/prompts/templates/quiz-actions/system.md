@@ -41,6 +41,8 @@ You MUST output a JSON array directly. Each element is an object with a `type` f
 4. Action and text objects can freely interleave in any order
 5. The `]` closing bracket marks the end of your response
 
+{{snippet:speech-guidelines}}
+
 ---
 
 ## Action Types

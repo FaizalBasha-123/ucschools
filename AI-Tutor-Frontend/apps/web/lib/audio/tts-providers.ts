@@ -156,6 +156,8 @@ export async function generateTTS(
       return await generateDoubaoTTS(config, text);
     case 'elevenlabs-tts':
       return await generateElevenLabsTTS(config, text);
+    case 'kokoro-tts':
+      return await generateKokoroTTS(config, text);
 
     case 'browser-native-tts':
       throw new Error(
@@ -579,6 +581,132 @@ async function generateDoubaoTTS(
   }
 
   return { audio: combined, format: 'mp3' };
+}
+
+/**
+ * Kokoro TTS implementation (with custom SSML regex parser)
+ */
+async function generateKokoroTTS(
+  config: TTSModelConfig,
+  text: string,
+): Promise<TTSGenerationResult> {
+  const baseUrl = config.baseUrl || TTS_PROVIDERS['kokoro-tts'].defaultBaseUrl;
+
+  const segments: { text?: string; voice?: string; speed?: number; silenceMs?: number }[] = [];
+  
+  let currentVoice = config.voice || 'af_heart';
+  let currentSpeed = config.speed || 1.0;
+
+  // Naive SSML parser
+  const tokens = text.split(/(<[^>]+>)/).filter(t => t.trim().length > 0);
+
+  for (const token of tokens) {
+    if (token.startsWith('<voice')) {
+      const match = token.match(/name=['"]([^'"]+)['"]/);
+      if (match) currentVoice = match[1];
+    } else if (token.startsWith('</voice>')) {
+      currentVoice = config.voice || 'af_heart';
+    } else if (token.startsWith('<prosody')) {
+      const match = token.match(/rate=['"]([^'"]+)['"]/);
+      if (match) {
+        let rateStr = match[1].replace('x', '');
+        currentSpeed = parseFloat(rateStr) || 1.0;
+      }
+    } else if (token.startsWith('</prosody>')) {
+      currentSpeed = config.speed || 1.0;
+    } else if (token.startsWith('<break')) {
+      const match = token.match(/time=['"]([0-9]+)ms['"]/);
+      if (match) {
+        segments.push({ silenceMs: parseInt(match[1], 10) });
+      }
+    } else if (!token.startsWith('<')) {
+      if (token.trim()) {
+        segments.push({
+          text: token.trim(),
+          voice: currentVoice,
+          speed: currentSpeed
+        });
+      }
+    }
+  }
+  
+  if (segments.length === 0 && text.trim()) {
+    segments.push({ text: text.trim(), voice: currentVoice, speed: currentSpeed });
+  }
+
+  const audioChunks: Uint8Array[] = [];
+
+  for (const seg of segments) {
+    if (seg.silenceMs) {
+      // 24000 Hz, 1 channel, 16-bit PCM
+      const sampleRate = 24000;
+      const samples = Math.floor(sampleRate * (seg.silenceMs / 1000));
+      audioChunks.push(new Uint8Array(samples * 2));
+    } else if (seg.text) {
+      const response = await fetch(`${baseUrl}/audio/speech`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: config.modelId || 'kokoro',
+          input: seg.text,
+          voice: seg.voice,
+          speed: seg.speed,
+          response_format: 'pcm'
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(`Kokoro TTS API error: ${response.statusText} - ${errText}`);
+      }
+      
+      const arrayBuffer = await response.arrayBuffer();
+      audioChunks.push(new Uint8Array(arrayBuffer));
+    }
+  }
+
+  const totalLength = audioChunks.reduce((sum, c) => sum + c.length, 0);
+  const combinedPcm = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of audioChunks) {
+    combinedPcm.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  const wavBuffer = encodeWAV(combinedPcm, 24000, 1, 16);
+  return { audio: wavBuffer, format: 'wav' };
+}
+
+function encodeWAV(samples: Uint8Array, sampleRate: number, numChannels: number, bitsPerSample: number): Uint8Array {
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const buffer = new ArrayBuffer(44 + samples.length);
+  const view = new DataView(buffer);
+
+  const writeString = (v: DataView, off: number, s: string) => {
+    for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i));
+  };
+
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + samples.length, true);
+  writeString(view, 8, 'WAVE');
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeString(view, 36, 'data');
+  view.setUint32(40, samples.length, true);
+
+  const out = new Uint8Array(buffer);
+  out.set(samples, 44);
+  return out;
 }
 
 /**

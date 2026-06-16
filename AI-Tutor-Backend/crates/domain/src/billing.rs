@@ -42,6 +42,7 @@ impl QualityMode {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "basic"    => Some(QualityMode::Basic),
@@ -91,6 +92,7 @@ impl LearningMode {
         }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "explain"        => Some(LearningMode::Explain),
