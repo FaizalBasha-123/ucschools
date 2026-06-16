@@ -3,7 +3,7 @@ import { createLogger } from '@/lib/logger';
 import { authHeadersFrom } from '@/lib/server/auth';
 import { backendUrl } from '@/lib/server/backend-url';
 
-export const maxDuration = 300; // 5 minutes to allow lesson generation to complete
+export const runtime = 'edge';
 
 const log = createLogger('LessonsGenerateProxy');
 
