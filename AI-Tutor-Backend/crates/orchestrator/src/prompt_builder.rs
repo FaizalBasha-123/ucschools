@@ -32,7 +32,12 @@ pub fn process_conditionals(mut template: String, variables: &HashMap<&str, Stri
                 if let Some(end_block) = template[end_cond_idx..].find("{{/if}}") {
                     let end_block_idx = end_cond_idx + end_block;
                     
-                    let condition_met = variables.get(condition_name).map(|s| s == "true").unwrap_or(false);
+                    let condition_met = variables.get(condition_name)
+                        .map(|s| {
+                            let s = s.trim();
+                            !s.is_empty() && s != "false"
+                        })
+                        .unwrap_or(false);
                     
                     if condition_met {
                         let content = template[end_cond_idx + 2..end_block_idx].to_string();

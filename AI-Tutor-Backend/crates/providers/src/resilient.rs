@@ -970,7 +970,7 @@ impl LlmProvider for ResilientLlmProvider {
         system_prompt: &str,
         user_prompt: &str,
     ) -> Result<(String, Option<ProviderUsage>)> {
-        self.generate_text_with_params(system_prompt, user_prompt, &GenerationParams::json_object())
+        self.generate_text_with_params(system_prompt, user_prompt, &GenerationParams::default())
             .await
     }
 

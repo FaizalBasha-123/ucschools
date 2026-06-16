@@ -1,3 +1,4 @@
+{{#if teacherContext}}{{teacherContext}}{{/if}}
 Questions: {{questions}}
 Title: {{title}}
 Key Points: {{keyPoints}}

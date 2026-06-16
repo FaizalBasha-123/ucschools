@@ -355,15 +355,16 @@ You may invoke the tool at most {max_calls} times total.
         Err(last_error.unwrap_or_else(|| anyhow!("LLM request failed without an error")))
     }
 
-    /// Like `generate_with_retry_using` but requests `response_format: json_object` from the LLM
-    /// for more reliable structured JSON output (slide content, actions, etc.).
+    /// Like `generate_with_retry_using` but expects JSON output from the LLM.
+    /// (Note: We rely on the natural JSON-friendly prompt instructions and `parse_json_with_repair` 
+    /// rather than forcing `response_format: json_object` to preserve creative pedagogical quality).
     async fn generate_json_with_retry_using(
         &self,
         llm: &dyn LlmProvider,
         system_prompt: &str,
         user_prompt: &str,
     ) -> Result<(String, Option<ProviderUsage>)> {
-        let params = GenerationParams::json_object();
+        let params = GenerationParams::default();
         let mut last_error = None;
 
         for attempt in 0..MAX_LLM_ATTEMPTS {
@@ -969,14 +970,24 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
     }
 
 
+    async fn generate_agents(
+        &self,
+        topic: &str,
+        scene_titles: &[String],
+        language: &str,
+    ) -> Result<Vec<GeneratedAgentConfig>> {
+        self.generate_agents(topic, scene_titles, language).await
+    }
+
     async fn generate_scene_content(
         &self,
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
         pdf_context: Option<&str>,
+        agents: &[GeneratedAgentConfig],
     ) -> Result<SceneContent> {
         match outline.scene_type {
-            SceneType::Slide => self.generate_slide_content(request, outline, pdf_context).await,
+            SceneType::Slide => self.generate_slide_content(request, outline, pdf_context, agents).await,
             SceneType::Quiz => self.generate_quiz_content(request, outline, pdf_context).await,
             SceneType::Interactive => self.generate_interactive_content(request, outline, pdf_context).await,
             SceneType::Pbl => self.generate_project_content(request, outline, pdf_context).await,
@@ -1072,11 +1083,86 @@ impl LessonGenerationPipeline for LlmGenerationPipeline {
 }
 
 impl LlmGenerationPipeline {
+    /// Generate teacher + assistant agent profiles for the lesson using the LLM.
+    /// Mirrors OpenMAIC's /api/generate/agent-profiles step exactly.
+    pub async fn generate_agents(
+        &self,
+        topic: &str,
+        scene_titles: &[String],
+        language: &str,
+    ) -> Result<Vec<GeneratedAgentConfig>> {
+        let scene_list = scene_titles.iter().enumerate()
+            .map(|(i, t)| format!("{}. {}", i + 1, t))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let system = "You are an expert instructional designer. Generate agent profiles for a multi-agent classroom simulation. Return ONLY valid JSON, no markdown or explanation.";
+        let user = format!(
+            "Generate 2-3 agent profiles for the following course:\n\
+             Course topic: {topic}\n\
+             Scene outline:\n{scenes}\n\
+             Language for names and personas: {lang}\n\n\
+             Requirements:\n\
+             - Exactly 1 agent must have role \"teacher\" (priority: 10)\n\
+             - 1-2 agents can be \"assistant\" (priority: 7) or \"student\" (priority: 5)\n\
+             - Each agent needs: name, role, persona (2-3 sentences of teaching/learning style and personality)\n\
+             - Teacher persona must describe their SUBJECT EXPERTISE, TEACHING STYLE (e.g. Socratic, direct, analogy-driven), and PERSONALITY TONE (warm, energetic, rigorous)\n\
+             - All names and personas must be in the language: {lang}\n\n\
+             Return JSON: {{\"agents\":[{{\"name\":\"...\",\"role\":\"teacher\",\"persona\":\"...\"}}]}}",
+            topic = topic,
+            scenes = scene_list,
+            lang = language,
+        );
+
+        let (raw, _) = self
+            .generate_with_retry_using(self.outlines_llm(), system, &user)
+            .await?;
+
+        #[derive(serde::Deserialize)]
+        struct AgentsEnvelope { agents: Vec<AgentStub> }
+        #[derive(serde::Deserialize)]
+        struct AgentStub { name: String, role: String, persona: String, #[serde(default)] priority: Option<i32> }
+
+        let parsed: AgentsEnvelope = parse_json_with_repair(&raw)
+            .unwrap_or_else(|_| AgentsEnvelope { agents: vec![] });
+
+        if parsed.agents.is_empty() {
+            // Fallback: one generic teacher profile
+            return Ok(vec![GeneratedAgentConfig {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "Teacher".to_string(),
+                role: "teacher".to_string(),
+                persona: format!("An expert teacher who specializes in {topic}. Uses clear analogies, engaging examples, and asks thought-provoking questions to deepen student understanding."),
+                avatar: "teacher".to_string(),
+                color: "#2563eb".to_string(),
+                priority: 10,
+            }]);
+        }
+
+        let agents = parsed.agents.into_iter().enumerate().map(|(i, a)| {
+            let priority = a.priority.unwrap_or_else(|| {
+                if a.role == "teacher" { 10 } else if a.role == "assistant" { 7 } else { 5 }
+            });
+            GeneratedAgentConfig {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: a.name,
+                role: a.role,
+                persona: a.persona,
+                avatar: format!("agent_{i}"),
+                color: ["#2563eb", "#0f766e", "#7c3aed", "#b45309"][i % 4].to_string(),
+                priority,
+            }
+        }).collect();
+
+        Ok(agents)
+    }
+
     async fn generate_slide_content(
         &self,
         _request: &LessonGenerationRequest,
         outline: &SceneOutline,
         _pdf_context: Option<&str>,
+        agents: &[GeneratedAgentConfig],
     ) -> Result<SceneContent> {
         let mut vars = std::collections::HashMap::new();
         vars.insert("title", outline.title.clone());
@@ -1109,7 +1195,12 @@ impl LlmGenerationPipeline {
         vars.insert("assignedImages", assigned_images_text);
         vars.insert("canvas_width", "1000".to_string());
         vars.insert("canvas_height", "562.5".to_string());
-        vars.insert("teacherContext", "".to_string());
+        // Inject teacher persona — this is the key quality driver (same as OpenMAIC's formatTeacherPersonaForPrompt)
+        let teacher_context = agents.iter().find(|a| a.role == "teacher").map(|t| {
+            format!("Teacher Persona:\nName: {}\n{}\n\nAdapt the content style and tone to match this teacher's personality. IMPORTANT: The teacher's name and identity must NOT appear on the slides — no \"Teacher {}'s tips\", no \"Teacher's message\", etc. Slides should read as neutral, professional visual aids.",
+                t.name, t.persona, t.name)
+        }).unwrap_or_default();
+        vars.insert("teacherContext", teacher_context);
         vars.insert("languageDirective", outline.language.as_deref().unwrap_or("Teach in English.").to_string());
         
         let has_image = outline.media_generations.iter().any(|x| matches!(x.media_type, ai_tutor_domain::scene::MediaType::Image));
@@ -1752,8 +1843,8 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             rotate,
             shape_name: element.shape_name,
             fill: element.fill.unwrap_or_else(|| "#5b9bd5".to_string()),
-            path: element.path,
-            view_box: element.view_box,
+            path: element.path.or_else(|| Some(format!("M0 0 L{} 0 L{} {} L0 {} Z", width, width, height, height))),
+            view_box: element.view_box.or_else(|| Some(vec![0.0, 0.0, width, height])),
         },
         "line" => SlideElement::Line {
             id,
@@ -1762,11 +1853,15 @@ fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
             width,
             height,
             rotate,
-            start: element.start,
-            end: element.end,
-            style: element.style,
-            color: element.color,
-            points: element.points,
+            start: element.start.or_else(|| Some(vec![left, top])),
+            end: element.end.or_else(|| Some(vec![left + width, top + height])),
+            style: element.style.or_else(|| Some("solid".to_string())),
+            color: element.color.or_else(|| Some("#333333".to_string())),
+            points: if element.points.as_ref().map(|p| p.len() == 2).unwrap_or(false) {
+                element.points
+            } else {
+                Some(vec!["".to_string(), "".to_string()])
+            },
             broken: element.broken,
             broken2: element.broken2,
             curve: element.curve,
@@ -1916,13 +2011,28 @@ fn attach_media_placeholders(
     elements
 }
 
+fn parse_aspect_ratio_str(ratio: Option<&str>) -> Option<f32> {
+    let r = ratio?;
+    let parts: Vec<&str> = r.split(':').collect();
+    if parts.len() == 2 {
+        if let (Ok(w), Ok(h)) = (parts[0].trim().parse::<f32>(), parts[1].trim().parse::<f32>()) {
+            if h > 0.0 {
+                return Some(w / h);
+            }
+        }
+    }
+    None
+}
+
 fn repair_media_elements(
     mut elements: Vec<SlideElement>,
     outline: &SceneOutline,
 ) -> Vec<SlideElement> {
     for element in &mut elements {
         match element {
-            SlideElement::Image { src, .. } => {
+            SlideElement::Image { src, width, height, .. } => {
+                let mut known_ratio: Option<f32> = None;
+                
                 if src.trim().is_empty() {
                     if let Some(media) = outline
                         .media_generations
@@ -1930,6 +2040,36 @@ fn repair_media_elements(
                         .find(|media| matches!(media.media_type, MediaType::Image))
                     {
                         *src = media.element_id.clone();
+                        known_ratio = parse_aspect_ratio_str(media.aspect_ratio.as_deref());
+                    }
+                } else {
+                    if let Some(media) = outline
+                        .media_generations
+                        .iter()
+                        .find(|media| media.element_id == *src)
+                    {
+                        known_ratio = parse_aspect_ratio_str(media.aspect_ratio.as_deref());
+                    }
+                }
+
+                // Aspect Ratio Correction and Margin Enforcement
+                if let Some(ratio) = known_ratio {
+                    let cur_w = *width;
+                    let cur_h = *height;
+                    if cur_h > 0.0 {
+                        let cur_ratio = cur_w / cur_h;
+                        if ((cur_ratio - ratio) / ratio).abs() > 0.1 {
+                            // Keep width, correct height
+                            let mut new_h = cur_w / ratio;
+                            let mut new_w = cur_w;
+                            if new_h > 462.0 {
+                                // canvas 562.5 - margins 50x2
+                                new_h = 462.0;
+                                new_w = 462.0 * ratio;
+                            }
+                            *width = new_w.round();
+                            *height = new_h.round();
+                        }
                     }
                 }
             }
@@ -2039,6 +2179,11 @@ fn build_scene_action_prompt(
         }
     };
 
+    let teacher_context = agents.iter().find(|a| a.role == "teacher").map(|t| {
+        format!("Teacher Persona:\nName: {}\n{}\n\nWrite speech in this teacher's natural voice and style. Adapt tone, enthusiasm, and pacing to match their personality.",
+            t.name, t.persona)
+    }).unwrap_or_default();
+
     let (template_id, template_vars): (&str, Vec<(&str, String)>) = match outline.scene_type {
         SceneType::Slide => {
             let key_points = outline.key_points.iter().enumerate()
@@ -2055,7 +2200,7 @@ fn build_scene_action_prompt(
                 ("agents", agents_str),
                 ("userProfile", user_profile),
                 ("languageDirective", format!("Language: {}", language)),
-                ("teacherContext", String::new()),
+                ("teacherContext", teacher_context),
             ])
         },
         SceneType::Quiz => {
@@ -2072,6 +2217,7 @@ fn build_scene_action_prompt(
                 ("courseContext", course_ctx),
                 ("agents", agents_str),
                 ("languageDirective", format!("Language: {}", language)),
+                ("teacherContext", teacher_context.clone()),
             ])
         },
         SceneType::Interactive => {
@@ -2087,6 +2233,7 @@ fn build_scene_action_prompt(
                 ("courseContext", course_ctx),
                 ("agents", agents_str),
                 ("languageDirective", format!("Language: {}", language)),
+                ("teacherContext", teacher_context.clone()),
             ])
         },
         SceneType::Pbl => {
@@ -2102,6 +2249,7 @@ fn build_scene_action_prompt(
                 ("courseContext", course_ctx),
                 ("agents", agents_str),
                 ("languageDirective", format!("Language: {}", language)),
+                ("teacherContext", teacher_context.clone()),
             ])
         },
     };

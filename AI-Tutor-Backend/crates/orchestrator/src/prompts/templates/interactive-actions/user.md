@@ -1,3 +1,4 @@
+{{#if teacherContext}}{{teacherContext}}{{/if}}
 Title: {{title}}
 Concept: {{conceptName}}
 Description: {{description}}

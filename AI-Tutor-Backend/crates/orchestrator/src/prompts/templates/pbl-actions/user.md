@@ -1,4 +1,5 @@
 ## PBL Scene Information
+{{#if teacherContext}}{{teacherContext}}{{/if}}
 
 **Title**: {{title}}
 **Project Topic**: {{projectTopic}}

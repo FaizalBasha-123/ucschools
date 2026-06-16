@@ -47,6 +47,7 @@ pub trait LessonGenerationPipeline: Send + Sync {
         request: &LessonGenerationRequest,
         outline: &SceneOutline,
         pdf_context: Option<&str>,
+        agents: &[GeneratedAgentConfig],
     ) -> Result<SceneContent>;
 
     async fn generate_scene_actions(
@@ -72,6 +73,17 @@ pub trait LessonGenerationPipeline: Send + Sync {
         // Default: signal to caller to use fallback. Real impl overrides this.
         let _ = (requirement, outlines, language);
         Ok(String::new())
+    }
+
+    /// Optionally generate teacher + agent profiles for the lesson.
+    /// Default implementation returns empty vec (trait impls opt in).
+    async fn generate_agents(
+        &self,
+        _topic: &str,
+        _scene_titles: &[String],
+        _language: &str,
+    ) -> Result<Vec<GeneratedAgentConfig>> {
+        Ok(vec![])
     }
 }
 
@@ -507,6 +519,36 @@ where
         )
         .await?;
 
+        // ── Generate Agent Profiles (mirrors OpenMAIC's /api/generate/agent-profiles) ──
+        // Must run AFTER outlines are finalized so the LLM can adapt the teacher
+        // persona to the specific content. This is the #1 quality driver.
+        if state.stage.generated_agent_configs.is_empty() {
+            let scene_titles: Vec<String> = state.outlines.iter().map(|o| o.title.clone()).collect();
+            let language = language_code(&state.request.requirements.language);
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(15),
+                self.pipeline.generate_agents(
+                    &state.request.requirements.requirement,
+                    &scene_titles,
+                    language,
+                ),
+            )
+            .await
+            {
+                Ok(Ok(agents)) if !agents.is_empty() => {
+                    info!("Generated {} agent profiles (teacher + {} others)", agents.len(), agents.len().saturating_sub(1));
+                    state.stage.generated_agent_configs = agents;
+                }
+                Ok(Err(err)) => {
+                    warn!("Agent profile generation failed (non-fatal): {:?}", err);
+                }
+                Err(_timeout) => {
+                    warn!("Agent profile generation timed out (non-fatal)");
+                }
+                _ => {}
+            }
+        }
+
         let mut budget_tracker = cost_guard::BudgetTracker::new();
 
         for (index, outline) in state.outlines.iter().enumerate() {
@@ -551,7 +593,7 @@ where
             let content_start = Instant::now();
             let mut content = self
                 .pipeline
-                .generate_scene_content(&state.request, outline, state.pdf_context.as_deref())
+                .generate_scene_content(&state.request, outline, state.pdf_context.as_deref(), &state.stage.generated_agent_configs)
                 .await?;
             telemetry.record_scene_content_timing(&outline.title, content_start.elapsed());
 
@@ -1238,6 +1280,7 @@ mod tests {
             _request: &LessonGenerationRequest,
             outline: &SceneOutline,
             _pdf_context: Option<&str>,
+            _agents: &[GeneratedAgentConfig],
         ) -> Result<SceneContent> {
             Ok(match outline.scene_type {
                 SceneType::Slide => SceneContent::Slide {
@@ -1427,6 +1470,7 @@ mod tests {
             _request: &LessonGenerationRequest,
             _outline: &SceneOutline,
             _pdf_context: Option<&str>,
+            _agents: &[GeneratedAgentConfig],
         ) -> Result<SceneContent> {
             Ok(SceneContent::Slide {
                 canvas: ai_tutor_domain::scene::SlideCanvas {
@@ -1514,6 +1558,7 @@ mod tests {
             _request: &LessonGenerationRequest,
             _outline: &SceneOutline,
             _pdf_context: Option<&str>,
+            _agents: &[GeneratedAgentConfig],
         ) -> Result<SceneContent> {
             Ok(SceneContent::Slide {
                 canvas: ai_tutor_domain::scene::SlideCanvas {
