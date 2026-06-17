@@ -1,7 +1,7 @@
 # 1. Dependency Recipe Stage
 FROM rust:1.87-bookworm AS chef
 USER root
-RUN cargo install cargo-chef
+RUN cargo install cargo-chef --locked
 WORKDIR /app
 
 FROM chef AS planner
