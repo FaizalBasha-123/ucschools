@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use super::*;
 #[derive(Deserialize)]
 pub(crate) struct OutlineResponseEnvelope {
     #[serde(default, alias = "languageDirective")]

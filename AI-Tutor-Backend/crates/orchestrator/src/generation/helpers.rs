@@ -1,26 +1,18 @@
 use std::collections::HashMap;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::time::{sleep, Duration};
-use tracing::warn;
 
 use ai_tutor_domain::{
     action::LessonAction,
     generation::{Language, LessonGenerationRequest},
     scene::{
         GeneratedAgentConfig, InteractiveConfig, MediaGenerationRequest, MediaType,
-        ProjectAgentRole, ProjectConfig, ProjectIssue, ProjectOutlineConfig, QuizConfig, QuizOption,
-        QuizQuestion, QuizQuestionType, SceneContent, SceneOutline, SceneType, ScientificModel,
-        SlideCanvas, SlideElement, SlideTheme, VisualType,
+        ProjectAgentRole, ProjectIssue, ProjectOutlineConfig, QuizConfig, SceneContent, SceneOutline, SceneType, ScientificModel, SlideElement, VisualType,
     },
 };
-use ai_tutor_providers::request_params::GenerationParams;
-use ai_tutor_providers::traits::{LlmProvider, ProviderUsage};
+use ai_tutor_providers::traits::ProviderUsage;
 
-use crate::pipeline::LessonGenerationPipeline;
 
 use super::*;
 use crate::generation::dtos::*;
