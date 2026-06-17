@@ -77,6 +77,8 @@ pub enum SlideElement {
         default_font_name: String,
         #[serde(default = "default_color")]
         default_color: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shadow: Option<serde_json::Value>,
     },
     Image {
         id: String,
@@ -89,6 +91,8 @@ pub enum SlideElement {
         src: String,
         #[serde(default = "default_fixed_ratio")]
         fixed_ratio: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shadow: Option<serde_json::Value>,
     },
     Shape {
         id: String,
@@ -106,6 +110,8 @@ pub enum SlideElement {
         path: Option<String>,
         #[serde(default, rename = "viewBox", skip_serializing_if = "Option::is_none")]
         view_box: Option<Vec<f32>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shadow: Option<serde_json::Value>,
     },
     Line {
         id: String,
@@ -133,6 +139,8 @@ pub enum SlideElement {
         curve: Option<Vec<f32>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cubic: Option<Vec<Vec<f32>>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shadow: Option<serde_json::Value>,
     },
     Chart {
         id: String,
@@ -148,6 +156,8 @@ pub enum SlideElement {
         data: Option<serde_json::Value>,
         #[serde(default, rename = "themeColors", skip_serializing_if = "Option::is_none")]
         theme_colors: Option<Vec<String>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shadow: Option<serde_json::Value>,
     },
     Latex {
         id: String,
@@ -162,6 +172,8 @@ pub enum SlideElement {
         color: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         align: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shadow: Option<serde_json::Value>,
     },
     Table {
         id: String,
@@ -177,6 +189,8 @@ pub enum SlideElement {
         data: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         outline: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shadow: Option<serde_json::Value>,
     },
     Video {
         id: String,
@@ -187,6 +201,8 @@ pub enum SlideElement {
         #[serde(default)]
         rotate: f32,
         src: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        shadow: Option<serde_json::Value>,
     },
 }
 
@@ -400,6 +416,10 @@ pub struct SceneOutline {
     pub order: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub widget_outline: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub suggested_image_ids: Vec<String>,
     /// Visual type decided by the outline LLM. Controls which generation path is used.
