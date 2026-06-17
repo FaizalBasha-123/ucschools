@@ -31,7 +31,6 @@ pub(crate) struct OutlineDto {
     /// Visual type chosen by the LLM: none|svg|chart|latex|html|image
     #[serde(default, alias = "visualType", alias = "visual_type")]
     pub(crate) visual_type: Option<String>,
-    #[allow(dead_code)]
     #[serde(default, alias = "mediaGenerations")]
     pub(crate) media_generations: Vec<MediaGenerationDto>,
     #[serde(default, alias = "quizConfig", alias = "quiz_config")]
@@ -45,9 +44,12 @@ pub(crate) struct OutlineDto {
         alias = "project_config"
     )]
     pub(crate) project_config: Option<ProjectOutlineConfigDto>,
+    #[serde(default, alias = "widgetType", alias = "widget_type")]
+    pub(crate) widget_type: Option<String>,
+    #[serde(default, alias = "widgetOutline", alias = "widget_outline")]
+    pub(crate) widget_outline: Option<serde_json::Value>,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize)]
 pub(crate) struct MediaGenerationDto {
     pub(crate) element_id: String,
@@ -58,9 +60,9 @@ pub(crate) struct MediaGenerationDto {
 
 #[derive(Deserialize)]
 pub(crate) struct SlideContentEnvelope {
+    pub(crate) background: Option<serde_json::Value>,
     #[serde(default)]
-    pub(crate) background: Option<ai_tutor_domain::scene::SlideBackground>,
-    pub(crate) elements: Vec<SlideElementDto>,
+    pub(crate) elements: Vec<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -121,7 +123,31 @@ pub(crate) struct SlideElementDto {
     #[serde(default)]
     pub(crate) outline: Option<serde_json::Value>,
     #[serde(default)]
+    pub(crate) theme: Option<serde_json::Value>,
+    #[serde(default)]
     pub(crate) align: Option<String>,
+    #[serde(default)]
+    pub(crate) shadow: Option<serde_json::Value>,
+    #[serde(default, alias = "defaultFontName")]
+    pub(crate) default_font_name: Option<String>,
+    #[serde(default, alias = "defaultColor")]
+    pub(crate) default_color: Option<String>,
+    #[serde(default, alias = "lineHeight")]
+    pub(crate) line_height: Option<f32>,
+    #[serde(default)]
+    pub(crate) opacity: Option<f32>,
+    #[serde(default, alias = "wordSpace")]
+    pub(crate) word_space: Option<f32>,
+    #[serde(default, alias = "paragraphSpace")]
+    pub(crate) paragraph_space: Option<f32>,
+    #[serde(default)]
+    pub(crate) vertical: Option<bool>,
+    #[serde(default)]
+    pub(crate) html: Option<String>,
+    #[serde(default, alias = "strokeWidth")]
+    pub(crate) stroke_width: Option<f32>,
+    #[serde(default, alias = "fixedRatio")]
+    pub(crate) fixed_ratio: Option<bool>,
 }
 
 #[derive(Deserialize)]

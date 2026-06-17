@@ -96,19 +96,24 @@ pub(crate)     async fn do_generate_outlines(
                 let key_points = item.key_points;
                 let visual_type = map_visual_type(item.visual_type.as_deref());
 
-                let media_generations = if matches!(visual_type, Some(VisualType::Image))
-                    && request.enable_image_generation
-                    && matches!(scene_type, SceneType::Slide)
-                {
-                    vec![MediaGenerationRequest {
+                let mut media_generations: Vec<MediaGenerationRequest> = item.media_generations.into_iter().map(|mg| {
+                    MediaGenerationRequest {
+                        element_id: mg.element_id,
+                        media_type: if mg.media_type == "video" { MediaType::Video } else { MediaType::Image },
+                        prompt: mg.prompt,
+                        aspect_ratio: mg.aspect_ratio,
+                    }
+                }).collect();
+
+                // Fallback: if the LLM chose visual_type = Image but forgot to add media_generations
+                if media_generations.is_empty() && matches!(visual_type, Some(VisualType::Image)) && request.enable_image_generation && matches!(scene_type, SceneType::Slide) {
+                    media_generations.push(MediaGenerationRequest {
                         element_id: format!("gen_img_{}", index + 1),
                         media_type: MediaType::Image,
                         prompt: build_smart_image_prompt(&title, &description, &key_points),
                         aspect_ratio: Some("16:9".to_string()),
-                    }]
-                } else {
-                    vec![]
-                };
+                    });
+                }
 
                 let quiz_config = normalize_quiz_config(item.quiz_config, &scene_type);
                 let interactive_config = normalize_interactive_config(
@@ -142,8 +147,8 @@ pub(crate)     async fn do_generate_outlines(
                     quiz_config,
                     interactive_config,
                     project_config,
-                    widget_outline: None,
-                    widget_type: None,
+                    widget_outline: item.widget_outline,
+                    widget_type: item.widget_type,
                 }
             })
             .collect::<Vec<_>>();

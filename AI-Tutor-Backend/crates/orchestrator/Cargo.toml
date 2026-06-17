@@ -21,3 +21,4 @@ ai_tutor_providers = { path = "../providers" }
 ai_tutor_runtime = { path = "../runtime" }
 ai_tutor_storage = { path = "../storage" }
 base64 = "0.22.1"
+katex = "0.4.6"

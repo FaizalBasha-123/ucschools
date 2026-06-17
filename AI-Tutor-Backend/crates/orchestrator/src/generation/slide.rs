@@ -60,13 +60,15 @@ pub(crate)     async fn generate_slide_content(
         vars.insert("teacherContext", teacher_context);
         vars.insert("languageDirective", outline.language.as_deref().unwrap_or("Teach in English.").to_string());
         
-        let has_image = outline.media_generations.iter().any(|x| matches!(x.media_type, ai_tutor_domain::scene::MediaType::Image));
-        let has_vid = outline.media_generations.iter().any(|x| matches!(x.media_type, ai_tutor_domain::scene::MediaType::Video));
-        
-        vars.insert("imageElementEnabled", if has_image { "true".to_string() } else { "false".to_string() });
-        vars.insert("generatedImageEnabled", if has_image { "true".to_string() } else { "false".to_string() });
-        vars.insert("generatedVideoEnabled", if has_vid { "true".to_string() } else { "false".to_string() });
-        vars.insert("mediaElementEnabled", if has_image || has_vid { "true".to_string() } else { "false".to_string() });
+        let has_gen_images = !media.iter().filter(|m| matches!(m.media_type, ai_tutor_domain::scene::MediaType::Image)).collect::<Vec<_>>().is_empty();
+        let has_gen_videos = !media.iter().filter(|m| matches!(m.media_type, ai_tutor_domain::scene::MediaType::Video)).collect::<Vec<_>>().is_empty();
+        let image_element_enabled = has_gen_images; // assignedImages unsupported in this path for now
+        let media_element_enabled = image_element_enabled || has_gen_videos;
+
+        vars.insert("imageElementEnabled", if image_element_enabled { "true" } else { "false" }.to_string());
+        vars.insert("generatedImageEnabled", if has_gen_images { "true" } else { "false" }.to_string());
+        vars.insert("generatedVideoEnabled", if has_gen_videos { "true" } else { "false" }.to_string());
+        vars.insert("mediaElementEnabled", if media_element_enabled { "true" } else { "false" }.to_string());
 
         let (system, user) = crate::prompt_builder::build_prompt("slide-content", &vars).unwrap_or_else(|| {
             (
@@ -79,17 +81,21 @@ pub(crate)     async fn generate_slide_content(
         let payload: SlideContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| SlideContentEnvelope { background: None, elements: vec![] });
 
+        let background: Option<ai_tutor_domain::scene::SlideBackground> = payload.background
+            .and_then(|v| serde_json::from_value(v).ok());
+
         let elements = payload
             .elements
             .into_iter()
             .enumerate()
-            .map(|(index, element)| map_slide_element(element, index))
+            .filter_map(|(index, value)| {
+                serde_json::from_value::<SlideElementDto>(value).ok().map(|element| map_slide_element(element, index))
+            })
             .collect::<Vec<_>>();
         let elements = if elements.is_empty() {
             fallback_slide_elements(outline)
         } else {
             let elements = repair_media_elements(elements, outline);
-            let elements = attach_media_placeholders(elements, outline);
             validate_slide_elements(elements, outline)
         };
 
@@ -102,15 +108,19 @@ pub(crate)     async fn generate_slide_content(
                 theme: SlideTheme {
                     background_color: "#ffffff".to_string(),
                     theme_colors: vec![
-                        "#1f2937".to_string(),
-                        "#0f766e".to_string(),
-                        "#2563eb".to_string(),
+                        "#5b9bd5".to_string(),
+                        "#ed7d31".to_string(),
+                        "#a5a5a5".to_string(),
+                        "#ffc000".to_string(),
+                        "#4472c4".to_string(),
                     ],
-                    font_color: "#111827".to_string(),
-                    font_name: "Geist".to_string(),
+                    font_color: "#333333".to_string(),
+                    font_name: "Microsoft YaHei".to_string(),
+                    outline: Some(serde_json::json!({ "color": "#d14424", "width": 2, "style": "solid" })),
+                    shadow: Some(serde_json::json!({ "h": 0, "v": 0, "blur": 10, "color": "#000000" })),
                 },
                 elements,
-                background: payload.background,
+                background,
             },
         })
     }

@@ -59,6 +59,10 @@ pub struct SlideTheme {
     pub theme_colors: Vec<String>,
     pub font_color: String,
     pub font_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,6 +82,20 @@ pub enum SlideElement {
         #[serde(default = "default_color")]
         default_color: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outline: Option<serde_json::Value>,
+        #[serde(default, rename = "lineHeight", skip_serializing_if = "Option::is_none")]
+        line_height: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        opacity: Option<f32>,
+        #[serde(default, rename = "wordSpace", skip_serializing_if = "Option::is_none")]
+        word_space: Option<f32>,
+        #[serde(default, rename = "paragraphSpace", skip_serializing_if = "Option::is_none")]
+        paragraph_space: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        vertical: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         shadow: Option<serde_json::Value>,
     },
     Image {
@@ -91,6 +109,10 @@ pub enum SlideElement {
         src: String,
         #[serde(default = "default_fixed_ratio")]
         fixed_ratio: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outline: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        opacity: Option<f32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shadow: Option<serde_json::Value>,
     },
@@ -107,9 +129,15 @@ pub enum SlideElement {
         #[serde(default = "default_fill")]
         fill: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        outline: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        opacity: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
         #[serde(default, rename = "viewBox", skip_serializing_if = "Option::is_none")]
         view_box: Option<Vec<f32>>,
+        #[serde(default, rename = "fixedRatio", skip_serializing_if = "Option::is_none")]
+        fixed_ratio: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shadow: Option<serde_json::Value>,
     },
@@ -169,6 +197,16 @@ pub enum SlideElement {
         rotate: f32,
         latex: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        html: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+        #[serde(default, rename = "viewBox", skip_serializing_if = "Option::is_none")]
+        view_box: Option<Vec<f32>>,
+        #[serde(default, rename = "fixedRatio", skip_serializing_if = "Option::is_none")]
+        fixed_ratio: Option<bool>,
+        #[serde(default, rename = "strokeWidth", skip_serializing_if = "Option::is_none")]
+        stroke_width: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         align: Option<String>,
@@ -189,6 +227,8 @@ pub enum SlideElement {
         data: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         outline: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        theme: Option<serde_json::Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         shadow: Option<serde_json::Value>,
     },
@@ -240,12 +280,31 @@ pub enum VisualType {
     Image,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SlideGradient {
+    #[serde(rename = "type")]
+    pub gradient_type: String,
+    pub colors: Vec<String>,
+    pub rotate: f32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SlideBackground {
-    Solid { color: String },
-    Gradient { from: String, to: String },
-    Image { src: String },
+    Solid {
+        #[serde(default)]
+        color: String,
+    },
+    Gradient {
+        gradient: SlideGradient,
+    },
+    Image {
+        #[serde(rename = "image")]
+        src: String,
+        #[serde(rename = "imageSize", default)]
+        image_size: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

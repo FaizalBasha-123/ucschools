@@ -180,7 +180,7 @@ pub(crate) fn map_slide_element(element: SlideElementDto, index: usize) -> Slide
     let height = element.height;
 
     match element.kind.trim().to_ascii_lowercase().as_str() {
-        "image" => SlideElement::Image { shadow: None,
+        "image" => SlideElement::Image { shadow: None, outline: None, opacity: None,
 id,
             left,
             top,
@@ -199,7 +199,7 @@ id,
             rotate,
             src: element.src.unwrap_or_default(),
         },
-        "shape" => SlideElement::Shape { shadow: None,
+        "shape" => SlideElement::Shape { shadow: None, fixed_ratio: None, opacity: None, outline: None,
 id,
             left,
             top,
@@ -243,7 +243,7 @@ id,
             data: element.data,
             theme_colors: element.theme_colors,
         },
-        "latex" => SlideElement::Latex { shadow: None,
+        "latex" => SlideElement::Latex { shadow: None, fixed_ratio: None, html: None, path: None, stroke_width: None, view_box: None,
 id,
             left,
             top,
@@ -254,7 +254,7 @@ id,
             color: element.color,
             align: element.align,
         },
-        "table" => SlideElement::Table { shadow: None,
+        "table" => SlideElement::Table { shadow: None, theme: None,
 id,
             left,
             top,
@@ -265,7 +265,7 @@ id,
             data: element.data,
             outline: element.outline,
         },
-        _ => SlideElement::Text { shadow: None,
+        _ => SlideElement::Text { shadow: None, fill: None, outline: None, line_height: None, opacity: None, word_space: None, paragraph_space: None, vertical: None,
 id,
             left,
             top,
@@ -316,67 +316,7 @@ pub(crate) fn build_smart_image_prompt(title: &str, description: &str, key_point
 }
 
 
-pub(crate) fn attach_media_placeholders(
-    mut elements: Vec<SlideElement>,
-    outline: &SceneOutline,
-) -> Vec<SlideElement> {
-    let mut next_index = elements.len();
 
-    for media in outline.media_generations.iter() {
-        let exists = elements
-            .iter()
-            .any(|element| match (element, &media.media_type) {
-                (SlideElement::Image {
-src, .. }, MediaType::Image)
-                | (SlideElement::Video {
-src, .. }, MediaType::Video) => src == &media.element_id,
-                _ => false,
-            });
-
-        if exists {
-            continue;
-        }
-
-        next_index += 1;
-        match media.media_type {
-            MediaType::Image => elements.push(SlideElement::Image { shadow: None,
-                id: media.element_id.clone(),
-                left: 620.0,
-                top: 120.0,
-                width: 300.0,
-                height: 220.0,
-                rotate: 0.0,
-                src: media.element_id.clone(),
-                fixed_ratio: false,
-            }),
-            MediaType::Video => elements.push(SlideElement::Video { shadow: None,
-                id: media.element_id.clone(),
-                left: 620.0,
-                top: 120.0,
-                width: 300.0,
-                height: 220.0,
-                rotate: 0.0,
-                src: media.element_id.clone(),
-            }),
-        }
-    }
-
-    if elements.is_empty() && next_index == 0 {
-        elements.push(SlideElement::Text { shadow: None,
-            id: "text-fallback-1".to_string(),
-            left: 60.0,
-            top: 80.0,
-            width: 800.0,
-            height: 100.0,
-            rotate: 0.0,
-            content: outline.description.clone(),
-            default_font_name: "Microsoft YaHei".to_string(),
-            default_color: "#333333".to_string(),
-        });
-    }
-
-    elements
-}
 
 pub(crate) fn parse_aspect_ratio_str(ratio: Option<&str>) -> Option<f32> {
     let r = ratio?;
@@ -1290,26 +1230,7 @@ pub(crate) fn validate_slide_elements(
         .filter_map(normalize_slide_element)
         .collect::<Vec<_>>();
 
-    if !normalized
-        .iter()
-        .any(|element| matches!(element, SlideElement::Text {
-content, .. } if content.contains(&outline.title)))
-    {
-        normalized.insert(
-            0,
-            SlideElement::Text { shadow: None,
-                id: "text-title-auto".to_string(),
-                left: 60.0,
-                top: 48.0,
-                width: 880.0,
-                height: 60.0,
-                rotate: 0.0,
-                content: format!("<p style=\"font-size: 32px; font-weight: bold;\">{}</p>", outline.title),
-                default_font_name: "Microsoft YaHei".to_string(),
-                default_color: "#333333".to_string(),
-            },
-        );
-    }
+
 
     if normalized.is_empty() {
         fallback_slide_elements(outline)
@@ -1345,7 +1266,7 @@ id,
             default_font_name,
             default_color,
             .. } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Text { shadow: None,
+            SlideElement::Text { shadow: None, fill: None, outline: None, line_height: None, opacity: None, word_space: None, paragraph_space: None, vertical: None,
 id,
                 left,
                 top,
@@ -1368,7 +1289,7 @@ id,
             fixed_ratio,
             .. 
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Image { shadow: None,
+            SlideElement::Image { shadow: None, outline: None, opacity: None,
 id,
                 left,
                 top,
@@ -1411,7 +1332,7 @@ id,
             view_box,
             .. 
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Shape { shadow: None,
+            SlideElement::Shape { shadow: None, fixed_ratio: None, opacity: None, outline: None,
 id,
                 left,
                 top,
@@ -1496,7 +1417,7 @@ id,
             align,
             .. 
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Latex { shadow: None,
+            SlideElement::Latex { shadow: None, fixed_ratio: None, html: None, path: None, stroke_width: None, view_box: None,
 id,
                 left,
                 top,
@@ -1520,7 +1441,7 @@ id,
             outline,
             .. 
         } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Table { shadow: None,
+            SlideElement::Table { shadow: None, theme: None,
 id,
                 left,
                 top,
@@ -1879,7 +1800,7 @@ pub(crate) fn fallback_outlines(request: &LessonGenerationRequest) -> Vec<SceneO
 
 pub(crate) fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElement> {
     let mut elements = vec![
-        SlideElement::Text { shadow: None,
+        SlideElement::Text { shadow: None, fill: None, outline: None, line_height: None, opacity: None, word_space: None, paragraph_space: None, vertical: None,
             id: "text-title-1".to_string(),
             left: 60.0,
             top: 50.0,
@@ -1890,7 +1811,7 @@ pub(crate) fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElemen
             default_font_name: "Microsoft YaHei".to_string(),
             default_color: "#333333".to_string(),
         },
-        SlideElement::Text { shadow: None,
+        SlideElement::Text { shadow: None, fill: None, outline: None, line_height: None, opacity: None, word_space: None, paragraph_space: None, vertical: None,
             id: "text-body-1".to_string(),
             left: 60.0,
             top: 130.0,
@@ -1911,7 +1832,6 @@ pub(crate) fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElemen
             default_color: "#333333".to_string(),
         },
     ];
-    elements = attach_media_placeholders(elements, outline);
     elements
 }
 
