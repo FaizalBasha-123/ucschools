@@ -301,7 +301,7 @@ pub fn compute_generation_budget(tier: QualityTier, complexity: TopicComplexity)
             max_scenes,
             max_interactions: 8,
             max_visuals: 5,
-            max_tokens_per_scene: 4096,
+            max_tokens_per_scene: 2500,
             max_bullets_per_scene: 12,
             max_chars_per_bullet: 300,
             require_quiz_scene: true,

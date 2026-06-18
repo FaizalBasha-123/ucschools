@@ -118,7 +118,7 @@ impl OpenAiCompatibleProvider {
                 include_usage: true,
             }),
             response_format: None,
-            max_tokens: Some(4096),
+            max_tokens: Some(2500),
         };
 
         let response = self
@@ -503,7 +503,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             stream: None,
             stream_options: None,
             response_format: None,
-            max_tokens: Some(4096),
+            max_tokens: Some(2500),
         };
 
         let response = self
@@ -565,7 +565,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             stream: None,
             stream_options: None,
             response_format: params.response_format.as_ref().map(response_format_to_openai),
-            max_tokens: Some(params.max_tokens.unwrap_or(4096)),
+            max_tokens: Some(params.max_tokens.unwrap_or(2500)),
         };
 
         let response = self
@@ -635,7 +635,7 @@ impl LlmProvider for OpenAiCompatibleProvider {
             stream: None,
             stream_options: None,
             response_format: None,
-            max_tokens: Some(4096),
+            max_tokens: Some(2500),
         };
 
         let response = self
