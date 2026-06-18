@@ -21,24 +21,23 @@ pub(crate)     async fn generate_project_content(
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-        let system = "You design project-based learning plans. Return strict JSON only.".to_string();
-        let user = format!(
-"PBL: {title}
-Requirement: {req}
-{pdf}Key points: {points}
-Outline: {config}
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("title", outline.title.clone());
+        vars.insert("description", outline.description.clone());
+        vars.insert("keyPoints", outline.key_points.join("\n"));
+        vars.insert("languageDirective", outline.language.as_deref().unwrap_or("Teach in English.").to_string());
+        
+        let pbl_config = outline.project_config.clone().unwrap_or_default();
+        vars.insert("projectTopic", pbl_config.project_topic);
+        vars.insert("projectDescription", pbl_config.project_description);
+        vars.insert("targetSkills", pbl_config.target_skills.join(", "));
 
-Return JSON: {{\"summary\":\"...\",\"driving_question\":\"...\",\"final_deliverable\":\"...\",\"target_skills\":[\"...\"],\"milestones\":[\"...\"],\"team_roles\":[\"...\"],\"assessment_focus\":[\"...\"]}}
-Rules:
-- 1 driving question. 1 concrete deliverable.
-- 3-5 milestones. 3-5 team roles. 2-3 assessment criteria.
-- Concise. No paragraphs. No fluff.",
-    title = outline.title,
-    req = request.requirements.requirement,
-    pdf = pdf_info,
-    points = outline.key_points.join(" | "),
-    config = project_outline_summary(outline),
-);
+        let (system, user) = crate::prompt_builder::build_prompt("pbl-content", &vars).unwrap_or_else(|| {
+            (
+                "You design project-based learning plans. Return strict JSON only.".to_string(),
+                format!("PBL: {}\nRequirement: {}", outline.title, request.requirements.requirement)
+            )
+        });
 
         let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         let mut payload: ProjectContentEnvelope =

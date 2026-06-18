@@ -59,6 +59,7 @@ pub(crate)     async fn do_generate_scene_actions(
             });
         }
 
+        validate_actions(&mut actions, content, agents);
         enforce_discussion_last(&mut actions);
         Ok(actions)
     }

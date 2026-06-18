@@ -30,10 +30,13 @@ pub enum SceneContent {
         url: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         html: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "scientificModel", skip_serializing_if = "Option::is_none")]
         scientific_model: Option<ScientificModel>,
     },
-    Project { project_config: ProjectConfig },
+    Project { 
+        #[serde(rename = "projectConfig")]
+        project_config: ProjectConfig 
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,8 +45,6 @@ pub struct SlideCanvas {
     pub id: String,
     #[serde(rename = "viewportSize")]
     pub viewport_width: i32,
-    #[serde(rename = "viewportHeight")]
-    pub viewport_height: i32,
     pub viewport_ratio: f32,
     pub theme: SlideTheme,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -66,7 +67,7 @@ pub struct SlideTheme {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum SlideElement {
     Text {
         id: String,
@@ -77,9 +78,9 @@ pub enum SlideElement {
         #[serde(default)]
         rotate: f32,
         content: String,
-        #[serde(default = "default_font_name")]
+        #[serde(default = "default_font_name", rename = "defaultFontName")]
         default_font_name: String,
-        #[serde(default = "default_color")]
+        #[serde(default = "default_color", rename = "defaultColor")]
         default_color: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         fill: Option<String>,
@@ -107,7 +108,7 @@ pub enum SlideElement {
         #[serde(default)]
         rotate: f32,
         src: String,
-        #[serde(default = "default_fixed_ratio")]
+        #[serde(default = "default_fixed_ratio", rename = "fixedRatio")]
         fixed_ratio: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         outline: Option<serde_json::Value>,
@@ -124,7 +125,7 @@ pub enum SlideElement {
         height: f32,
         #[serde(default)]
         rotate: f32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "shapeName", skip_serializing_if = "Option::is_none")]
         shape_name: Option<String>,
         #[serde(default = "default_fill")]
         fill: String,
@@ -135,7 +136,7 @@ pub enum SlideElement {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
         #[serde(default, rename = "viewBox", skip_serializing_if = "Option::is_none")]
-        view_box: Option<Vec<f32>>,
+        view_box: Option<String>,
         #[serde(default, rename = "fixedRatio", skip_serializing_if = "Option::is_none")]
         fixed_ratio: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -178,10 +179,20 @@ pub enum SlideElement {
         height: f32,
         #[serde(default)]
         rotate: f32,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(default, rename = "chartType", skip_serializing_if = "Option::is_none")]
         chart_type: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         data: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        options: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        outline: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fill: Option<String>,
+        #[serde(default, rename = "textColor", skip_serializing_if = "Option::is_none")]
+        text_color: Option<String>,
+        #[serde(default, rename = "lineColor", skip_serializing_if = "Option::is_none")]
+        line_color: Option<String>,
         #[serde(default, rename = "themeColors", skip_serializing_if = "Option::is_none")]
         theme_colors: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,7 +212,7 @@ pub enum SlideElement {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
         #[serde(default, rename = "viewBox", skip_serializing_if = "Option::is_none")]
-        view_box: Option<Vec<f32>>,
+        view_box: Option<String>,
         #[serde(default, rename = "fixedRatio", skip_serializing_if = "Option::is_none")]
         fixed_ratio: Option<bool>,
         #[serde(default, rename = "strokeWidth", skip_serializing_if = "Option::is_none")]
@@ -281,12 +292,25 @@ pub enum VisualType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GradientColor {
+    pub pos: f32,
+    pub color: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SlideGradient {
     #[serde(rename = "type")]
     pub gradient_type: String,
-    pub colors: Vec<String>,
+    pub colors: Vec<GradientColor>,
     pub rotate: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlideBackgroundImage {
+    pub src: String,
+    #[serde(rename = "imageSize", alias = "size", default, skip_serializing_if = "Option::is_none")]
+    pub image_size: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,14 +324,12 @@ pub enum SlideBackground {
         gradient: SlideGradient,
     },
     Image {
-        #[serde(rename = "image")]
-        src: String,
-        #[serde(rename = "imageSize", default)]
-        image_size: Option<String>,
+        image: SlideBackgroundImage,
     },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QuizQuestion {
     pub id: String,
     pub question_type: QuizQuestionType,
@@ -341,6 +363,7 @@ pub struct QuizOption {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
     pub summary: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -370,6 +393,7 @@ pub struct ProjectConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectAgentRole {
     pub name: String,
     pub responsibility: String,
@@ -378,6 +402,7 @@ pub struct ProjectAgentRole {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectIssue {
     pub title: String,
     pub description: String,
@@ -388,6 +413,7 @@ pub struct ProjectIssue {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScientificModel {
     pub core_formulas: Vec<String>,
     pub mechanism: Vec<String>,
@@ -417,6 +443,7 @@ pub enum WhiteboardElement {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MultiAgentConfig {
     pub enabled: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -426,6 +453,7 @@ pub struct MultiAgentConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Stage {
     pub id: String,
     pub name: String,
@@ -506,6 +534,7 @@ pub enum SceneType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MediaGenerationRequest {
     pub element_id: String,
     pub media_type: MediaType,
@@ -521,7 +550,8 @@ pub enum MediaType {
     Video,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct QuizConfig {
     pub question_count: i32,
     pub difficulty: String,
@@ -529,6 +559,7 @@ pub struct QuizConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InteractiveConfig {
     pub concept_name: String,
     pub concept_overview: String,
@@ -537,7 +568,8 @@ pub struct InteractiveConfig {
     pub subject: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectOutlineConfig {
     pub project_topic: String,
     pub project_description: String,

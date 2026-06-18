@@ -82,7 +82,8 @@ pub(crate)     async fn generate_slide_content(
             .unwrap_or_else(|_| SlideContentEnvelope { background: None, elements: vec![] });
 
         let background: Option<ai_tutor_domain::scene::SlideBackground> = payload.background
-            .and_then(|v| serde_json::from_value(v).ok());
+            .and_then(|v| serde_json::from_value::<ai_tutor_domain::scene::SlideBackground>(v).ok())
+            .filter(|bg| !matches!(bg, ai_tutor_domain::scene::SlideBackground::Image { .. }));
 
         let elements = payload
             .elements
@@ -103,7 +104,6 @@ pub(crate)     async fn generate_slide_content(
             canvas: SlideCanvas {
                 id: format!("canvas-{}", outline.id),
                 viewport_width: 1000,
-                viewport_height: 563,
                 viewport_ratio: 0.5625,
                 theme: SlideTheme {
                     background_color: "#ffffff".to_string(),
@@ -116,8 +116,8 @@ pub(crate)     async fn generate_slide_content(
                     ],
                     font_color: "#333333".to_string(),
                     font_name: "Microsoft YaHei".to_string(),
-                    outline: Some(serde_json::json!({ "color": "#d14424", "width": 2, "style": "solid" })),
-                    shadow: Some(serde_json::json!({ "h": 0, "v": 0, "blur": 10, "color": "#000000" })),
+                    outline: Some(serde_json::json!({"color": "#d14424", "width": 2, "style": "solid"})),
+                    shadow: Some(serde_json::json!({"h": 0, "v": 0, "blur": 10, "color": "#000000"})),
                 },
                 elements,
                 background,

@@ -169,55 +169,54 @@ pub(crate) fn map_media_generation(media: MediaGenerationDto) -> Option<MediaGen
     })
 }
 
-pub(crate) fn map_slide_element(element: SlideElementDto, index: usize) -> SlideElement {
-    let id = element
-        .id
-        .unwrap_or_else(|| format!("element-{}", index + 1));
-    let rotate = element.rotate;
+pub(crate) fn map_slide_element(element: SlideElementDto, _index: usize) -> SlideElement {
+    let kind_str = element.kind.as_str();
+    let random_chars: String = uuid::Uuid::new_v4().to_string().chars().take(8).collect();
+    let id = format!("{}_{}", kind_str, random_chars);
+    let rotate = 0.0; // OpenMAIC forces rotate: 0 for all elements
     let left = element.left;
     let top = element.top;
     let width = element.width;
     let height = element.height;
 
     match element.kind.trim().to_ascii_lowercase().as_str() {
-        "image" => SlideElement::Image { shadow: None, outline: None, opacity: None,
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
+        "image" => SlideElement::Image { 
+            shadow: element.shadow, 
+            outline: element.outline, 
+            opacity: element.opacity,
+            id, left, top, width, height, rotate,
             src: element.src.unwrap_or_default(),
             fixed_ratio: true,
         },
-        "video" => SlideElement::Video { shadow: None,
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
+        "video" => SlideElement::Video { 
+            shadow: element.shadow,
+            id, left, top, width, height, rotate,
             src: element.src.unwrap_or_default(),
         },
-        "shape" => SlideElement::Shape { shadow: None, fixed_ratio: None, opacity: None, outline: None,
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            shape_name: element.shape_name,
-            fill: element.fill.unwrap_or_else(|| "#5b9bd5".to_string()),
-            path: element.path.or_else(|| Some(format!("M0 0 L{} 0 L{} {} L0 {} Z", width, width, height, height))),
-            view_box: element.view_box.or_else(|| Some(vec![0.0, 0.0, width, height])),
+        "shape" => {
+            let view_box = element.view_box.map(|v| {
+                if v.len() >= 2 {
+                    format!("0 0 {} {}", v[0], v[1])
+                } else {
+                    format!("0 0 {} {}", width, height)
+                }
+            }).unwrap_or_else(|| format!("0 0 {} {}", width, height));
+            
+            SlideElement::Shape {
+                shadow: element.shadow,
+                outline: element.outline,
+                id, left, top, width, height, rotate,
+                shape_name: element.shape_name,
+                fill: element.fill.unwrap_or_else(|| "#5b9bd5".to_string()),
+                path: element.path.or_else(|| Some(format!("M0 0 L{} 0 L{} {} L0 {} Z", width, width, height, height))),
+                view_box: Some(view_box),
+                opacity: element.opacity,
+                fixed_ratio: Some(element.fixed_ratio.unwrap_or(false)),
+            }
         },
-        "line" => SlideElement::Line { shadow: None,
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
+        "line" => SlideElement::Line { 
+            shadow: element.shadow,
+            id, left, top, width, height, rotate,
             start: element.start.or_else(|| Some(vec![left, top])),
             end: element.end.or_else(|| Some(vec![left + width, top + height])),
             style: element.style.or_else(|| Some("solid".to_string())),
@@ -232,49 +231,72 @@ id,
             curve: element.curve,
             cubic: element.cubic,
         },
-        "chart" => SlideElement::Chart { shadow: None,
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
+        "chart" => SlideElement::Chart { 
+            shadow: element.shadow,
+            id, left, top, width, height, rotate,
             chart_type: element.chart_type,
             data: element.data,
-            theme_colors: element.theme_colors,
+            theme_colors: element.theme_colors.or_else(|| Some(vec!["#5b9bd5".to_string(), "#ed7d31".to_string(), "#a5a5a5".to_string(), "#ffc000".to_string(), "#4472c4".to_string()])),
+            options: element.options,
+            outline: element.outline,
+            fill: element.fill,
+            text_color: element.text_color,
+            line_color: element.line_color,
         },
-        "latex" => SlideElement::Latex { shadow: None, fixed_ratio: None, html: None, path: None, stroke_width: None, view_box: None,
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            latex: element.latex.unwrap_or_default(),
-            color: element.color,
-            align: element.align,
+        "latex" => {
+            let latex_str = element.latex.unwrap_or_default();
+            let html = if let Ok(opts) = katex::Opts::builder()
+                .display_mode(true)
+                .output_type(katex::OutputType::Html)
+                .build() 
+            {
+                Some(katex::render_with_opts(&latex_str, opts).unwrap_or_else(|_| latex_str.clone()))
+            } else {
+                Some(latex_str.clone())
+            };
+            
+            let view_box = element.view_box.map(|v| {
+                if v.len() >= 2 {
+                    format!("0 0 {} {}", v[0], v[1])
+                } else {
+                    format!("0 0 {} {}", width, height)
+                }
+            });
+            
+            SlideElement::Latex { 
+                shadow: element.shadow, 
+                fixed_ratio: Some(true), 
+                html, 
+                path: element.path, 
+                stroke_width: element.stroke_width, 
+                view_box,
+                id, left, top, width, height, rotate,
+                latex: latex_str,
+                color: element.color,
+                align: element.align,
+            }
         },
-        "table" => SlideElement::Table { shadow: None, theme: None,
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
+        "table" => SlideElement::Table { 
+            shadow: element.shadow, 
+            theme: element.theme,
+            id, left, top, width, height, rotate,
             col_widths: element.col_widths,
             data: element.data,
             outline: element.outline,
         },
-        _ => SlideElement::Text { shadow: None, fill: None, outline: None, line_height: None, opacity: None, word_space: None, paragraph_space: None, vertical: None,
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
+        _ => SlideElement::Text {
+            shadow: element.shadow, 
+            fill: element.fill, 
+            outline: element.outline, 
+            line_height: element.line_height, 
+            opacity: element.opacity, 
+            word_space: element.word_space, 
+            paragraph_space: element.paragraph_space, 
+            vertical: element.vertical,
+            id, left, top, width, height, rotate,
             content: element.content.unwrap_or_default(),
-            default_font_name: "Microsoft YaHei".to_string(),
-            default_color: "#333333".to_string(),
+            default_font_name: element.default_font_name.unwrap_or_else(|| "Microsoft YaHei".to_string()),
+            default_color: element.default_color.unwrap_or_else(|| "#333333".to_string()),
         },
     }
 }
@@ -1225,234 +1247,27 @@ pub(crate) fn validate_slide_elements(
     elements: Vec<SlideElement>,
     outline: &SceneOutline,
 ) -> Vec<SlideElement> {
-    let mut normalized = elements
+    let normalized = elements
         .into_iter()
-        .filter_map(normalize_slide_element)
+        .filter(|el| {
+            let (w, h) = match el {
+                SlideElement::Text { width, height, .. } => (*width, *height),
+                SlideElement::Image { width, height, .. } => (*width, *height),
+                SlideElement::Video { width, height, .. } => (*width, *height),
+                SlideElement::Shape { width, height, .. } => (*width, *height),
+                SlideElement::Line { width, height, .. } => (*width, *height),
+                SlideElement::Chart { width, height, .. } => (*width, *height),
+                SlideElement::Latex { width, height, .. } => (*width, *height),
+                SlideElement::Table { width, height, .. } => (*width, *height),
+            };
+            w > 0.0 && h > 0.0
+        })
         .collect::<Vec<_>>();
-
-
 
     if normalized.is_empty() {
         fallback_slide_elements(outline)
     } else {
         normalized
-    }
-}
-
-pub(crate) fn normalize_slide_element(element: SlideElement) -> Option<SlideElement> {
-    let clamp = |value: f32, min: f32, max: f32| value.max(min).min(max);
-    let normalize_box =
-        |left: f32, top: f32, width: f32, height: f32| -> Option<(f32, f32, f32, f32)> {
-            if width <= 0.0 || height <= 0.0 {
-                return None;
-            }
-            Some((
-                clamp(left, 40.0, 940.0),
-                clamp(top, 40.0, 503.0),
-                clamp(width, 40.0, 900.0),
-                clamp(height, 24.0, 460.0),
-            ))
-        };
-
-    match element {
-        SlideElement::Text {
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            content,
-            default_font_name,
-            default_color,
-            .. } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Text { shadow: None, fill: None, outline: None, line_height: None, opacity: None, word_space: None, paragraph_space: None, vertical: None,
-id,
-                left,
-                top,
-                width,
-                height,
-                rotate,
-                content: content.trim().to_string(),
-                default_font_name,
-                default_color,
-            }
-        }),
-        SlideElement::Image {
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            src,
-            fixed_ratio,
-            .. 
-        } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Image { shadow: None, outline: None, opacity: None,
-id,
-                left,
-                top,
-                width,
-                height,
-                rotate,
-                src,
-                fixed_ratio,
-            }
-        }),
-        SlideElement::Video {
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            src,
-            .. } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Video { shadow: None,
-id,
-                left,
-                top,
-                width,
-                height,
-                rotate,
-                src,
-            }
-        }),
-        SlideElement::Shape {
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            shape_name,
-            fill,
-            path,
-            view_box,
-            .. 
-        } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Shape { shadow: None, fixed_ratio: None, opacity: None, outline: None,
-id,
-                left,
-                top,
-                width,
-                height,
-                rotate,
-                shape_name,
-                fill,
-                path,
-                view_box,
-            }
-        }),
-        SlideElement::Line {
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            start,
-            end,
-            style,
-            color,
-            points,
-            broken,
-            broken2,
-            curve,
-            cubic,
-            .. 
-        } => normalize_box(left, top, width.max(2.0), height.max(2.0)).map(
-            |(left, top, width, height)| SlideElement::Line { shadow: None,
-id,
-                left,
-                top,
-                width,
-                height,
-                rotate,
-                start,
-                end,
-                style,
-                color,
-                points,
-                broken,
-                broken2,
-                curve,
-                cubic,
-            },
-        ),
-        SlideElement::Chart {
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            chart_type,
-            data,
-            theme_colors,
-            .. 
-        } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Chart { shadow: None,
-id,
-                left,
-                top,
-                width,
-                height,
-                rotate,
-                chart_type,
-                data,
-                theme_colors,
-            }
-        }),
-        SlideElement::Latex {
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            latex,
-            color,
-            align,
-            .. 
-        } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Latex { shadow: None, fixed_ratio: None, html: None, path: None, stroke_width: None, view_box: None,
-id,
-                left,
-                top,
-                width,
-                height,
-                rotate,
-                latex,
-                color,
-                align,
-            }
-        }),
-        SlideElement::Table {
-id,
-            left,
-            top,
-            width,
-            height,
-            rotate,
-            col_widths,
-            data,
-            outline,
-            .. 
-        } => normalize_box(left, top, width, height).map(|(left, top, width, height)| {
-            SlideElement::Table { shadow: None, theme: None,
-id,
-                left,
-                top,
-                width,
-                height,
-                rotate,
-                col_widths,
-                data,
-                outline,
-            }
-        }),
     }
 }
 
@@ -1902,14 +1717,62 @@ pub(crate) fn map_action(action: ActionDto, index: usize) -> Option<LessonAction
             id,
             title: Some("Discussion".to_string()),
             description: None,
-            topic: action
-                .topic
-                .or(action.text)
-                .unwrap_or_else(|| "Discuss the scene".to_string()),
-            prompt: None,
-            agent_id: None,
+            topic: action.topic.unwrap_or_else(|| "Discussion".to_string()),
+            prompt: action.text,
+            agent_id: action.agent_id.or(action.element_id),
         }),
         _ => None,
+    }
+}
+
+pub(crate) fn validate_actions(actions: &mut Vec<LessonAction>, content: &SceneContent, agents: &[GeneratedAgentConfig]) {
+    let mut element_ids = std::collections::HashSet::new();
+    let mut first_element_id = None;
+    if let SceneContent::Slide { canvas } = content {
+        for el in &canvas.elements {
+            let id = match el {
+                SlideElement::Text { id, .. } => id,
+                SlideElement::Image { id, .. } => id,
+                SlideElement::Shape { id, .. } => id,
+                SlideElement::Line { id, .. } => id,
+                SlideElement::Chart { id, .. } => id,
+                SlideElement::Latex { id, .. } => id,
+                SlideElement::Table { id, .. } => id,
+                SlideElement::Video { id, .. } => id,
+            };
+            element_ids.insert(id.clone());
+            if first_element_id.is_none() {
+                first_element_id = Some(id.clone());
+            }
+        }
+    }
+
+    let agent_ids: std::collections::HashSet<_> = agents.iter().map(|a| a.id.clone()).collect();
+    let student_agents: Vec<_> = agents.iter().filter(|a| a.role == "student").collect();
+    let non_teacher_agents: Vec<_> = agents.iter().filter(|a| a.role != "teacher").collect();
+
+    for action in actions.iter_mut() {
+        match action {
+            LessonAction::Spotlight { element_id, .. } => {
+                if !element_ids.contains(element_id) {
+                    if let Some(first_id) = &first_element_id {
+                        *element_id = first_id.clone();
+                    }
+                }
+            }
+            LessonAction::Discussion { agent_id, .. } => {
+                let is_valid = agent_id.as_ref().map(|id| agent_ids.contains(id)).unwrap_or(false);
+                if !is_valid {
+                    let pool = if !student_agents.is_empty() { &student_agents } else { &non_teacher_agents };
+                    if !pool.is_empty() {
+                        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos() as usize;
+                        let picked = pool[now % pool.len()];
+                        *agent_id = Some(picked.id.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 

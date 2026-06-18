@@ -21,23 +21,23 @@ pub(crate)     async fn generate_quiz_content(
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
-        let system = "You create quiz questions. Return strict JSON only.".to_string();
-        let user = format!(
-"Quiz: {title}
-Requirement: {req}
-{pdf}Key points: {points}
+        let mut vars = std::collections::HashMap::new();
+        vars.insert("title", outline.title.clone());
+        vars.insert("description", outline.description.clone());
+        vars.insert("keyPoints", outline.key_points.join("\n"));
+        vars.insert("languageDirective", outline.language.as_deref().unwrap_or("Teach in English.").to_string());
+        
+        let quiz_config = outline.quiz_config.clone().unwrap_or_default();
+        vars.insert("questionCount", quiz_config.question_count.to_string());
+        vars.insert("difficulty", quiz_config.difficulty);
+        vars.insert("questionTypes", quiz_config.question_types.join(", "));
 
-Return JSON: {{\"questions\":[{{\"question\":\"...\",\"options\":[\"...\"],\"answer\":[\"...\"]}}]}}
-Rules:
-- 2 questions max
-- 4 options each. 1 correct answer.
-- Concise. No paragraphs.
-- Test understanding, not memorization.",
-    title = outline.title,
-    req = request.requirements.requirement,
-    pdf = pdf_info,
-    points = outline.key_points.join(" | "),
-);
+        let (system, user) = crate::prompt_builder::build_prompt("quiz-content", &vars).unwrap_or_else(|| {
+            (
+                "You create quiz questions. Return strict JSON only.".to_string(),
+                format!("Quiz: {}\nRequirement: {}", outline.title, request.requirements.requirement)
+            )
+        });
 
         let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         let payload: QuizContentEnvelope = parse_json_with_repair(&response)

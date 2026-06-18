@@ -148,6 +148,13 @@ pub(crate) struct SlideElementDto {
     pub(crate) stroke_width: Option<f32>,
     #[serde(default, alias = "fixedRatio")]
     pub(crate) fixed_ratio: Option<bool>,
+    
+    // Chart fields
+    pub(crate) options: Option<serde_json::Value>,
+    #[serde(default, alias = "textColor")]
+    pub(crate) text_color: Option<String>,
+    #[serde(default, alias = "lineColor")]
+    pub(crate) line_color: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -238,8 +245,11 @@ pub(crate) struct ActionDto {
     pub(crate) action_type: String,
     #[serde(alias = "content")]
     pub(crate) text: Option<String>,
+    #[serde(alias = "elementId")]
     pub(crate) element_id: Option<String>,
     pub(crate) topic: Option<String>,
+    #[serde(alias = "agentId")]
+    pub(crate) agent_id: Option<String>,
 }
 
 #[derive(Deserialize)]

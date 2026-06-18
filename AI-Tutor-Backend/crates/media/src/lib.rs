@@ -47,9 +47,9 @@ pub fn replace_media_placeholders(
                     }
                 }
 
-                if let Some(SlideBackground::Image { src, .. }) = &mut canvas.background {
-                    if let Some(url) = media_map.get(src) {
-                        *src = url.clone();
+                if let Some(SlideBackground::Image { image }) = &mut canvas.background {
+                    if let Some(url) = media_map.get(&image.src) {
+                        image.src = url.clone();
                     }
                 }
         }
@@ -173,11 +173,11 @@ pub async fn persist_inline_media_assets(
                     }
                 }
 
-                if let Some(SlideBackground::Image { src, .. }) = &mut canvas.background {
-                    if let Some((mime_type, bytes)) = decode_data_url(src)? {
+                if let Some(SlideBackground::Image { image }) = &mut canvas.background {
+                    if let Some((mime_type, bytes)) = decode_data_url(&image.src)? {
                         let extension = extension_for_media_mime(mime_type);
                         let filename = format!("background_{}.{}", scene.id, extension);
-                        *src = store
+                        image.src = store
                             .persist_asset(
                                 AssetKind::Media,
                                 lesson_id,
