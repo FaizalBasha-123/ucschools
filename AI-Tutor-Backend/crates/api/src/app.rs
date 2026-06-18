@@ -3,6 +3,7 @@
 #![allow(clippy::match_like_matches_macro)]
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use tokio_util::sync::CancellationToken;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -1938,6 +1939,9 @@ pub struct LiveLessonAppService {
     runtime_sessions: Arc<dyn RuntimeSessionRepository>,
     redis_client: Option<redis::Client>,
     telemetry: Arc<TelemetryService>,
+    /// Maps job_id -> CancellationToken for actively running generation jobs.
+    /// Used by cancel_job() to abort a pipeline mid-execution.
+    running_jobs: Arc<std::sync::Mutex<HashMap<String, CancellationToken>>>,
 }
 
 impl LiveLessonAppService {
@@ -1971,6 +1975,7 @@ impl LiveLessonAppService {
             runtime_sessions,
             redis_client,
             telemetry,
+            running_jobs: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -5707,18 +5712,33 @@ impl LessonAppService for LiveLessonAppService {
             )
             .await?;
 
+        // Register a CancellationToken so the operator can halt this job mid-run.
+        let cancel_token = CancellationToken::new();
+        {
+            let mut running = self.running_jobs.lock().unwrap();
+            running.insert(request.job.id.clone(), cancel_token.clone());
+        }
+
         println!("DEBUG: process_queued_job built orchestrator for {}", request.job.id);
         let job_id = request.job.id.clone();
-        orchestrator
+        let result = orchestrator
             .generate_lesson_for_job(
                 request.request,
                 request.lesson_id,
                 request.job,
                 &self.base_url,
                 false,
+                Some(cancel_token.clone()),
             )
-            .await?;
+            .await;
 
+        // Always deregister, whether success, failure, or cancellation.
+        {
+            let mut running = self.running_jobs.lock().unwrap();
+            running.remove(&job_id);
+        }
+
+        result?;
         println!("DEBUG: process_queued_job completed for {}", job_id);
         Ok(())
     }
@@ -6834,6 +6854,7 @@ impl LessonAppService for LiveLessonAppService {
 
         match queue.cancel(id).await? {
             QueueCancelResult::Cancelled => {
+                // Job was still queued (not started) — just mark it cancelled.
                 let now = chrono::Utc::now();
                 job.status = ai_tutor_domain::job::LessonGenerationJobStatus::Cancelled;
                 job.step = ai_tutor_domain::job::LessonGenerationStep::Cancelled;
@@ -6848,7 +6869,33 @@ impl LessonAppService for LiveLessonAppService {
                     .map_err(|err| anyhow!(err))?;
                 Ok(CancelLessonJobOutcome::Cancelled(job))
             }
-            QueueCancelResult::AlreadyClaimed => Ok(CancelLessonJobOutcome::AlreadyRunning),
+            QueueCancelResult::AlreadyClaimed => {
+                // Job is actively running — signal the pipeline's CancellationToken.
+                let token = {
+                    let running = self.running_jobs.lock().unwrap();
+                    running.get(id).cloned()
+                };
+                if let Some(token) = token {
+                    token.cancel();
+                    // Mark the job as cancelled in storage so the frontend updates.
+                    let now = chrono::Utc::now();
+                    job.status = ai_tutor_domain::job::LessonGenerationJobStatus::Cancelled;
+                    job.step = ai_tutor_domain::job::LessonGenerationStep::Cancelled;
+                    job.progress = 100;
+                    job.message = "Lesson generation cancelled by operator".to_string();
+                    job.error = None;
+                    job.updated_at = now;
+                    job.completed_at = Some(now);
+                    self.storage
+                        .update_job(&job)
+                        .await
+                        .map_err(|err| anyhow!(err))?;
+                    Ok(CancelLessonJobOutcome::Cancelled(job))
+                } else {
+                    // Token not found — the job may have just finished.
+                    Ok(CancelLessonJobOutcome::AlreadyRunning)
+                }
+            }
             QueueCancelResult::NotFound => Ok(CancelLessonJobOutcome::NotFound),
         }
     }

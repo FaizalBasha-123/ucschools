@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use tokio::time::{sleep, Duration};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -149,7 +150,7 @@ where
         let lesson_id = Uuid::new_v4().to_string();
         let job = build_queued_job(Uuid::new_v4().to_string(), &request, now);
 
-        self.generate_lesson_for_job(request, lesson_id, job, base_url, true)
+        self.generate_lesson_for_job(request, lesson_id, job, base_url, true, None)
             .await
     }
 
@@ -160,6 +161,7 @@ where
         mut job: LessonGenerationJob,
         base_url: &str,
         create_job: bool,
+        cancel_token: Option<CancellationToken>,
     ) -> Result<GenerationOutput> {
         let now = job.created_at;
         let request_id = Uuid::new_v4().to_string();
@@ -203,7 +205,7 @@ where
             started_at: now,
         };
 
-        let generation_result = self.run_pipeline(&mut state, base_url).await;
+        let generation_result = self.run_pipeline(&mut state, base_url, cancel_token).await;
         if let Err(err) = generation_result {
             state.job.status = LessonGenerationJobStatus::Failed;
             state.job.step = LessonGenerationStep::Failed;
@@ -261,7 +263,7 @@ where
         })
     }
 
-    async fn run_pipeline(&self, state: &mut GenerationState, _base_url: &str) -> Result<()> {
+    async fn run_pipeline(&self, state: &mut GenerationState, _base_url: &str, cancel_token: Option<CancellationToken>) -> Result<()> {
         let mut telemetry = PipelineTelemetry::new();
 
         // Step 0: PDF Processing
@@ -552,6 +554,11 @@ where
         let mut budget_tracker = cost_guard::BudgetTracker::new();
 
         for (index, outline) in state.outlines.iter().enumerate() {
+            if let Some(ref token) = cancel_token {
+                if token.is_cancelled() {
+                    return Err(anyhow!("Job was cancelled by operator"));
+                }
+            }
             // ── Step 1: Cost Guard — estimate and check budget ────────
             let prompt_estimate = format!(
                 "{} {} {}",

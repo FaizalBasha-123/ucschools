@@ -311,6 +311,7 @@ impl FileBackedLessonQueue {
                         queued.job.clone(),
                         service.base_url(),
                         false,
+                        None,
                     )
                     .await
             }
