@@ -62,8 +62,8 @@ pub mod project;
 pub mod actions;
 pub mod agents;
 
-pub use dtos::*;
-pub use helpers::*;
+pub(crate) use dtos::*;
+pub(crate) use helpers::*;
 
 #[cfg(test)]
 mod tests;

@@ -32,12 +32,16 @@ pub(crate)     async fn generate_project_content(
         vars.insert("projectDescription", pbl_config.project_description);
         vars.insert("targetSkills", pbl_config.target_skills.join(", "));
 
-        let (system, user) = crate::prompt_builder::build_prompt("pbl-content", &vars).unwrap_or_else(|| {
+        let (system, mut user) = crate::prompt_builder::build_prompt("pbl-content", &vars).unwrap_or_else(|| {
             (
                 "You design project-based learning plans. Return strict JSON only.".to_string(),
                 format!("PBL: {}\nRequirement: {}", outline.title, request.requirements.requirement)
             )
         });
+
+        if !pdf_info.is_empty() {
+            user.push_str(&format!("\n\n{}", pdf_info));
+        }
 
         let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         let mut payload: ProjectContentEnvelope =

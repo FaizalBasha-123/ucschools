@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[derive(Deserialize)]
@@ -162,6 +163,7 @@ pub(crate) struct QuizContentEnvelope {
     pub(crate) questions: Vec<QuizQuestionDto>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub(crate) struct InteractiveContentEnvelope {
     pub(crate) html: Option<String>,

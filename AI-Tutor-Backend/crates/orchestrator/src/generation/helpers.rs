@@ -960,6 +960,7 @@ pub(crate) fn map_project_issue_board(raw: Vec<ProjectIssueEnvelope>) -> Option<
     (!issues.is_empty()).then_some(issues)
 }
 
+#[allow(dead_code)]
 pub(crate) fn project_outline_summary(outline: &SceneOutline) -> String {
     outline
         .project_config
@@ -1614,7 +1615,7 @@ pub(crate) fn fallback_outlines(request: &LessonGenerationRequest) -> Vec<SceneO
 }
 
 pub(crate) fn fallback_slide_elements(outline: &SceneOutline) -> Vec<SlideElement> {
-    let mut elements = vec![
+    let elements = vec![
         SlideElement::Text { shadow: None, fill: None, outline: None, line_height: None, opacity: None, word_space: None, paragraph_space: None, vertical: None,
             id: "text-title-1".to_string(),
             left: 60.0,

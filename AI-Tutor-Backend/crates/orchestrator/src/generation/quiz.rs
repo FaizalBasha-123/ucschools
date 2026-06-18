@@ -32,12 +32,16 @@ pub(crate)     async fn generate_quiz_content(
         vars.insert("difficulty", quiz_config.difficulty);
         vars.insert("questionTypes", quiz_config.question_types.join(", "));
 
-        let (system, user) = crate::prompt_builder::build_prompt("quiz-content", &vars).unwrap_or_else(|| {
+        let (system, mut user) = crate::prompt_builder::build_prompt("quiz-content", &vars).unwrap_or_else(|| {
             (
                 "You create quiz questions. Return strict JSON only.".to_string(),
                 format!("Quiz: {}\nRequirement: {}", outline.title, request.requirements.requirement)
             )
         });
+
+        if !pdf_info.is_empty() {
+            user.push_str(&format!("\n\n{}", pdf_info));
+        }
 
         let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
         let payload: QuizContentEnvelope = parse_json_with_repair(&response)
