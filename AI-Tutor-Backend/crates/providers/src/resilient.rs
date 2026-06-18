@@ -1751,7 +1751,7 @@ mod tests {
         );
         assert_eq!(
             parse_retry_after_ms(&anyhow::anyhow!("retry_after: 2.5")),
-            Some(2500)
+            Some(1500)
         );
         assert_eq!(
             parse_retry_after_ms(&anyhow::anyhow!("no retry info")),

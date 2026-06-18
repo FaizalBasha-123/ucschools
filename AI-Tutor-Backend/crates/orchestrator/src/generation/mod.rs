@@ -374,8 +374,7 @@ You may invoke the tool at most {max_calls} times total.
         system_prompt: &str,
         user_prompt: &str,
     ) -> Result<(String, Option<ProviderUsage>)> {
-        let mut params = GenerationParams::default();
-        params.max_tokens = Some(2500);
+        let params = GenerationParams::default();
         let mut last_error = None;
 
         for attempt in 0..MAX_LLM_ATTEMPTS {

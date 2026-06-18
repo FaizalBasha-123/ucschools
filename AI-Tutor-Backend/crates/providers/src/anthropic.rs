@@ -174,7 +174,7 @@ impl LlmProvider for AnthropicProvider {
 
         let request = AnthropicRequest {
             model: &self.model_config.model_id,
-            max_tokens: params.max_tokens.unwrap_or(2500),
+            max_tokens: params.max_tokens.unwrap_or(8000),
             temperature: params.temperature.unwrap_or(0.2),
             system: Some(&system),
             messages,
@@ -272,7 +272,7 @@ impl LlmProvider for AnthropicProvider {
 
         let request = AnthropicRequest {
             model: &self.model_config.model_id,
-            max_tokens: 2500,
+            max_tokens: 8000,
             temperature: 0.2,
             system: system_prompt,
             messages: anthropic_messages,
@@ -347,7 +347,7 @@ impl LlmProvider for AnthropicProvider {
 
         let request = AnthropicRequest {
             model: &self.model_config.model_id,
-            max_tokens: 2500,
+            max_tokens: 8000,
             temperature: 0.2,
             system: system_prompt,
             messages: anthropic_messages,
@@ -496,7 +496,7 @@ impl AnthropicProvider {
 
         let request = AnthropicRequest {
             model: &self.model_config.model_id,
-            max_tokens: 2500,
+            max_tokens: 8000,
             temperature: 0.2,
             system: system_prompt,
             messages: anthropic_messages,

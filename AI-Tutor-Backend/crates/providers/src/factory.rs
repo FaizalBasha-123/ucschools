@@ -112,7 +112,11 @@ impl LlmProviderFactory for DefaultLlmProviderFactory {
                 self.server_config.llm_circuit_breaker_threshold,
                 self.server_config.llm_circuit_breaker_cooldown_ms,
             );
-        Ok(crate::openrouter::wrap_with_strategy(Box::new(resilient), &self.provider_strategy))
+        // Extract the API key from the first resolved provider for the balance check.
+        // This assumes all providers in the chain share the same OpenRouter key.
+        let openrouter_api_key = model_config.api_key.clone();
+        let openrouter_api_key = if openrouter_api_key.is_empty() { None } else { Some(openrouter_api_key) };
+        Ok(crate::openrouter::wrap_with_strategy_and_key(Box::new(resilient), &self.provider_strategy, openrouter_api_key))
     }
 }
 
