@@ -136,7 +136,7 @@ pub enum SlideElement {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
         #[serde(default, rename = "viewBox", skip_serializing_if = "Option::is_none")]
-        view_box: Option<String>,
+        view_box: Option<Vec<f32>>,
         #[serde(default, rename = "fixedRatio", skip_serializing_if = "Option::is_none")]
         fixed_ratio: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -212,7 +212,7 @@ pub enum SlideElement {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
         #[serde(default, rename = "viewBox", skip_serializing_if = "Option::is_none")]
-        view_box: Option<String>,
+        view_box: Option<Vec<f32>>,
         #[serde(default, rename = "fixedRatio", skip_serializing_if = "Option::is_none")]
         fixed_ratio: Option<bool>,
         #[serde(default, rename = "strokeWidth", skip_serializing_if = "Option::is_none")]

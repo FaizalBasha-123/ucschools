@@ -194,13 +194,7 @@ pub(crate) fn map_slide_element(element: SlideElementDto, _index: usize) -> Slid
             src: element.src.unwrap_or_default(),
         },
         "shape" => {
-            let view_box = element.view_box.map(|v| {
-                if v.len() >= 2 {
-                    format!("0 0 {} {}", v[0], v[1])
-                } else {
-                    format!("0 0 {} {}", width, height)
-                }
-            }).unwrap_or_else(|| format!("0 0 {} {}", width, height));
+            let view_box = element.view_box.unwrap_or_else(|| vec![width, height]);
             
             SlideElement::Shape {
                 shadow: element.shadow,
@@ -255,13 +249,7 @@ pub(crate) fn map_slide_element(element: SlideElementDto, _index: usize) -> Slid
                 Some(latex_str.clone())
             };
             
-            let view_box = element.view_box.map(|v| {
-                if v.len() >= 2 {
-                    format!("0 0 {} {}", v[0], v[1])
-                } else {
-                    format!("0 0 {} {}", width, height)
-                }
-            });
+            let view_box = element.view_box.clone();
             
             SlideElement::Latex { 
                 shadow: element.shadow, 
