@@ -1,6 +1,6 @@
 'use client';
 
-import { ElementTypes, type PPTElement } from '@/lib/types/slides';
+import { ElementTypes, type PPTElement, type SlideTheme } from '@/lib/types/slides';
 import { useMemo, useEffect, useRef } from 'react';
 import { useAnimate } from 'motion/react';
 
@@ -58,17 +58,58 @@ export function ScreenElement({ elementInfo, elementIndex, animationEffect }: Sc
     return elementTypeMap[type] || null;
   }, [type]);
 
-  const theme = useSceneSelector<SceneContent, { fontColor: string; fontName: string }>(
+  const theme = useSceneSelector<SceneContent, SlideTheme>(
     (content) => {
       if (content.type === 'slide') {
         return content.canvas.theme;
       }
       return {
+        backgroundColor: '#ffffff',
+        themeColors: ['#10B981'],
         fontColor: '#333333',
         fontName: 'Microsoft YaHei',
       };
     },
   );
+
+  // Derive fallback border and shadow from the slide theme
+  const themeElementStyle = useMemo(() => {
+    const style: Record<string, string> = {
+      color: theme.fontColor,
+      fontFamily: theme.fontName,
+    };
+
+    // Theme-level outline as CSS border
+    if (theme.outline?.width && theme.outline?.color) {
+      style.border = `${theme.outline.width}px ${theme.outline.style || 'solid'} ${theme.outline.color}`;
+      style.borderRadius = '4px';
+    } else {
+      // Derive a faint border from the theme's primary color
+      const primary = theme.themeColors?.[0] || '#10B981';
+      // Only add auto-border for text and shape elements
+      if (elementInfo.type === 'text' || elementInfo.type === 'shape') {
+        style.boxShadow = `0 0 0 1px ${primary}1A`;
+      }
+    }
+
+    // Theme-level shadow as box-shadow (only if no explicit outline border was set)
+    if (theme.shadow?.blur && theme.shadow?.color) {
+      const s = theme.shadow;
+      if (!style.boxShadow) {
+        style.boxShadow = `${s.h}px ${s.v}px ${s.blur}px ${s.color}`;
+      } else {
+        style.boxShadow += `, ${s.h}px ${s.v}px ${s.blur}px ${s.color}`;
+      }
+    } else if (elementInfo.type === 'text' || elementInfo.type === 'shape') {
+      // Derive a subtle shadow from the theme's primary color
+      if (!style.boxShadow) {
+        const primary = theme.themeColors?.[0] || '#10B981';
+        style.boxShadow = `0 2px 8px ${primary}0D, 0 1px 3px ${primary}08`;
+      }
+    }
+
+    return style;
+  }, [theme, elementInfo.type]);
 
   // Trigger animation when animationEffect changes
   useEffect(() => {
@@ -104,8 +145,7 @@ export function ScreenElement({ elementInfo, elementIndex, animationEffect }: Sc
       style={{
         position: 'relative',
         zIndex: elementIndex,
-        color: theme.fontColor,
-        fontFamily: theme.fontName,
+        ...themeElementStyle,
       }}
     >
       <CurrentElementComponent elementInfo={elementInfo} animate={!!animationEffect} />

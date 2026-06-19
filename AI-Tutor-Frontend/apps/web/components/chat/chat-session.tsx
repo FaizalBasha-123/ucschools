@@ -107,16 +107,16 @@ const MessageBubble = memo(function MessageBubble({
   );
 
   return (
-    <div
-      className={cn(
-        'inline-block px-2.5 py-1.5 rounded-xl text-[12px] leading-relaxed max-w-full text-left transition-shadow duration-300',
-        isUser
-          ? 'bg-primary text-primary-foreground rounded-tr-sm shadow-sm shadow-primary/30 dark:shadow-primary/50 ring-1 ring-primary/20'
-          : isTeacher
-            ? 'bg-card dark:bg-neutral-900 text-foreground dark:text-gray-200 border border-border dark:border-neutral-800 rounded-tl-sm shadow-sm'
-            : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-200 border border-emerald-100/50 dark:border-emerald-800/50 rounded-tl-sm',
-      )}
-    >
+      <div
+        className={cn(
+          'inline-block px-3 py-2 rounded-xl text-sm leading-relaxed max-w-full text-left transition-shadow duration-300',
+          isUser
+            ? 'bg-primary text-primary-foreground rounded-tr-sm shadow-md shadow-primary/40 dark:shadow-primary/60 ring-1 ring-primary/30'
+            : isTeacher
+              ? 'bg-white dark:bg-neutral-800 text-foreground dark:text-gray-100 border border-border/80 dark:border-neutral-700/80 rounded-tl-sm shadow-md shadow-gray-200/50 dark:shadow-neutral-900/60 ring-1 ring-black/[0.03] dark:ring-white/[0.04]'
+              : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-900 dark:text-emerald-200 border border-emerald-200/60 dark:border-emerald-800/50 rounded-tl-sm shadow-md shadow-emerald-200/40 dark:shadow-emerald-900/40',
+        )}
+      >
       <span className="break-words">
         {parts.map((part: MessagePart, i: number) => {
           if (part.type === 'text' || part.type === 'step-start') {
@@ -285,22 +285,22 @@ export function ChatSessionComponent({
               )}
             >
               {/* Mini Avatar */}
-              <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0 mt-0.5 ring-1 ring-gray-200/50 dark:ring-gray-700/50">
+              <div className="w-6 h-6 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0 mt-0.5 ring-2 ring-gray-200/50 dark:ring-gray-700/50">
                 <AvatarDisplay src={avatar} alt="avatar" className="text-xs" />
               </div>
 
               {/* Content */}
               <div className={cn('flex-1 min-w-0', isUser && 'text-right')}>
-                <span
-                  className={cn(
-                    'text-[9px] font-bold uppercase tracking-wider block mb-0.5',
-                    isUser
-                      ? 'text-primary'
-                      : isTeacher
-                        ? 'text-primary/70'
-                        : 'text-emerald-500 dark:text-emerald-300',
-                  )}
-                >
+                  <span
+                    className={cn(
+                      'text-[11px] font-bold uppercase tracking-wide block mb-1',
+                      isUser
+                        ? 'text-primary/80'
+                        : isTeacher
+                          ? 'text-primary/60'
+                          : 'text-emerald-500 dark:text-emerald-300',
+                    )}
+                  >
                   {(() => {
                     const agentId = message.metadata?.agentId;
                     if (agentId) {

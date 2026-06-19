@@ -13,6 +13,16 @@ export interface BaseTextElementProps {
  * Base text element component (read-only)
  * Renders static text content with styling
  */
+function fallbackFill(color?: string): string | undefined {
+  if (!color) return undefined;
+  const hex = color.replace('#', '');
+  if (hex.length !== 6) return undefined;
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, 0.06)`;
+}
+
 export function BaseTextElement({ elementInfo, target }: BaseTextElementProps) {
   const { shadowStyle } = useElementShadow(elementInfo.shadow);
 
@@ -35,7 +45,7 @@ export function BaseTextElement({ elementInfo, target }: BaseTextElementProps) {
           style={{
             width: elementInfo.vertical ? 'auto' : `${elementInfo.width}px`,
             height: elementInfo.vertical ? `${elementInfo.height}px` : 'auto',
-            backgroundColor: elementInfo.fill,
+            backgroundColor: elementInfo.fill || fallbackFill(elementInfo.defaultColor),
             opacity: elementInfo.opacity,
             textShadow: shadowStyle,
             lineHeight: elementInfo.lineHeight,

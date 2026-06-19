@@ -118,7 +118,7 @@ export function SceneSidebar({
           onMouseDown={handleDragStart}
           className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize z-50 group hover:bg-primary/30 dark:hover:bg-primary/30 active:bg-primary/40 dark:active:bg-primary/40 transition-colors"
         >
-          <div className="absolute right-0.5 top-1/2 -tranneutral-y-1/2 w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-primary dark:group-hover:bg-primary transition-colors" />
+          <div className="absolute right-0.5 top-1/2 -translate-y-1/2 w-0.5 h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-primary dark:group-hover:bg-primary transition-colors" />
         </div>
       )}
 
@@ -452,7 +452,7 @@ export function SceneSidebar({
                       )}
                     </div>
                     {!isFailed && !isPaused && (
-                      <div className="absolute inset-0 -tranneutral-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/40 dark:via-white/10 to-transparent" />
+                      <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/40 dark:via-white/10 to-transparent" />
                     )}
                   </div>
                 </div>

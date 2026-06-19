@@ -219,7 +219,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
             <span
               className={cn(
                 'block h-[2px] w-5 rounded-full bg-current transition-all duration-300 origin-center',
-                mobileMenuOpen && 'rotate-45 tranneutral-y-[7px]',
+                mobileMenuOpen && 'rotate-45 translate-y-[7px]',
               )}
             />
             <span
@@ -231,7 +231,7 @@ export function SiteHeader({ variant = 'landing' }: SiteHeaderProps) {
             <span
               className={cn(
                 'block h-[2px] w-5 rounded-full bg-current transition-all duration-300 origin-center',
-                mobileMenuOpen && '-rotate-45 -tranneutral-y-[7px]',
+                mobileMenuOpen && '-rotate-45 -translate-y-[7px]',
               )}
             />
           </span>
