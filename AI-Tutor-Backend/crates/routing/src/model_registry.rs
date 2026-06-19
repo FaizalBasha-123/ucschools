@@ -7,6 +7,7 @@ pub enum Provider {
     Groq,
     ElevenLabs,
     OpenAI,
+    Google,
 }
 
 impl Provider {
@@ -16,6 +17,7 @@ impl Provider {
             Self::Groq => "groq",
             Self::ElevenLabs => "elevenlabs",
             Self::OpenAI => "openai",
+            Self::Google => "google",
         }
     }
 
@@ -72,25 +74,25 @@ impl ModelDefinition {
 }
 
 pub const GEMINI_FLASH_LITE: ModelDefinition = ModelDefinition::new(
-    Provider::OpenRouter,
-    "google/gemini-2.5-flash-lite",
-    "Gemini 2.5 Flash Lite",
-    1_000_000,
-    true,
-    true,
-    0.075,
-    0.30,
-);
-
-pub const GEMINI_FLASH: ModelDefinition = ModelDefinition::new(
-    Provider::OpenRouter,
-    "google/gemini-2.5-flash",
+    Provider::Google,
+    "gemini-2.5-flash",
     "Gemini 2.5 Flash",
     1_000_000,
     true,
     true,
-    0.15,
-    0.60,
+    0.0,
+    0.0,
+);
+
+pub const GEMINI_FLASH: ModelDefinition = ModelDefinition::new(
+    Provider::Google,
+    "gemini-2.5-flash",
+    "Gemini 2.5 Flash",
+    1_000_000,
+    true,
+    true,
+    0.0,
+    0.0,
 );
 
 pub const DEEPSEEK_V3: ModelDefinition = ModelDefinition::new(
@@ -127,14 +129,14 @@ pub const CLAUDE_35_HAIKU: ModelDefinition = ModelDefinition::new(
 );
 
 pub const LLAMA_31_8B: ModelDefinition = ModelDefinition::new(
-    Provider::OpenRouter,
-    "meta-llama/llama-3.1-8b-instruct",
-    "Llama 3.1 8B Instruct",
+    Provider::Groq,
+    "llama-3.1-8b-instant",
+    "Llama 3.1 8B Instruct (Groq)",
     128_000,
     true,
     false,
+    0.05,
     0.10,
-    0.40,
 );
 
 pub const LLAMA_3_8B_GROQ: ModelDefinition = ModelDefinition::new(

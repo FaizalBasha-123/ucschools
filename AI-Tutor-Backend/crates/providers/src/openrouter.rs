@@ -29,7 +29,7 @@ pub fn wrap_with_strategy(
     strategy: &ProviderStrategy,
 ) -> Box<dyn LlmProvider> {
     match strategy {
-        ProviderStrategy::OpenRouter => Box::new(OpenRouterLlmProvider::new(provider, None)),
+        ProviderStrategy::OpenRouter => Box::new(OpenRouterLlmProvider::new(provider, None, false)),
         ProviderStrategy::Direct => provider,
         ProviderStrategy::Fallback(primary, secondary) => {
             let primary_box = wrap_with_strategy(provider, primary);
@@ -46,16 +46,18 @@ pub fn wrap_with_strategy_and_key(
     provider: Box<dyn LlmProvider>,
     strategy: &ProviderStrategy,
     api_key: Option<String>,
+    is_free_model: bool,
 ) -> Box<dyn LlmProvider> {
     match strategy {
-        ProviderStrategy::OpenRouter => Box::new(OpenRouterLlmProvider::new(provider, api_key)),
+        ProviderStrategy::OpenRouter => Box::new(OpenRouterLlmProvider::new(provider, api_key, is_free_model)),
         ProviderStrategy::Direct => provider,
         ProviderStrategy::Fallback(primary, secondary) => {
-            let primary_box = wrap_with_strategy_and_key(provider, primary, api_key.clone());
+            let primary_box = wrap_with_strategy_and_key(provider, primary, api_key.clone(), is_free_model);
             let secondary_box = wrap_with_strategy_and_key(
                 Box::new(NoOpLlmProvider),
                 secondary,
                 api_key,
+                is_free_model,
             );
             Box::new(FallbackLlmProvider::new(primary_box, secondary_box))
         }
@@ -99,16 +101,18 @@ struct OpenRouterKeyData {
 pub struct OpenRouterLlmProvider {
     inner: Box<dyn LlmProvider>,
     api_key: Option<String>,
+    is_free_model: bool,
     /// Cached balance in approximate token units (refreshed each call).
     /// Stored as AtomicU32 so it can be shared across async bounds.
     cached_max_tokens: Arc<AtomicU32>,
 }
 
 impl OpenRouterLlmProvider {
-    pub fn new(inner: Box<dyn LlmProvider>, api_key: Option<String>) -> Self {
+    pub fn new(inner: Box<dyn LlmProvider>, api_key: Option<String>, is_free_model: bool) -> Self {
         Self {
             inner,
             api_key,
+            is_free_model,
             // Start with a conservative default until first balance check.
             cached_max_tokens: Arc::new(AtomicU32::new(1500)),
         }
@@ -124,6 +128,10 @@ impl OpenRouterLlmProvider {
     /// We use a generous divisor of 0.15 (2× safety margin) so we never
     /// accidentally pre-authorize more than half the remaining balance.
     async fn fetch_affordable_max_tokens(&self) -> u32 {
+        if self.is_free_model {
+            return MAX_SAFE_TOKENS;
+        }
+
         let Some(ref api_key) = self.api_key else {
             return self.cached_max_tokens.load(Ordering::Relaxed);
         };

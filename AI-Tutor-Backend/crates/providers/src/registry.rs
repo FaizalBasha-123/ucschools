@@ -315,6 +315,20 @@ pub fn built_in_providers() -> Vec<ProviderConfig> {
             icon: None,
             models: vec![
                 ModelInfo {
+                    id: "llama-3.1-8b-instant".to_string(),
+                    name: "Llama 3.1 8B Instant".to_string(),
+                    context_window: Some(128_000),
+                    output_window: Some(8_192),
+                    cost_tier: Some("economy".to_string()),
+                    pricing: None,
+                    capabilities: ModelCapabilities {
+                        streaming: true,
+                        tools: true,
+                        vision: false,
+                        thinking: None,
+                    },
+                },
+                ModelInfo {
                     id: "llama3-70b-8192".to_string(),
                     name: "Llama 3 70B".to_string(),
                     context_window: Some(8_192),
