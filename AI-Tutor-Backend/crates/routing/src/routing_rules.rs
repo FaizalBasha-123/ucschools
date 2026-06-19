@@ -21,12 +21,12 @@ fn with_override<'a>(default: &'static str, override_val: Option<String>) -> Cow
 // Single source of truth for all model-to-string mappings.
 // These replace every `{MODE}_AI_TUTOR_*_MODEL` env var.
 
-const GEMINI_FLASH_LITE: &str = "google:gemini-2.5-flash";
-const GEMINI_FLASH: &str = "google:gemini-2.5-flash";
+const GEMINI_FLASH_LITE: &str = "openrouter:google/gemini-2.5-flash-lite";
+const GEMINI_FLASH: &str = "openrouter:google/gemini-2.5-flash";
 const DEEPSEEK_V3: &str = "openrouter:deepseek/deepseek-chat";
 const CLAUDE_SONNET_46: &str = "openrouter:anthropic/claude-sonnet-4.6";
 const CLAUDE_35_HAIKU: &str = "openrouter:anthropic/claude-3-5-haiku";
-const LLAMA_31_8B: &str = "groq:llama-3.1-8b-instant";
+const LLAMA_31_8B: &str = "openrouter:meta-llama/llama-3.1-8b-instruct";
 const LLAMA_3_8B_GROQ: &str = "groq:llama3-8b-8192";
 const FLUX_SCHNELL: &str = "openrouter:black-forest-labs/flux-schnell";
 const FLUX_DEV: &str = "openrouter:black-forest-labs/flux-dev";
@@ -35,7 +35,7 @@ const KOKORO_82M: &str = "openrouter:hexgrad/kokoro-82m";
 const ELEVEN_MULTILINGUAL_V2: &str = "elevenlabs:eleven_multilingual_v2";
 const WHISPER_SMALL: &str = "groq:whisper-small";
 const WHISPER_LARGE_V3: &str = "groq:whisper-large-v3";
-const GEMINI_15_FLASH: &str = "google:gemini-1.5-flash";
+const GEMINI_15_FLASH: &str = "openrouter:google/gemini-1.5-flash";
 const GPT_VIDEO_1: &str = "openai:gpt-video-1";
 
 // ── Quality Tier Resolution ──────────────────────────────────────────────
@@ -86,7 +86,8 @@ fn resolve_outlines_model(tier: QualityTier) -> &'static str {
 
 fn resolve_scene_content_model(tier: QualityTier) -> &'static str {
     match tier {
-        QualityTier::Basic | QualityTier::Standard | QualityTier::Premium => GEMINI_FLASH,
+        QualityTier::Basic | QualityTier::Standard => GEMINI_FLASH,
+        QualityTier::Premium => CLAUDE_SONNET_46,
     }
 }
 
