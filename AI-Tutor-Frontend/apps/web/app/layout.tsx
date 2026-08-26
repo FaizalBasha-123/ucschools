@@ -24,6 +24,19 @@ export const metadata: Metadata = {
     'The open-source AI interactive classroom. Upload a PDF to instantly generate an immersive, multi-agent learning experience.',
 };
 
+/**
+ * Blocking inline script — runs synchronously before first paint.
+ *
+ * Reads the saved theme from localStorage and applies the `dark` class to
+ * <html> immediately, preventing a flash of the incorrect (light) theme on
+ * hard refresh, navigation, and redirects. The ThemeProvider reads the
+ * already-applied class on mount so React never resets it.
+ *
+ * The script also stores the resolved preference in data attributes so the
+ * ThemeProvider can initialize its state without re-reading localStorage.
+ */
+const themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(t===null){t='system';}var s;if(t==='system'){s=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}else if(t==='dark'){s='dark';}else{s='light';}var r=document.documentElement;if(s==='dark'){r.classList.add('dark');}else{r.classList.remove('dark');}r.setAttribute('data-theme',t);r.setAttribute('data-resolved-theme',s);}catch(e){}})();`;
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -31,6 +44,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body
         className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
         suppressHydrationWarning
