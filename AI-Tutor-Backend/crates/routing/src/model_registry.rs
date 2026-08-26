@@ -73,6 +73,17 @@ impl ModelDefinition {
     }
 }
 
+pub const QWEN_3_8_MAX: ModelDefinition = ModelDefinition::new(
+    Provider::OpenRouter,
+    "qwen/qwen3.8-max",
+    "Qwen 3.8 Max",
+    1_000_000,
+    true,
+    true,
+    2.00,
+    6.00,
+);
+
 pub const GEMINI_FLASH_LITE: ModelDefinition = ModelDefinition::new(
     Provider::OpenRouter,
     "google/gemini-2.5-flash-lite",
@@ -283,6 +294,7 @@ pub fn get_model_definition(full_model_string: &str) -> Option<&'static ModelDef
 }
 
 pub const ALL_MODELS: &[&ModelDefinition] = &[
+    &QWEN_3_8_MAX,
     &GEMINI_FLASH_LITE,
     &GEMINI_FLASH,
     &DEEPSEEK_V3,

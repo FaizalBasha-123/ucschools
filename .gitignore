@@ -1,0 +1,42 @@
+# ---- Build artifacts ----
+# Node / pnpm
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Rust / Cargo
+target/
+
+# ---- OS / editor cruft ----
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# ---- Packages / binaries ----
+*.deb
+*.rpm
+*.dmg
+*.pkg
+*.msi
+
+# ---- Logs / temp ----
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
+
+# ---- Unrelated sibling projects (not part of aitutor repo) ----
+OpenMAIC/
+graphbit/
+zeroclaw/

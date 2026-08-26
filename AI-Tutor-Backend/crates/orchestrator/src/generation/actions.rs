@@ -23,11 +23,12 @@ pub(crate)     async fn do_generate_scene_actions(
         outline_index: usize,
         agents: &[GeneratedAgentConfig],
     ) -> Result<Vec<LessonAction>> {
+        let has_pdf = pdf_context.map_or(false, |c| !c.trim().is_empty());
         let (system, user) =
             build_scene_action_prompt(request, outline, content, pdf_context, all_outlines, outline_index, agents)?;
 
         let (primary_response, _usage) = self
-            .generate_json_with_search_tool_using(self.scene_actions_llm(), &system, &user)
+            .generate_json_with_search_tool_using(self.scene_actions_llm(), &system, &user, has_pdf)
             .await?;
         let mut actions =
             parse_actions_from_generation_response(&primary_response, outline, content);

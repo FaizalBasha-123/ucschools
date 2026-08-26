@@ -18,15 +18,22 @@ pub(crate)     async fn generate_slide_content(
         &self,
         _request: &LessonGenerationRequest,
         outline: &SceneOutline,
-        _pdf_context: Option<&str>,
+        pdf_context: Option<&str>,
         agents: &[GeneratedAgentConfig],
     ) -> Result<SceneContent> {
+        let pdf_info = pdf_context
+            .filter(|ctx| !ctx.trim().is_empty())
+            .map(|ctx| format!("Attached Document Content (PRIMARY SOURCE — teach from this):\n{}\n", ctx))
+            .unwrap_or_default();
+        let has_pdf = !pdf_info.is_empty();
+
         let mut vars = std::collections::HashMap::new();
         vars.insert("title", outline.title.clone());
         vars.insert("description", outline.description.clone());
         let key_points = outline.key_points.iter().enumerate().map(|(i, p)| format!("{}. {}", i + 1, p)).collect::<Vec<_>>().join("\n");
         vars.insert("keyPoints", key_points);
         vars.insert("elements", "（根据要点自动生成）".to_string());
+        vars.insert("pdfContext", pdf_info.clone());
         
         let mut assigned_images_text = "无可用图片，禁止插入任何 image 元素".to_string();
         let media = &outline.media_generations;
@@ -70,14 +77,21 @@ pub(crate)     async fn generate_slide_content(
         vars.insert("generatedVideoEnabled", if has_gen_videos { "true" } else { "false" }.to_string());
         vars.insert("mediaElementEnabled", if media_element_enabled { "true" } else { "false" }.to_string());
 
-        let (system, user) = crate::prompt_builder::build_prompt("slide-content", &vars).unwrap_or_else(|| {
+        let (system, mut user) = crate::prompt_builder::build_prompt("slide-content", &vars).unwrap_or_else(|| {
             (
                 "You are an educational content designer. Generate visually rich, well-structured slide components. Return strict JSON only.".to_string(),
                 "Error loading prompt.".to_string()
             )
         });
 
-        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
+        // Inject PDF context after the template since the slide-content template
+        // doesn't have a dedicated placeholder for it. This mirrors how quiz and
+        // project generators append pdf_info to the user prompt.
+        if has_pdf {
+            user.push_str(&format!("\n\n{}", pdf_info));
+        }
+
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user, has_pdf).await?;
         let payload: SlideContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| SlideContentEnvelope { background: None, elements: vec![] });
 

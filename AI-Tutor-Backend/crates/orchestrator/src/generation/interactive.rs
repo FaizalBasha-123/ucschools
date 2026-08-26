@@ -77,7 +77,9 @@ pub(crate)     async fn generate_interactive_content(
             )
         });
 
-        let (response, _usage) = self.generate_with_search_tool(&system, &user).await?;
+        let has_pdf = pdf_context.map_or(false, |c| !c.trim().is_empty());
+
+        let (response, _usage) = self.generate_with_search_tool(&system, &user, has_pdf).await?;
         let payload: InteractiveContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(InteractiveContentEnvelope {
                 html: None,

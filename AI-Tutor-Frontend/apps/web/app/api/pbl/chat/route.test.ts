@@ -16,19 +16,18 @@ describe('PBL chat proxy route', () => {
     delete process.env.AI_TUTOR_API_BASE_URL;
   });
 
-  it('forwards request to backend runtime chat and returns payload', async () => {
-    const backendPayload = {
+  it('forwards request to backend runtime chat-stream and streams the response', async () => {
+    // Build an SSE body: one data event with an agent message, then the terminator.
+    const payload = JSON.stringify({
       messages: [{ kind: 'agent', agent_name: 'Question Agent', message: 'Try step one.' }],
-      workspace: {
-        active_issue_id: 'issue-1',
-        issues: [],
-      },
-    };
+      workspace: { active_issue_id: 'issue-1', issues: [] },
+    });
+    const sseBody = `data: ${payload}\n\n`;
 
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(backendPayload), {
+      new Response(sseBody, {
         status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/event-stream' },
       }),
     );
     global.fetch = fetchMock as typeof fetch;
@@ -38,28 +37,30 @@ describe('PBL chat proxy route', () => {
       headers: {
         'content-type': 'application/json',
         'x-api-key': 'test-key',
-        authorization: 'Bearer test-session-token',
+        authorization: '[redacted]',
         cookie: 'ai_tutor_session=test-cookie-token',
       },
       body: JSON.stringify({ message: 'hello', project_config: {}, workspace: {} }),
     });
 
     const response = await POST(req);
-    const json = await response.json();
+    const text = await response.text();
 
     expect(response.status).toBe(200);
-    expect(json).toEqual(backendPayload);
+    expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+    // The route streams the backend body through verbatim
+    expect(text).toContain('Question Agent');
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://backend.internal/api/runtime/pbl/chat',
+      'http://backend.internal/api/runtime/pbl/chat-stream',
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
           'x-api-key': 'test-key',
-          authorization: 'Bearer test-session-token',
-          cookie: 'ai_tutor_session=test-cookie-token',
+          Authorization: '[redacted]',
+          Cookie: 'ai_tutor_session=test-cookie-token',
         }),
       }),
     );
@@ -98,7 +99,7 @@ describe('PBL chat proxy route', () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ messages: [] }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/event-stream' },
       }),
     );
     global.fetch = fetchMock as typeof fetch;
@@ -112,7 +113,7 @@ describe('PBL chat proxy route', () => {
     await POST(req);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://127.0.0.1:8099/api/runtime/pbl/chat',
+      'http://127.0.0.1:8099/api/runtime/pbl/chat-stream',
       expect.objectContaining({ method: 'POST' }),
     );
   });

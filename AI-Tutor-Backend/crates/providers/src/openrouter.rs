@@ -7,7 +7,7 @@ use std::sync::Arc;
 use ai_tutor_domain::provider::ProviderStrategy;
 
 use crate::request_params::GenerationParams;
-use crate::traits::{LlmProvider, ProviderUsage};
+use crate::traits::{LlmProvider, ProviderCapabilities, ProviderRuntimeStatus, ProviderUsage, StreamingPath};
 
 const OPENROUTER_REFERER: &str = "https://ai-tutor.app";
 const OPENROUTER_TITLE: &str = "AI Tutor";
@@ -272,6 +272,26 @@ impl LlmProvider for OpenRouterLlmProvider {
         let (system, user) = self.augment_prompts(system_prompt, user_prompt);
         self.inner.generate_text_with_params(&system, &user, &dynamic_params).await
     }
+
+    /// Forward runtime telemetry to the wrapped provider.
+    ///
+    /// The ResilientLlmProvider accumulates in-memory counters (requests,
+    /// successes, failures, latency, provider-reported token usage, cost) into
+    /// a process-global store. Without this override the outer OpenRouter
+    /// wrapper inherits the trait default (empty Vec), which makes the operator
+    /// panel's `GET /api/system/status` report zero provider telemetry even
+    /// while generations are flowing.
+    fn runtime_status(&self) -> Vec<ProviderRuntimeStatus> {
+        self.inner.runtime_status()
+    }
+
+    fn streaming_path(&self) -> StreamingPath {
+        self.inner.streaming_path()
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.inner.capabilities()
+    }
 }
 
 // ── FallbackLlmProvider ───────────────────────────────────────────────────────
@@ -348,5 +368,23 @@ impl LlmProvider for FallbackLlmProvider {
                 .generate_text_with_params(system_prompt, user_prompt, params)
                 .await,
         }
+    }
+
+    /// Forward runtime telemetry from the active provider.
+    ///
+    /// Fallback chains wrap primary+secondary providers (which are themselves
+    /// ResilientLlmProvider instances holding the live telemetry counters).
+    /// Report the primary's status so the operator panel surfaces the circuit
+    /// breaker state and token usage of the main path.
+    fn runtime_status(&self) -> Vec<ProviderRuntimeStatus> {
+        self.primary.runtime_status()
+    }
+
+    fn streaming_path(&self) -> StreamingPath {
+        self.primary.streaming_path()
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.primary.capabilities()
     }
 }

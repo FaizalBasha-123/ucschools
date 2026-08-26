@@ -21,6 +21,7 @@ pub(crate)     async fn generate_project_content(
         pdf_context: Option<&str>,
     ) -> Result<SceneContent> {
         let pdf_info = pdf_context.map(|ctx| format!("Attached PDF Content Context:\n{}\n", ctx)).unwrap_or_default();
+        let has_pdf = !pdf_info.is_empty();
         let mut vars = std::collections::HashMap::new();
         vars.insert("title", outline.title.clone());
         vars.insert("description", outline.description.clone());
@@ -43,7 +44,7 @@ pub(crate)     async fn generate_project_content(
             user.push_str(&format!("\n\n{}", pdf_info));
         }
 
-        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user, has_pdf).await?;
         let mut payload: ProjectContentEnvelope =
             parse_json_with_repair(&response).unwrap_or(ProjectContentEnvelope {
                 summary: fallback_project_summary(outline),
@@ -168,7 +169,7 @@ pub(crate)     async fn generate_project_role_plan(
                 .map(|items| items.join(" | "))
                 .unwrap_or_else(|| "Not specified".to_string()),
         );
-        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user, false).await?;
         parse_json_with_repair(&response)
     }
 
@@ -247,7 +248,7 @@ pub(crate)     async fn generate_project_issue_board(
             roles_summary,
             issue_count,
         );
-        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user, false).await?;
         parse_json_with_repair(&response)
     }
 }

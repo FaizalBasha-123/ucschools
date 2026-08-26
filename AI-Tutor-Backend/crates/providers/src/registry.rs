@@ -151,20 +151,40 @@ pub fn built_in_providers() -> Vec<ProviderConfig> {
             default_base_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string()),
             requires_api_key: true,
             icon: None,
-            models: vec![ModelInfo {
-                id: "qwen3.5-flash".to_string(),
-                name: "Qwen3.5 Flash".to_string(),
-                context_window: Some(1_000_000),
-                output_window: Some(65_536),
-                cost_tier: Some("economy".to_string()),
-                pricing: None,
-                capabilities: ModelCapabilities {
-                    streaming: true,
-                    tools: true,
-                    vision: true,
-                    thinking: None,
+            models: vec![
+                ModelInfo {
+                    id: "qwen3.8-max".to_string(),
+                    name: "Qwen 3.8 Max".to_string(),
+                    context_window: Some(1_000_000),
+                    output_window: Some(131_072),
+                    cost_tier: Some("premium".to_string()),
+                    pricing: None,
+                    capabilities: ModelCapabilities {
+                        streaming: true,
+                        tools: true,
+                        vision: true,
+                        thinking: Some(ThinkingCapability {
+                            toggleable: true,
+                            budget_adjustable: true,
+                            default_enabled: false,
+                        }),
+                    },
                 },
-            }],
+                ModelInfo {
+                    id: "qwen3.5-flash".to_string(),
+                    name: "Qwen3.5 Flash".to_string(),
+                    context_window: Some(1_000_000),
+                    output_window: Some(65_536),
+                    cost_tier: Some("economy".to_string()),
+                    pricing: None,
+                    capabilities: ModelCapabilities {
+                        streaming: true,
+                        tools: true,
+                        vision: true,
+                        thinking: None,
+                    },
+                },
+            ],
         },
         ProviderConfig {
             id: "kimi".to_string(),

@@ -56,8 +56,8 @@ describe('Lesson shelf retry proxy route', () => {
       expect.objectContaining({
         method: 'POST',
         headers: expect.objectContaining({
-          authorization: 'Bearer token',
-          cookie: 'session=abc',
+          'Authorization': 'Bearer token',
+          'Cookie': 'session=abc',
           'Content-Type': 'application/json',
         }),
       }),

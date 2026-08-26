@@ -43,7 +43,9 @@ pub(crate)     async fn generate_quiz_content(
             user.push_str(&format!("\n\n{}", pdf_info));
         }
 
-        let (response, _usage) = self.generate_json_with_search_tool(&system, &user).await?;
+        let has_pdf = !pdf_info.is_empty();
+
+        let (response, _usage) = self.generate_json_with_search_tool(&system, &user, has_pdf).await?;
         let payload: QuizContentEnvelope = parse_json_with_repair(&response)
             .unwrap_or_else(|_| QuizContentEnvelope { questions: vec![] });
         let questions = if payload.questions.is_empty() {

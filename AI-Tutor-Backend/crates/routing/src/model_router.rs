@@ -38,7 +38,7 @@ mod tests {
             TopicComplexity::Normal,
         );
         assert_eq!(route.budget.max_scenes, 5);
-        assert!(route.model.contains("deepseek"));
+        assert!(route.model.contains("qwen3.8-max"));
     }
 
     #[test]
@@ -73,6 +73,6 @@ mod tests {
             TopicComplexity::Normal,
         );
         assert_eq!(route.capability, Capability::StructuredGeneration);
-        assert!(route.model.contains("deepseek"));
+        assert!(route.model.contains("qwen3.8-max"));
     }
 }

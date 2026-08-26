@@ -74,7 +74,20 @@ fn calculate_event_cost(event: &UsageEvent) -> i64 {
         ("groq", "whisper-large-v3") => (0.0, 0.0),
         ("groq", "whisper-small") => (0.0, 0.0),
         ("elevenlabs", _) => (0.0, 0.30),
-        _ => (10.0, 30.0),
+        // Conservative fallback: roughly mid-tier flash-model pricing
+        // ($0.15/M input, $0.60/M output).  Previously this was (10.0, 30.0)
+        // — more expensive than Claude Opus — which massively inflated the
+        // cost figures for any unrecognised model.  The fallback intentionally
+        // under-estimates rather than over-estimates so operator dashboards
+        // never show alarmist burn rates for unknown models.
+        _ => {
+            warn!(
+                provider_id = %event.provider_id,
+                model_id = %event.model_id,
+                "unknown provider/model combination in cost calculation; using conservative fallback"
+            );
+            (0.15, 0.60)
+        }
     };
     ai_tutor_domain::billing::ApiUsageRecord::compute_cost_millicents(
         event.input_tokens,

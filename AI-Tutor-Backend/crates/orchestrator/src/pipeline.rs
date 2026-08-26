@@ -1261,6 +1261,8 @@ mod tests {
                     quiz_config: None,
                     interactive_config: None,
                     project_config: None,
+                    widget_type: None,
+                    widget_outline: None,
                 },
                 SceneOutline {
                     id: "outline-2".to_string(),
@@ -1278,6 +1280,8 @@ mod tests {
                     quiz_config: None,
                     interactive_config: None,
                     project_config: None,
+                    widget_type: None,
+                    widget_outline: None,
                 },
             ])
         }
@@ -1294,13 +1298,14 @@ mod tests {
                     canvas: ai_tutor_domain::scene::SlideCanvas {
                         id: "canvas-1".to_string(),
                         viewport_width: 1000,
-                        viewport_height: 563,
                         viewport_ratio: 0.5625,
                         theme: ai_tutor_domain::scene::SlideTheme {
                             background_color: "#ffffff".to_string(),
                             theme_colors: vec!["#1f2937".to_string()],
                             font_color: "#111827".to_string(),
                             font_name: "Geist".to_string(),
+                            outline: None,
+                            shadow: None,
                         },
                         elements: vec![],
                         background: None,
@@ -1469,6 +1474,8 @@ mod tests {
                 quiz_config: None,
                 interactive_config: None,
                 project_config: None,
+                widget_type: None,
+                widget_outline: None,
             }])
         }
 
@@ -1483,13 +1490,14 @@ mod tests {
                 canvas: ai_tutor_domain::scene::SlideCanvas {
                     id: "canvas-1".to_string(),
                     viewport_width: 1000,
-                    viewport_height: 563,
                     viewport_ratio: 0.5625,
                     theme: ai_tutor_domain::scene::SlideTheme {
                         background_color: "#ffffff".to_string(),
                         theme_colors: vec!["#1f2937".to_string()],
                         font_color: "#111827".to_string(),
                         font_name: "Geist".to_string(),
+                        outline: None,
+                        shadow: None,
                     },
                     elements: vec![ai_tutor_domain::scene::SlideElement::Image {
                         id: "img-1".to_string(),
@@ -1500,6 +1508,9 @@ mod tests {
                         rotate: 0.0,
                         src: "gen_img_1".to_string(),
                         fixed_ratio: true,
+                        outline: None,
+                        opacity: None,
+                        shadow: None,
                     }],
                     background: None,
                 },
@@ -1557,6 +1568,8 @@ mod tests {
                 quiz_config: None,
                 interactive_config: None,
                 project_config: None,
+                widget_type: None,
+                widget_outline: None,
             }])
         }
 
@@ -1571,13 +1584,14 @@ mod tests {
                 canvas: ai_tutor_domain::scene::SlideCanvas {
                     id: "canvas-1".to_string(),
                     viewport_width: 1000,
-                    viewport_height: 563,
                     viewport_ratio: 0.5625,
                     theme: ai_tutor_domain::scene::SlideTheme {
                         background_color: "#ffffff".to_string(),
                         theme_colors: vec!["#1f2937".to_string()],
                         font_color: "#111827".to_string(),
                         font_name: "Geist".to_string(),
+                        outline: None,
+                        shadow: None,
                     },
                     elements: vec![ai_tutor_domain::scene::SlideElement::Video {
                         id: "vid-1".to_string(),
@@ -1587,6 +1601,7 @@ mod tests {
                         height: 100.0,
                         rotate: 0.0,
                         src: "gen_vid_1".to_string(),
+                        shadow: None,
                     }],
                     background: None,
                 },

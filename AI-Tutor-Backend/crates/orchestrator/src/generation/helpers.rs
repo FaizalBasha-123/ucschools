@@ -1309,6 +1309,42 @@ pub(crate) fn should_retry_llm_error(error: &anyhow::Error) -> bool {
         || message.contains("network")
 }
 
+/// Detect whether a prompt describes medical/clinical content so the web-search
+/// grounding loop can switch to a stricter, source-verified mode.
+///
+/// Looks for a curated set of medical keywords in the combined system+user prompt
+/// text. The list is intentionally broad (anatomy, pharmacology, disease, clinical
+/// procedures, diagnostics) but avoids common false positives like "cell" or
+/// "membrane" that appear equally in biology and materials-science lessons.
+pub(crate) fn is_medical_content(system_prompt: &str, user_prompt: &str) -> bool {
+    const MEDICAL_KEYWORDS: &[&str] = &[
+        // Clinical practice & procedures
+        "diagnosis", "diagnostic", "prognosis", "clinical", "patient", "symptom",
+        "treatment", "therapy", "therapeutic", "dosage", "prescription", "medication",
+        "pharmacology", "pharmaceutical", "contraindication", "adverse effect",
+        "side effect", "drug interaction", "patient management", "clinical guideline",
+        "differential diagnosis", "medical intervention", "medical device",
+        // Disease & pathology
+        "pathology", "pathophysiology", "etiology", "disease", "disorder", "syndrome",
+        "infection", "infectious", "carcinoma", "tumor", "malignant", "benign",
+        "hypertension", "diabetes", "sepsis", "stroke", "myocardial", "arrhythmia",
+        // Pharmacology specifics
+        "antibiotic", "antiviral", "vaccine", "vaccination", "immunization",
+        "analgesic", "anesthesia", "anesthetic", "anticoagulant", "chemotherapy",
+        // Body systems & exam
+        "anatomy of", "physiology of", "cardiovascular", "respiratory system",
+        "nervous system", "gastrointestinal", "endocrine", "musculoskeletal",
+        "physical examination", "vital signs", "electrocardiogram", "radiology",
+        "imaging", "biopsy", "laparoscopic",
+        // Public health & epidemiology
+        "epidemiology", "epidemic", "pandemic", "outbreak", "public health",
+        "vaccination schedule", "immunization schedule",
+    ];
+
+    let haystack = format!("{system_prompt}\n{user_prompt}").to_lowercase();
+    MEDICAL_KEYWORDS.iter().any(|kw| haystack.contains(kw))
+}
+
 pub(crate) fn format_search_results_as_context(result: &TavilySearchResponse) -> String {
     if result.answer.trim().is_empty() && result.results.is_empty() {
         return String::new();

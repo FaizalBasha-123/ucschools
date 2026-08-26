@@ -76,8 +76,16 @@ impl std::ops::DerefMut for PooledPgConnection {
     }
 }
 
-// Pool stored in RwLock so init is fallible - no panic on DB unreachable at startup.
-static PG_POOL: OnceLock<std::sync::RwLock<Option<PgPool>>> = OnceLock::new();
+// Pool registry keyed by Postgres URL so each distinct URL gets its own pool.
+// This is required for test isolation: tests that connect to different per-test
+// databases must not share a single global pool (the old `static PG_POOL`
+// ignored the URL after the first init, so all tests hit the same DB).
+static PG_POOLS: OnceLock<std::sync::Mutex<std::collections::HashMap<String, PgPool>>> =
+    OnceLock::new();
+
+fn pg_pools() -> &'static std::sync::Mutex<std::collections::HashMap<String, PgPool>> {
+    PG_POOLS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
 
 /// Builds the r2d2 pool. min_idle=0 means no test connection at build time,
 /// so this always succeeds even when the DB is temporarily unreachable.
@@ -118,37 +126,42 @@ fn build_pg_pool(url: &str) -> AnyResult<PgPool> {
 }
 
 fn get_pg_client(url: &str) -> AnyResult<PooledPgConnection> {
-    let lock = PG_POOL.get_or_init(|| std::sync::RwLock::new(None));
-    // Fast path
+    // Fast path: pool for this URL already exists.
     {
-        let guard = lock.read().map_err(|_| anyhow::anyhow!("pg pool lock poisoned"))?;
-        if let Some(pool) = guard.as_ref() {
+        let pools = pg_pools().lock().map_err(|_| anyhow::anyhow!("pg pool lock poisoned"))?;
+        if let Some(pool) = pools.get(url) {
             return match pool {
                 PgPool::Tls(p) => Ok(PooledPgConnection::Tls(p.get()?)),
                 PgPool::NoTls(p) => Ok(PooledPgConnection::NoTls(p.get()?)),
             };
         }
     }
-    // Slow path: build pool once
+    // Slow path: build a new pool for this URL and run migrations on it.
     {
-        let mut guard = lock.write().map_err(|_| anyhow::anyhow!("pg pool lock poisoned"))?;
-        if guard.is_none() {
-            tracing::info!("Initializing Postgres pool...");
-            let pool = build_pg_pool(url)?;
-            let mut client = match &pool {
-                PgPool::Tls(p) => PooledPgConnection::Tls(
-                    p.get().map_err(|e| anyhow::anyhow!("migration connect: {}", e))?
-                ),
-                PgPool::NoTls(p) => PooledPgConnection::NoTls(
-                    p.get().map_err(|e| anyhow::anyhow!("migration connect: {}", e))?
-                ),
+        let mut pools = pg_pools().lock().map_err(|_| anyhow::anyhow!("pg pool lock poisoned"))?;
+        // Double-check after acquiring write lock.
+        if let Some(pool) = pools.get(url) {
+            return match pool {
+                PgPool::Tls(p) => Ok(PooledPgConnection::Tls(p.get()?)),
+                PgPool::NoTls(p) => Ok(PooledPgConnection::NoTls(p.get()?)),
             };
-            FileStorage::run_postgres_migrations(&mut client)
-                .map_err(|e| anyhow::anyhow!("postgres migrations: {}", e))?;
-            tracing::info!("Postgres pool ready.");
-            *guard = Some(pool);
         }
-        let pool = guard.as_ref().expect("pool set above");
+        tracing::info!("Initializing Postgres pool for {}...", url);
+        let pool = build_pg_pool(url)?;
+        let mut client = match &pool {
+            PgPool::Tls(p) => PooledPgConnection::Tls(
+                p.get().map_err(|e| anyhow::anyhow!("migration connect: {}", e))?
+            ),
+            PgPool::NoTls(p) => PooledPgConnection::NoTls(
+                p.get().map_err(|e| anyhow::anyhow!("migration connect: {}", e))?
+            ),
+        };
+        FileStorage::run_postgres_migrations(&mut client)
+            .map_err(|e| anyhow::anyhow!("postgres migrations: {}", e))?;
+        tracing::info!("Postgres pool ready for {}.", url);
+        pools.insert(url.to_string(), pool);
+        // Re-acquire a connection from the now-stored pool.
+        let pool = pools.get(url).expect("pool inserted above");
         match pool {
             PgPool::Tls(p) => Ok(PooledPgConnection::Tls(p.get()?)),
             PgPool::NoTls(p) => Ok(PooledPgConnection::NoTls(p.get()?)),
@@ -1054,11 +1067,9 @@ impl FileStorage {
 
 
     fn run_postgres_migrations(client: &mut Client) -> AnyResult<()> {
-        static MIGRATIONS_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-        if MIGRATIONS_DONE.load(Ordering::Acquire) {
-            return Ok(());
-        }
-
+        // Migrations are idempotent: each migration checks schema_migrations
+        // before applying. We no longer short-circuit with a global flag because
+        // that would skip migrations for per-test databases.
         client.batch_execute(
             "
             CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -1091,7 +1102,6 @@ impl FileStorage {
             )?;
             tx.commit()?;
         }
-        MIGRATIONS_DONE.store(true, Ordering::Release);
         Ok(())
     }
 

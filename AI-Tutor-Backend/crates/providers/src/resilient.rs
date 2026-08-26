@@ -172,6 +172,29 @@ fn shared_runtime_telemetry_store() -> Arc<Mutex<HashMap<String, ProviderTelemet
     }
 }
 
+/// Process-global circuit-breaker health store, mirroring the telemetry store.
+///
+/// `ResilientLlmProvider` records circuit-breaker state (consecutive failures,
+/// cooldown deadline) per provider label. Without a shared store, a freshly
+/// built provider — e.g. the one `GET /api/system/status` constructs to read
+/// runtime observability — always sees a clean `available` state even when the
+/// live generation provider has an open circuit. Sharing the map lets the
+/// operator panel surface the real circuit-breaker status.
+fn shared_runtime_health_store() -> Arc<Mutex<HashMap<String, ProviderHealth>>> {
+    #[cfg(test)]
+    {
+        Arc::new(Mutex::new(HashMap::new()))
+    }
+    #[cfg(not(test))]
+    {
+        static STORE: std::sync::OnceLock<Arc<Mutex<HashMap<String, ProviderHealth>>>> =
+            std::sync::OnceLock::new();
+        STORE
+            .get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+            .clone()
+    }
+}
+
 // ── Error Classification ─────────────────────────────────────────────────
 
 /// Check if an error is non-retryable (client errors that won't resolve with retries).
@@ -429,7 +452,7 @@ impl ResilientLlmProvider {
             circuit_breaker_threshold: 2,
             circuit_breaker_cooldown_ms: 30_000,
             model_id: None,
-            health: Arc::new(Mutex::new(HashMap::new())),
+            health: shared_runtime_health_store(),
             telemetry: shared_runtime_telemetry_store(),
         }
     }

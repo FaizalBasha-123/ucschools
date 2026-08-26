@@ -39,8 +39,13 @@ pub(crate)     async fn do_generate_outlines(
         let video_enabled = request.enable_video_generation;
         let media_enabled = image_enabled || video_enabled;
 
+        let has_pdf = pdf_context.map_or(false, |c| !c.trim().is_empty());
+
         let mut research_context = "None".to_string();
-        if request.enable_web_search {
+        // Eager search is only worthwhile when no document was uploaded. When a PDF
+        // is provided, it is the primary source — the outline LLM will use the search
+        // tool during generation if it identifies specific gaps.
+        if request.enable_web_search && !has_pdf {
             if let Some(context) = self.execute_tavily_search(&request.requirements.requirement).await {
                 research_context = context;
             }
@@ -66,7 +71,7 @@ pub(crate)     async fn do_generate_outlines(
         });
 
         let (final_response, _usage) = self
-            .generate_json_with_search_tool_using(self.outlines_llm(), &system, &user)
+            .generate_json_with_search_tool_using(self.outlines_llm(), &system, &user, has_pdf)
             .await?;
 
         // Parse response — try full envelope with languageDirective first,

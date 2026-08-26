@@ -49,33 +49,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn basic_outlines_uses_deepseek() {
+    fn basic_outlines_uses_qwen() {
         let model = resolve_generation_model(
             GenerationTask::Outlines,
             LearningMode::Explain,
             QualityTier::Basic,
         );
-        assert!(model.contains("deepseek"));
+        assert!(model.contains("qwen3.8-max"));
     }
 
     #[test]
-    fn standard_outlines_uses_deepseek() {
+    fn standard_outlines_uses_qwen() {
         let model = resolve_generation_model(
             GenerationTask::Outlines,
             LearningMode::Explain,
             QualityTier::Standard,
         );
-        assert!(model.contains("deepseek"));
+        assert!(model.contains("qwen3.8-max"));
     }
 
     #[test]
-    fn quiz_grade_uses_llama() {
+    fn quiz_grade_uses_qwen() {
         let model = resolve_generation_model(
             GenerationTask::QuizGrade,
             LearningMode::Explain,
             QualityTier::Basic,
         );
-        assert!(model.contains("llama"));
+        assert!(model.contains("qwen3.8-max"));
     }
 
     #[test]
@@ -91,12 +91,12 @@ mod tests {
     }
 
     #[test]
-    fn premium_actions_uses_gemini() {
+    fn premium_actions_uses_qwen() {
         let model = resolve_generation_model(
             GenerationTask::SceneActions,
             LearningMode::Explain,
             QualityTier::Premium,
         );
-        assert!(model.contains("gemini"));
+        assert!(model.contains("qwen3.8-max"));
     }
 }

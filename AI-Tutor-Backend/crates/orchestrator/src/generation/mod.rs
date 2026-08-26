@@ -137,55 +137,53 @@ impl LlmGenerationPipeline {
     /// Appends a tool prompt to the system prompt so the model knows it can request searches.
     /// If the model requests a search, executes it and re-invokes the LLM with results.
     /// Prevents infinite loops by limiting to MAX_SEARCH_TOOL_CALLS rounds.
+    ///
+    /// When `has_pdf_context` is true, the prompt instructs the model to treat the uploaded
+    /// document as the primary source and only search to fill specific gaps it identifies.
+    ///
+    /// When the prompt content is detected as medical, a mandatory grounding search is
+    /// fired before the LLM loop and the medical tool prompt (mandatory search, authoritative
+    /// sources, disclaimer requirement) is used.
     async fn generate_with_search_tool_using(
         &self,
         llm: &dyn LlmProvider,
         system_prompt: &str,
         user_prompt: &str,
+        has_pdf_context: bool,
     ) -> Result<(String, Option<ProviderUsage>)> {
         let Some(_web_search) = &self.web_search else {
             return self.generate_with_retry_using(llm, system_prompt, user_prompt).await;
         };
 
-        let tool_prompt = format!(
-            r#"
-WEB SEARCH TOOL AVAILABLE:
-You have access to a web search tool. Use it ONLY when you genuinely lack reliable information.
-
-SEARCH when ALL of these are true:
-- The topic requires facts you cannot confidently provide from training data
-- The topic involves recent events, real-time data, or rapidly-changing statistics
-- Precise, verifiable figures are needed (e.g. current prices, live regulations, recent research)
-
-DO NOT SEARCH when:
-- The topic is standard curriculum content (science, math, history, language, programming fundamentals)
-- A PDF context has already been provided — use it instead of searching
-- You already have sufficient knowledge to create accurate, educationally-sound content
-- The topic is conceptual or definitional (how gravity works, what photosynthesis is, etc.)
-
-To invoke, respond with EXACTLY:
-{marker}
-{query_marker} <specific search query>
-
-Then continue with your response after receiving results.
-If you have sufficient knowledge, respond DIRECTLY without invoking the tool.
-You may invoke the tool at most {max_calls} times total.
-"#,
-            marker = WEB_SEARCH_TOOL_CALL_MARKER,
-            query_marker = WEB_SEARCH_QUERY_MARKER,
-            max_calls = MAX_SEARCH_TOOL_CALLS
-        );
+        let is_medical = is_medical_content(system_prompt, user_prompt);
+        let tool_prompt = build_web_search_tool_prompt(has_pdf_context, is_medical);
 
         let augmented_system = format!("{system_prompt}\n{tool_prompt}");
         let mut current_user = user_prompt.to_string();
         let mut accumulated_usage: Option<ProviderUsage> = None;
+
+        // Medical content: auto-fire one grounding search before the LLM decides anything,
+        // so clinical facts are grounded even if the model would not have requested a search.
+        if is_medical {
+            if let Some(query) = Self::extract_search_query(system_prompt, user_prompt) {
+                let results = match self.execute_tavily_search_medical(&query).await {
+                    Some(ctx) => format!("MANDATORY medical grounding search for \"{query}\":\n{ctx}"),
+                    None => format!("Medical grounding search for \"{query}\" returned no results. Proceed with your training knowledge and clearly mark any unverified clinical claims."),
+                };
+                current_user = format!("{user_prompt}\n\n{results}");
+            }
+        }
 
         for _round in 0..MAX_SEARCH_TOOL_CALLS {
             let (response, usage) = self.generate_with_retry_using(llm, &augmented_system, &current_user).await?;
             accumulate_usage(&mut accumulated_usage, usage);
 
             if let Some(query) = parse_web_search_tool_call(&response) {
-                let results = match self.execute_tavily_search(&query).await {
+                let results = match if is_medical {
+                    self.execute_tavily_search_medical(&query).await
+                } else {
+                    self.execute_tavily_search(&query).await
+                } {
                     Some(ctx) => format!("Web search results for \"{query}\":\n{ctx}"),
                     None => format!("Web search for \"{query}\" returned no results. Continue with your existing knowledge."),
                 };
@@ -205,62 +203,61 @@ You may invoke the tool at most {max_calls} times total.
         &self,
         system_prompt: &str,
         user_prompt: &str,
+        has_pdf_context: bool,
     ) -> Result<(String, Option<ProviderUsage>)> {
-        self.generate_with_search_tool_using(self.scene_content_llm(), system_prompt, user_prompt)
+        self.generate_with_search_tool_using(self.scene_content_llm(), system_prompt, user_prompt, has_pdf_context)
             .await
     }
 
     /// Like `generate_with_search_tool_using` but uses `response_format: json_object` for
     /// structured JSON generation — provides more reliable, correctly-formatted output.
+    ///
+    /// When `has_pdf_context` is true, the prompt instructs the model to treat the uploaded
+    /// document as the primary source and only search to fill specific gaps it identifies.
+    ///
+    /// When the prompt content is detected as medical, a mandatory grounding search is
+    /// fired before the LLM loop and the medical tool prompt (mandatory search, authoritative
+    /// sources, disclaimer requirement) is used.
     async fn generate_json_with_search_tool_using(
         &self,
         llm: &dyn LlmProvider,
         system_prompt: &str,
         user_prompt: &str,
+        has_pdf_context: bool,
     ) -> Result<(String, Option<ProviderUsage>)> {
         let Some(_web_search) = &self.web_search else {
             return self.generate_json_with_retry_using(llm, system_prompt, user_prompt).await;
         };
 
-        let tool_prompt = format!(
-            r#"
-WEB SEARCH TOOL AVAILABLE:
-You have access to a web search tool. Use it ONLY when you genuinely lack reliable information.
-
-SEARCH when ALL of these are true:
-- The topic requires facts you cannot confidently provide from training data
-- The topic involves recent events, real-time data, or rapidly-changing statistics
-- Precise, verifiable figures are needed (e.g. current prices, live regulations, recent research)
-
-DO NOT SEARCH when:
-- The topic is standard curriculum content (science, math, history, language, programming fundamentals)
-- A PDF context has already been provided — use it instead of searching
-- You already have sufficient knowledge to create accurate, educationally-sound content
-- The topic is conceptual or definitional (how gravity works, what photosynthesis is, etc.)
-
-To invoke, respond with EXACTLY:
-{marker}
-{query_marker} <specific search query>
-
-Then continue with your response after receiving results.
-If you have sufficient knowledge, respond DIRECTLY without invoking the tool.
-You may invoke the tool at most {max_calls} times total.
-"#,
-            marker = WEB_SEARCH_TOOL_CALL_MARKER,
-            query_marker = WEB_SEARCH_QUERY_MARKER,
-            max_calls = MAX_SEARCH_TOOL_CALLS
-        );
+        let is_medical = is_medical_content(system_prompt, user_prompt);
+        let tool_prompt = build_web_search_tool_prompt(has_pdf_context, is_medical);
 
         let augmented_system = format!("{system_prompt}\n{tool_prompt}");
         let mut current_user = user_prompt.to_string();
         let mut accumulated_usage: Option<ProviderUsage> = None;
+
+        // Medical content: auto-fire one grounding search before the LLM decides anything,
+        // so clinical facts are grounded even if the model would not have requested a search.
+        if is_medical {
+            if let Some(query) = Self::extract_search_query(system_prompt, user_prompt) {
+                let results = match self.execute_tavily_search_medical(&query).await {
+                    Some(ctx) => format!("MANDATORY medical grounding search for \"{query}\":\n{ctx}"),
+                    None => format!("Medical grounding search for \"{query}\" returned no results. Proceed with your training knowledge and clearly mark any unverified clinical claims."),
+                };
+                current_user = format!("{user_prompt}\n\n{results}");
+            }
+        }
 
         for _round in 0..MAX_SEARCH_TOOL_CALLS {
             let (response, usage) = self.generate_json_with_retry_using(llm, &augmented_system, &current_user).await?;
             accumulate_usage(&mut accumulated_usage, usage);
 
             if let Some(query) = parse_web_search_tool_call(&response) {
-                let results = match self.execute_tavily_search(&query).await {
+                let results = match if is_medical {
+                    self.execute_tavily_search_medical(&query).await
+                } else {
+                    self.execute_tavily_search(&query).await
+                } {
                     Some(ctx) => format!("Web search results for \"{query}\":\n{ctx}"),
                     None => format!("Web search for \"{query}\" returned no results. Continue with your existing knowledge."),
                 };
@@ -280,8 +277,9 @@ You may invoke the tool at most {max_calls} times total.
         &self,
         system_prompt: &str,
         user_prompt: &str,
+        has_pdf_context: bool,
     ) -> Result<(String, Option<ProviderUsage>)> {
-        self.generate_json_with_search_tool_using(self.scene_content_llm(), system_prompt, user_prompt)
+        self.generate_json_with_search_tool_using(self.scene_content_llm(), system_prompt, user_prompt, has_pdf_context)
             .await
     }
 
@@ -335,6 +333,126 @@ You may invoke the tool at most {max_calls} times total.
             callback(&truncated);
         }
         Some(context)
+    }
+
+    /// Execute a Tavily web search tuned for medical content.
+    ///
+    /// Differences from the standard search:
+    /// - `search_depth: "advanced"` for deeper, higher-quality extraction.
+    /// - `include_domains` restricts results to authoritative medical sources
+    ///   (WHO, CDC, NIH/NLM, Mayo Clinic, NHS, and .gov/.edu domains) so clinical
+    ///   claims are grounded in vetted literature rather than health blogs.
+    /// - Falls back to an unrestricted advanced search if the domain-restricted
+    ///   query returns nothing, so the lesson still gets *some* grounding.
+    async fn execute_tavily_search_medical(&self, query: &str) -> Option<String> {
+        let config = self.web_search.as_ref()?;
+        let normalized: String = query.split_whitespace().collect::<Vec<_>>().join(" ");
+        if normalized.is_empty() {
+            return None;
+        }
+        let truncated: String = normalized.chars().take(TAVILY_SOFT_MAX_QUERY_LENGTH).collect();
+
+        // Authoritative medical and academic domains. Tavily's include_domains is a
+        // URL-substring match, so we use bare host names.
+        const MEDICAL_DOMAINS: &[&str] = &[
+            "who.int", "cdc.gov", "nih.gov", "nlm.nih.gov", "ncbi.nlm.nih.gov",
+            "mayoclinic.org", "clevelandclinic.org", "nhs.uk", "medlineplus.gov",
+            "hopkinsmedicine.org", "msdmanuals.com", "bmj.com", "nejm.org",
+            "pubmed.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov", "uptodate.com",
+            "aafp.org", "heart.org", "diabetes.org", "pediatrics.aappublications.org",
+            "cdc.gov", "fda.gov", "nice.org.uk", "cochrane.org",
+            // Academic repositories — broad catch for peer-reviewed content
+            ".edu", ".gov",
+        ];
+
+        let response = config
+            .client
+            .post(&config.base_url)
+            .header("Authorization", format!("Bearer {}", config.api_key))
+            .json(&serde_json::json!({
+                "query": truncated,
+                "search_depth": "advanced",
+                "max_results": config.max_results,
+                "include_answer": "advanced",
+                "include_domains": MEDICAL_DOMAINS,
+            }))
+            .send()
+            .await
+            .map_err(|e| {
+                warn!("Tavily medical search request failed: {}", e);
+                e
+            })
+            .ok()?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            warn!("Tavily medical search failed: status={} body={}", status, body);
+            return None;
+        }
+
+        let result: TavilySearchResponse = response.json().await
+            .map_err(|e| {
+                warn!("Failed to parse Tavily medical response: {}", e);
+                e
+            })
+            .ok()?;
+
+        let context = format_search_results_as_context(&result);
+
+        // Fall back to an unrestricted advanced search if the domain-restricted query
+        // returned nothing — better to have *some* grounding than none.
+        if context.is_empty() {
+            warn!("Tavily medical search returned no results for restricted domains, retrying unrestricted");
+            return self.execute_tavily_search(&query).await;
+        }
+
+        if let Some(ref callback) = config.on_search {
+            callback(&truncated);
+        }
+        Some(context)
+    }
+
+    /// Extract a search query from the prompt content for the mandatory medical
+    /// grounding search.
+    ///
+    /// The user_prompt typically contains the topic title and key points (e.g. the
+    /// slide/quiz/outline template output). We build a concise query from the most
+    /// salient line — the scene title or requirement — so Tavily returns focused,
+    /// authoritative results rather than a dump of everything.
+    fn extract_search_query(system_prompt: &str, user_prompt: &str) -> Option<String> {
+        // Look for explicit topic markers the prompt templates use.
+        let combined = format!("{system_prompt}\n{user_prompt}");
+
+        // The requirement line is the strongest signal. Templates render it as
+        // "Requirement: ..." or "Lesson outline for: ..." or a raw topic.
+        for line in combined.lines() {
+            let trimmed = line.trim();
+            for prefix in &["Requirement:", "Lesson outline for:", "Topic:", "Scene title:"] {
+                if let Some(rest) = trimmed.strip_prefix(prefix) {
+                    let q = rest.trim().trim_matches('"').trim();
+                    if q.chars().count() >= 4 {
+                        return Some(q.chars().take(TAVILY_SOFT_MAX_QUERY_LENGTH).collect());
+                    }
+                }
+            }
+        }
+
+        // Fall back to the first non-empty, non-template-instruction line of the
+        // user prompt — usually the topic statement.
+        for line in user_prompt.lines() {
+            let trimmed = line.trim();
+            if !trimmed.is_empty()
+                && !trimmed.starts_with("You are")
+                && !trimmed.starts_with("Create")
+                && !trimmed.starts_with("Return")
+                && trimmed.chars().count() >= 4
+            {
+                return Some(trimmed.chars().take(TAVILY_SOFT_MAX_QUERY_LENGTH).collect());
+            }
+        }
+
+        None
     }
 
     async fn generate_with_retry_using(
@@ -455,7 +573,8 @@ You may invoke the tool at most {max_calls} times total.
             outline.key_points.join(" | ")
         );
 
-        let response = self.generate_json_with_search_tool(&system, &user).await.ok().map(|(r, _)| r).unwrap_or_default();
+        let has_pdf = !pdf_info.is_empty();
+        let response = self.generate_json_with_search_tool(&system, &user, has_pdf).await.ok().map(|(r, _)| r).unwrap_or_default();
         let parsed: ScientificModelEnvelope = parse_json_with_repair(&response).ok()?;
         if parsed.core_formulas.is_empty()
             && parsed.mechanism.is_empty()
@@ -547,6 +666,151 @@ const MAX_SEARCH_TOOL_CALLS: usize = 2;
 const WEB_SEARCH_TOOL_CALL_MARKER: &str = "TOOL_CALL: web_search";
 /// Marker preceding the search query in the tool call.
 const WEB_SEARCH_QUERY_MARKER: &str = "QUERY:";
+
+/// Build the web search tool prompt appended to the system prompt.
+///
+/// The backend acts as a teaching harness that prioritizes uploaded documents as the
+/// primary knowledge source. When a PDF/doc is provided, the model is told to treat it
+/// as authoritative and only search to fill specific gaps — recent data, missing details,
+/// or topics the document doesn't fully cover. Without a document, the model uses its
+/// own judgment about when searching adds value.
+///
+/// When `is_medical` is true, the prompt switches to a stricter medical-grounding mode:
+/// searching is mandatory for clinical facts, results must come from authoritative
+/// medical sources, and a non-diagnostic disclaimer is required.
+pub(crate) fn build_web_search_tool_prompt(has_pdf_context: bool, is_medical: bool) -> String {
+    if is_medical {
+        return build_medical_web_search_tool_prompt(has_pdf_context);
+    }
+    if has_pdf_context {
+        format!(
+            r#"
+WEB SEARCH TOOL AVAILABLE — GAP-FILLER MODE:
+An uploaded document (PDF/text) has been provided and is your PRIMARY source of truth.
+Treat the document content as authoritative. Your job is to teach from it.
+
+SEARCH ONLY to fill specific gaps the document does not cover:
+- The document mentions recent data, statistics, or regulations but does not provide current values
+- The document covers a concept superficially and the lesson needs deeper or more precise detail
+- The document references external standards, guidelines, or research you need to look up
+- The lesson requires context the document assumes but does not state (e.g. background knowledge)
+
+DO NOT SEARCH when:
+- The document already covers the topic sufficiently for this scene
+- The topic is standard curriculum content the document explains
+- You only need to reorganize, summarize, or illustrate what the document already says
+- The topic is conceptual or definitional and the document explains it
+
+To invoke, respond with EXACTLY:
+{marker}
+{query_marker} <specific search query targeting the gap>
+
+Then continue with your response after receiving results.
+You may invoke the tool at most {max_calls} times total.
+"#,
+            marker = WEB_SEARCH_TOOL_CALL_MARKER,
+            query_marker = WEB_SEARCH_QUERY_MARKER,
+            max_calls = MAX_SEARCH_TOOL_CALLS
+        )
+    } else {
+        format!(
+            r#"
+WEB SEARCH TOOL AVAILABLE:
+You have access to a web search tool. Use it when you genuinely lack reliable information
+or when fresher, more precise data would materially improve the lesson.
+
+SEARCH when:
+- The topic involves recent events, real-time data, or rapidly-changing statistics
+- Precise, verifiable figures are needed (e.g. current prices, live regulations, recent research)
+- You are not confident you can produce accurate, educationally-sound content from training data alone
+
+DO NOT SEARCH when:
+- The topic is standard curriculum content (science, math, history, language, programming fundamentals)
+- You already have sufficient knowledge to create accurate, educationally-sound content
+- The topic is conceptual or definitional (how gravity works, what photosynthesis is, etc.)
+
+To invoke, respond with EXACTLY:
+{marker}
+{query_marker} <specific search query>
+
+Then continue with your response after receiving results.
+If you have sufficient knowledge, respond DIRECTLY without invoking the tool.
+You may invoke the tool at most {max_calls} times total.
+"#,
+            marker = WEB_SEARCH_TOOL_CALL_MARKER,
+            query_marker = WEB_SEARCH_QUERY_MARKER,
+            max_calls = MAX_SEARCH_TOOL_CALLS
+        )
+    }
+}
+
+/// Build the web-search tool prompt for medical content.
+///
+/// Medical lessons require stricter grounding than general topics. This prompt:
+/// 1. Makes a web search MANDATORY for clinical facts (dosages, guidelines, mechanisms).
+/// 2. Instructs the model to prefer authoritative sources (WHO, CDC, NIH, Mayo Clinic,
+///    peer-reviewed journals, medical textbooks, .gov / .edu / recognized medical orgs).
+/// 3. Requires a non-diagnostic educational disclaimer in the generated content.
+fn build_medical_web_search_tool_prompt(has_pdf_context: bool) -> String {
+    let source_rule = if has_pdf_context {
+        "An uploaded document has been provided and is your PRIMARY source of truth for\n\
+         this lesson. However, for any clinical facts (dosages, protocols, contraindications,\n\
+         current guideline recommendations) you MUST verify them against up-to-date web\n\
+         search results, even if the document states a value — guidelines change frequently."
+    } else {
+        "You do not have an uploaded document for this lesson. You MUST perform at least\n\
+         one web search to ground the lesson in current, authoritative medical sources\n\
+         before generating any clinical content."
+    };
+
+    format!(
+        r#"
+WEB SEARCH TOOL AVAILABLE — MEDICAL GROUNDING MODE:
+This lesson covers medical/clinical content. Medical accuracy is critical: outdated or
+hallucinated dosages, contraindications, or treatment protocols can cause real-world harm.
+{source_rule}
+
+SEARCH IS MANDATORY when the content involves ANY of:
+- Drug dosages, routes, frequencies, or adjustment protocols
+- Clinical guidelines or standard-of-care recommendations (e.g. ADA, AHA, WHO, NICE)
+- Contraindications, drug-drug interactions, or adverse effects
+- Diagnostic criteria or scoring systems (e.g. Glasgow Coma Scale, CURB-65, APACHE)
+- Current epidemiological statistics or outbreak data
+- Surgical or procedural steps presented as fact
+
+You SHOULD also search for:
+- Mechanism of action when the lesson explains pharmacology
+- Normal lab value ranges and what abnormalities indicate
+- Vaccination/immunization schedules
+
+To invoke, respond with EXACTLY:
+{marker}
+{query_marker} <specific medical search query — include the condition, drug, or guideline name>
+
+Then continue with your response after receiving results.
+You may invoke the tool at most {max_calls} times total.
+
+SOURCE PREFERENCE:
+When evaluating search results, prioritize information from, in order:
+1. Peer-reviewed journals and medical textbooks
+2. Authoritative health organizations (WHO, CDC, NIH/NLM, Mayo Clinic, Cleveland Clinic,
+   NHS, professional medical associations like AHA, ADA, AAP, ASCO)
+3. Government health agencies (.gov domains)
+4. Accredited medical education sites (.edu or recognized medical orgs)
+Treat health blogs, commercial wellness sites, and user-generated content as UNRELIABLE
+and do not base clinical claims on them.
+
+DISCLAIMER REQUIREMENT:
+Every generated scene that presents clinical information MUST include a brief,
+age-appropriate disclaimer that this is educational content, not medical advice, and
+that readers should consult a qualified healthcare professional for diagnosis or treatment.
+"#,
+        source_rule = source_rule,
+        marker = WEB_SEARCH_TOOL_CALL_MARKER,
+        query_marker = WEB_SEARCH_QUERY_MARKER,
+        max_calls = MAX_SEARCH_TOOL_CALLS
+    )
+}
 
 
 

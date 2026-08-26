@@ -19,7 +19,7 @@ import { useStageStore, useCanvasStore } from '@/lib/store';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import type { SceneType, SlideContent } from '@/lib/types/stage';
 import { PENDING_SCENE_ID } from '@/lib/store/stage';
-import { ShareLessonDialog } from '../classroom/share-lesson-dialog';
+import { ShareLessonDialog } from '@/components/classroom/share-lesson-dialog';
 
 interface SceneSidebarProps {
   readonly collapsed: boolean;

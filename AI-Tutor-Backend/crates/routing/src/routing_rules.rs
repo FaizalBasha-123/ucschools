@@ -19,15 +19,16 @@ fn with_override<'a>(default: &'static str, override_val: Option<String>) -> Cow
 
 // ── Model String Constants ───────────────────────────────────────────────
 // Single source of truth for all model-to-string mappings.
-// These replace every `{MODE}_AI_TUTOR_*_MODEL` env var.
+//
+// Qwen 3.8-Max is the sole text LLM across all tiers and tasks.
+// Media models (image/video/TTS/ASR) remain specialized — no text LLM
+// can generate images, video, or speech.
 
-const GEMINI_FLASH_LITE: &str = "openrouter:google/gemini-2.5-flash-lite";
-const GEMINI_FLASH: &str = "openrouter:google/gemini-2.5-flash";
-const DEEPSEEK_V3: &str = "openrouter:deepseek/deepseek-chat";
-const CLAUDE_SONNET_46: &str = "openrouter:anthropic/claude-sonnet-4.6";
-const CLAUDE_35_HAIKU: &str = "openrouter:anthropic/claude-3-5-haiku";
-const LLAMA_31_8B: &str = "openrouter:meta-llama/llama-3.1-8b-instruct";
-const LLAMA_3_8B_GROQ: &str = "groq:llama3-8b-8192";
+/// The single text LLM for all generation, chat, reasoning, and analysis.
+/// Routed through OpenRouter (consistent with all other text models).
+const QWEN_3_8_MAX: &str = "openrouter:qwen/qwen3.8-max";
+
+// ── Media model constants (specialized, not replaceable by text LLMs) ────
 const FLUX_SCHNELL: &str = "openrouter:black-forest-labs/flux-schnell";
 const FLUX_DEV: &str = "openrouter:black-forest-labs/flux-dev";
 const FLUX_11_PRO: &str = "openrouter:black-forest-labs/flux-1.1-pro";
@@ -35,7 +36,6 @@ const KOKORO_82M: &str = "openrouter:hexgrad/kokoro-82m";
 const ELEVEN_MULTILINGUAL_V2: &str = "elevenlabs:eleven_multilingual_v2";
 const WHISPER_SMALL: &str = "groq:whisper-small";
 const WHISPER_LARGE_V3: &str = "groq:whisper-large-v3";
-const GEMINI_15_FLASH: &str = "openrouter:google/gemini-1.5-flash";
 const GPT_VIDEO_1: &str = "openai:gpt-video-1";
 
 // ── Quality Tier Resolution ──────────────────────────────────────────────
@@ -76,82 +76,57 @@ pub fn resolve_task_model(task: GenerationTask, tier: QualityTier) -> &'static s
     }
 }
 
-fn resolve_outlines_model(tier: QualityTier) -> &'static str {
-    match tier {
-        QualityTier::Basic => GEMINI_FLASH_LITE,
-        QualityTier::Standard => GEMINI_FLASH,
-        QualityTier::Premium => CLAUDE_SONNET_46,
-    }
+fn resolve_outlines_model(_tier: QualityTier) -> &'static str {
+    QWEN_3_8_MAX
 }
 
-fn resolve_scene_content_model(tier: QualityTier) -> &'static str {
-    match tier {
-        QualityTier::Basic | QualityTier::Standard => GEMINI_FLASH,
-        QualityTier::Premium => CLAUDE_SONNET_46,
-    }
+fn resolve_scene_content_model(_tier: QualityTier) -> &'static str {
+    QWEN_3_8_MAX
 }
 
-fn resolve_scene_actions_model(tier: QualityTier) -> &'static str {
-    match tier {
-        QualityTier::Basic => LLAMA_31_8B,
-        QualityTier::Standard | QualityTier::Premium => GEMINI_FLASH,
-    }
+fn resolve_scene_actions_model(_tier: QualityTier) -> &'static str {
+    QWEN_3_8_MAX
 }
 
 fn resolve_quiz_grade_model(_tier: QualityTier) -> &'static str {
-    LLAMA_31_8B
+    QWEN_3_8_MAX
 }
 
 /// Scene actions fallback when primary model fails.
 pub fn resolve_scene_actions_fallback(_tier: QualityTier) -> &'static str {
-    GEMINI_FLASH
+    QWEN_3_8_MAX
 }
 
 /// Agent profiles generation model.
-pub fn resolve_agent_profiles_model(tier: QualityTier) -> &'static str {
-    match tier {
-        QualityTier::Basic => GEMINI_FLASH_LITE,
-        QualityTier::Standard => GEMINI_FLASH,
-        QualityTier::Premium => CLAUDE_SONNET_46,
-    }
+pub fn resolve_agent_profiles_model(_tier: QualityTier) -> &'static str {
+    QWEN_3_8_MAX
 }
 
-/// Outline Structured Content refinement model (Premium).
+/// Outline Structured Content refinement model.
 pub fn resolve_refine_model() -> &'static str {
-    CLAUDE_SONNET_46
+    QWEN_3_8_MAX
 }
 
 /// Lightweight evaluation model for fast tasks.
 pub fn resolve_light_task_model() -> &'static str {
-    LLAMA_3_8B_GROQ
+    QWEN_3_8_MAX
 }
 
 // ── Chat Model Resolution ────────────────────────────────────────────────
 
 /// Chat scaffold model (used for conversation scaffolding).
-pub fn resolve_chat_scaffold_model(tier: QualityTier) -> &'static str {
-    match tier {
-        QualityTier::Basic => GEMINI_FLASH_LITE,
-        QualityTier::Standard => GEMINI_FLASH,
-        QualityTier::Premium => CLAUDE_SONNET_46,
-    }
+pub fn resolve_chat_scaffold_model(_tier: QualityTier) -> &'static str {
+    QWEN_3_8_MAX
 }
 
 /// Chat baseline model (for regular chat turns).
-pub fn resolve_chat_baseline_model(tier: QualityTier) -> &'static str {
-    match tier {
-        QualityTier::Basic => GEMINI_FLASH_LITE,
-        QualityTier::Standard => GEMINI_FLASH,
-        QualityTier::Premium => CLAUDE_35_HAIKU,
-    }
+pub fn resolve_chat_baseline_model(_tier: QualityTier) -> &'static str {
+    QWEN_3_8_MAX
 }
 
 /// Chat reasoning model (for deep reasoning).
-pub fn resolve_chat_reasoning_model(tier: QualityTier) -> &'static str {
-    match tier {
-        QualityTier::Basic | QualityTier::Standard => GEMINI_FLASH,
-        QualityTier::Premium => CLAUDE_SONNET_46,
-    }
+pub fn resolve_chat_reasoning_model(_tier: QualityTier) -> &'static str {
+    QWEN_3_8_MAX
 }
 
 // ── Media Model Resolution ───────────────────────────────────────────────
@@ -212,16 +187,12 @@ pub fn resolve_specialized_model(task: SpecializedTask, tier: QualityTier) -> &'
     }
 }
 
-fn resolve_pbl_model(tier: QualityTier) -> &'static str {
-    match tier {
-        QualityTier::Basic => GEMINI_15_FLASH,
-        QualityTier::Standard => GEMINI_FLASH,
-        QualityTier::Premium => CLAUDE_35_HAIKU,
-    }
+fn resolve_pbl_model(_tier: QualityTier) -> &'static str {
+    QWEN_3_8_MAX
 }
 
 fn resolve_pdf_model(_tier: QualityTier) -> &'static str {
-    GEMINI_FLASH
+    QWEN_3_8_MAX
 }
 
 fn resolve_asr_model(tier: QualityTier) -> &'static str {
@@ -236,20 +207,17 @@ fn resolve_asr_model(tier: QualityTier) -> &'static str {
 /// Resolve a model by capability and quality tier (override-aware).
 /// Powers the compile-time routing used by `capabilities::resolve_model`.
 pub fn resolve_model_by_capability(cap: Capability, tier: QualityTier) -> Cow<'static, str> {
-    match (cap, tier) {
-        (Capability::FastCheap, QualityTier::Basic) => Cow::Borrowed(GEMINI_FLASH_LITE),
-        (Capability::FastCheap, QualityTier::Standard) => Cow::Borrowed(GEMINI_FLASH),
-        (Capability::FastCheap, QualityTier::Premium) => Cow::Borrowed(GEMINI_FLASH),
-        (Capability::StructuredGeneration, _) => Cow::Borrowed(DEEPSEEK_V3),
-        (Capability::LightweightEvaluation, _) => Cow::Borrowed(LLAMA_31_8B),
-        (Capability::PremiumReasoning, QualityTier::Basic) => Cow::Borrowed(GEMINI_FLASH),
-        (Capability::PremiumReasoning, QualityTier::Standard) => Cow::Borrowed(GEMINI_FLASH),
-        (Capability::PremiumReasoning, QualityTier::Premium) => Cow::Borrowed(CLAUDE_SONNET_46),
-        (Capability::LongContext, _) => Cow::Borrowed(GEMINI_FLASH),
-        (Capability::VisionAnalysis, _) => overrides::vision_escalation()
-            .map(Cow::Owned)
-            .unwrap_or(Cow::Borrowed(GEMINI_FLASH)),
+    // Qwen 3.8-Max is the sole text LLM across all capabilities and tiers.
+    // The `_cap` and `tier` params are retained for API stability and override
+    // support; they no longer change the base model.
+    let _ = (cap, tier);
+    let base = Cow::Borrowed(QWEN_3_8_MAX);
+    if cap == Capability::VisionAnalysis {
+        if let Some(escalation) = overrides::vision_escalation() {
+            return Cow::Owned(escalation);
+        }
     }
+    base
 }
 
 

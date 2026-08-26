@@ -1,68 +1,94 @@
-# AI-Tutor OpenRouter Model Selection Plan
+# AI-Tutor Model Selection Plan
 
-Last updated: 2026-04-14
+Last updated: 2026-08-26
 
 ## Objective
 
-Pick the cheapest reliable model per AI-Tutor feature while keeping student-facing quality high and preserving profit margin.
+Use Qwen 3.8-Max as the sole text LLM across all AI-Tutor features —
+engineering, medical, and child-facing content — while keeping
+specialized media models (image, video, TTS, ASR) on their dedicated
+non-LLM providers.
 
-## Pricing Notes
+## Single-Model Strategy
 
-- Base price: model listed price on OpenRouter.
-- Weighted price: effective routed price across providers (better for budgeting).
-- Weighted rates can change over time; monitor weekly.
+All text generation, chat, reasoning, outline, scene content, quiz
+grading, PBL runtime, and PDF parsing routes through one model:
 
-## Updated Recommended Feature-to-Model Table
+| Property | Value |
+|---|---|
+| Model | Qwen 3.8-Max |
+| Route | `openrouter:qwen/qwen3.8-max` |
+| Context window | 1,000,000 tokens (991K max input, 131K max output) |
+| Reasoning ceiling | 262K tokens |
+| Input price | $2.00 / 1M tokens (flat, no long-context surcharge) |
+| Output price | $6.00 / 1M tokens |
+| Cache read | $0.25 / 1M tokens |
+| Modalities | Text + image + video input → text output |
+| Protocols | OpenAI-compatible, Anthropic-compatible |
+| Released | August 3, 2026 |
 
-| Feature | Primary model | Fallback model | Base price | Weighted price | Estimated cost | Why this wins |
-|---|---|---|---|---|---|---|
-| Lesson generation (single-pass default) | openai/gpt-4o-mini | google/gemini-3.1-flash-lite-preview | 0.15 in / 0.60 out per 1M | 0.121 in / 0.596 out per 1M | ~0.00622 per lesson (12k in, 8k out) | One-pass quality is strong enough for production, minimal latency, lower complexity |
-| Lesson polish (exception only, not default) | openai/gpt-4o-mini | google/gemini-3.1-flash-lite-preview | 0.15 / 0.60 | 0.121 / 0.596 | ~0.00126 per polish pass | Run only if QA/rubric fails, to avoid unnecessary extra calls |
-| Live tutor chat (default) | openai/gpt-4o-mini | google/gemini-3.1-flash-lite-preview | 0.15 / 0.60 | 0.121 / 0.596 | ~0.00060 per turn | Cheapest reliable student-facing interactive quality |
-| Hard reasoning escalation only | google/gemini-3.1-pro-preview | deepseek/deepseek-r1 | 2 / 12 and 0.70 / 2.50 | 1.08 / 12.04 and 0.746 / 2.60 | Invoke only for hard/failing cases | Premium reasoning spend stays low by gating usage |
-| Research/search synthesis | google/gemini-3.1-flash-lite-preview | deepseek/deepseek-chat-v3.1 | 0.25 / 1.50 and 0.15 / 0.75 | 0.189 / 1.50 and 0.325 / 1.17 | ~0.0013 to ~0.0014 per typical turn | Good retrieval/ranking/translation quality at low cost |
-| Image generation/editing | openai/gpt-5-image-mini | google/gemini-2.5-flash-image | 2.50 / 2 and 0.30 / 2.50 | 2.50 / 5.94 and 0.300 / 29.69 | ~0.018 vs ~0.089 per image (assume 3k out tokens) | Lower effective output economics than Gemini image weighted rates |
-| Video generation | openai/sora-2-pro | google/veo-3.1 | Per second: 0.30 at 720p, 0.50 at 1024p/1080p | Same unit (provider-priced) | 10s at 720p about 3.00 | Lower entry cost per second than Veo starting at 0.40/s |
-| TTS narration | openai/gpt-audio-mini | openai/gpt-audio | 0.60 / 2.40 and 2.50 / 10 | 0.598 / 2.40 and 14.87 / 13.32 | ~0.0011 per short response | Large cost advantage while keeping natural speech quality |
-| ASR / voice input transcription | google/gemini-3.1-flash-lite-preview (audio input) | google/gemini-3-flash-preview | 0.25 / 1.50 and 0.50 / 3 | 0.189 / 1.50 and 0.344 / 3 | Very low per utterance | Practical ASR path on OpenRouter where classic whisper-like slugs are unavailable |
-| Embeddings for RAG | openai/text-embedding-3-small | google/gemini-embedding-001 | 0.02 input only and 0.15 input only | 0.019 input and 0.149 input | About 7.8x cheaper than Gemini embedding | Best embedding economics for large corpus indexing |
-| Reranking retrieved chunks | cohere/rerank-v3.5 | cohere/rerank-4-fast | 0.001 per search | Effective token weighted not populated | 0.001 per rerank call | Very cheap relevance boost for RAG quality |
+### Why single-model
 
-## Why Single-Pass GPT-4o-mini is the Default
+- Eliminates routing complexity and per-tier model-selection logic.
+- One context window (1M) covers every task from short chat to long
+  lesson generation without tiered fallbacks.
+- Flat pricing across the full context means no long-context penalty.
+- Vision input is native, so the same model handles text and image
+  analysis tasks.
+- The 262K reasoning ceiling covers deep multi-step exam prep.
 
-- GPT-4o-mini is not a low-quality drafting model; it is a strong quality/cost model.
-- Mandatory two-stage draft plus polish gives negligible savings in our current assumptions.
-- One-pass flow is faster, simpler, and operationally safer.
+### Media models (unchanged, specialized)
+
+Qwen 3.8-Max is a text LLM. It cannot generate images, video, or
+speech. These specialized models remain on dedicated providers:
+
+| Task | Model | Route |
+|---|---|---|
+| Image (basic) | FLUX Schnell | `openrouter:black-forest-labs/flux-schnell` |
+| Image (standard) | FLUX Dev | `openrouter:black-forest-labs/flux-dev` |
+| Image (premium) | FLUX 1.1 Pro | `openrouter:black-forest-labs/flux-1.1-pro` |
+| Video | GPT Video 1 | `openai:gpt-video-1` |
+| TTS (basic/standard) | Kokoro 82M | `openrouter:hexgrad/kokoro-82m` |
+| TTS (premium) | Eleven Multilingual V2 | `elevenlabs:eleven_multilingual_v2` |
+| ASR (basic) | Whisper Small | `groq:whisper-small` |
+| ASR (standard/premium) | Whisper Large V3 | `groq:whisper-large-v3` |
 
 ## Routing Rules
 
-### Default
+### Text LLM (all tiers, all tasks)
 
-- Use `openai/gpt-4o-mini` for lesson generation and live tutor turns.
+Every quality tier (Basic, Standard, Premium) and every capability
+(FastCheap, StructuredGeneration, PremiumReasoning, LongContext,
+VisionAnalysis, LightweightEvaluation) resolves to Qwen 3.8-Max.
 
-### Conditional Escalation
+The quality-tier and capability enums are retained for budget
+computation (slide counts, interaction limits, token budgets) but
+no longer change the selected model.
 
-Escalate to `google/gemini-3.1-pro-preview` only if one or more conditions are true:
+### Media
 
-- rubric score below threshold
-- complex multi-step reasoning prompt (math/proof-heavy/coding-heavy)
-- repeated user dissatisfaction in same thread
-- safety/compliance checker asks for higher-confidence answer
+Media models remain tier-dependent as shown in the table above.
 
-### Conditional Polish
+## Medical Content Guardrail
 
-Run optional polish pass only when:
-
-- output schema is invalid
-- readability/age-level score fails target
-- teacher/admin explicitly requests refinement
+Medical content must be grounded through the retrieval layer
+(filesystem.rs / RAG pipeline), never pure parametric recall. This
+is enforced at the routing/orchestrator level, not at model
+selection — Qwen 3.8-Max handles the language, but medical facts
+must come from retrieved context.
 
 ## Cost Guardrails
 
-- Keep premium reasoning share under 5% of total requests.
+- No per-tier model cost variance — all text LLM spend is at the
+  single $2/$6 rate.
+- Premium reasoning share is no longer a cost concern since all
+  tiers use the same model.
+- Media spend remains tier-gated (FLUX Schnell vs FLUX 1.1 Pro,
+  Kokoro vs ElevenLabs).
 - Cap video duration per lesson by plan tier.
-- Track weighted price drift weekly and refresh this plan monthly.
 
 ## Source Snapshot
 
-Prices and weighted rates were taken from OpenRouter model pricing pages on 2026-04-14.
+Qwen 3.8-Max pricing and specs verified August 2026 from OpenRouter
+(https://openrouter.ai/qwen/qwen3.8-max) and Alibaba DashScope
+documentation.

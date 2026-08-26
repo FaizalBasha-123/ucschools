@@ -269,13 +269,14 @@ mod tests {
             canvas: SlideCanvas {
                 id: "canvas-1".to_string(),
                 viewport_width: 960,
-                viewport_height: 540,
                 viewport_ratio: 16.0 / 9.0,
                 theme: SlideTheme {
                     background_color: "#ffffff".to_string(),
                     theme_colors: vec![],
                     font_color: "#000000".to_string(),
                     font_name: "Inter".to_string(),
+                    outline: None,
+                    shadow: None,
                 },
                 elements: texts
                     .into_iter()
@@ -289,6 +290,14 @@ mod tests {
                         content: text.to_string(),
                         default_font_name: "Microsoft YaHei".to_string(),
                         default_color: "#333333".to_string(),
+                        fill: None,
+                        outline: None,
+                        line_height: None,
+                        opacity: None,
+                        word_space: None,
+                        paragraph_space: None,
+                        vertical: None,
+                        shadow: None,
                     })
                     .collect(),
                 background: None,

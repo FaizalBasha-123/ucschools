@@ -4,8 +4,9 @@ mod tests {
         Arc, Mutex,
     };
 
-    use super::*;
-    use ai_tutor_domain::generation::{AgentMode, UserRequirements};
+    use super::super::*;
+    use ai_tutor_domain::generation::{AgentMode, Language, UserRequirements};
+    use ai_tutor_domain::scene::{MediaType, VisualType, SlideElement, SlideCanvas, SlideTheme};
 
     struct MockLlmProvider {
         responses: Mutex<Vec<String>>,
@@ -99,7 +100,7 @@ mod tests {
         assert_eq!(outlines[0].media_generations.len(), 1);
 
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
         match &content {
@@ -118,7 +119,7 @@ mod tests {
         }
 
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content, None)
+            .generate_scene_actions(&request, &outlines[0], &content, None, &outlines, 0, &[])
             .await
             .unwrap();
         assert!(!actions.is_empty());
@@ -182,7 +183,7 @@ mod tests {
 
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
 
@@ -296,7 +297,7 @@ mod tests {
 
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
 
@@ -332,6 +333,7 @@ mod tests {
                 &sample_request(),
                 &pipeline.generate_outlines(&sample_request(), None).await.unwrap()[0],
                 None,
+                &[],
             )
             .await
             .unwrap();
@@ -369,11 +371,11 @@ mod tests {
         let request = sample_request();
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content, None)
+            .generate_scene_actions(&request, &outlines[0], &content, None, &outlines, 0, &[])
             .await
             .unwrap();
 
@@ -424,7 +426,7 @@ mod tests {
         assert_eq!(outlines[0].title, "Phase Routed Outline");
 
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
         match &content {
@@ -438,7 +440,7 @@ mod tests {
         }
 
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content, None)
+            .generate_scene_actions(&request, &outlines[0], &content, None, &outlines, 0, &[])
             .await
             .unwrap();
         assert!(actions.iter().any(|action| {
@@ -510,7 +512,7 @@ mod tests {
         assert!(matches!(outlines[0].scene_type, SceneType::Interactive));
 
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
         match &content {
@@ -529,7 +531,7 @@ mod tests {
         }
 
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content, None)
+            .generate_scene_actions(&request, &outlines[0], &content, None, &outlines, 0, &[])
             .await
             .unwrap();
         assert!(!actions.is_empty());
@@ -551,7 +553,7 @@ mod tests {
         let request = sample_request();
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
 
@@ -587,7 +589,7 @@ mod tests {
         assert!(matches!(outlines[0].scene_type, SceneType::Pbl));
 
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
         match &content {
@@ -614,7 +616,7 @@ mod tests {
         }
 
         let actions = pipeline
-            .generate_scene_actions(&request, &outlines[0], &content, None)
+            .generate_scene_actions(&request, &outlines[0], &content, None, &outlines, 0, &[])
             .await
             .unwrap();
         assert!(actions
@@ -638,7 +640,7 @@ mod tests {
         let request = sample_request();
         let outlines = pipeline.generate_outlines(&request, None).await.unwrap();
         let content = pipeline
-            .generate_scene_content(&request, &outlines[0], None)
+            .generate_scene_content(&request, &outlines[0], None, &[])
             .await
             .unwrap();
 
@@ -874,6 +876,8 @@ mod tests {
                 language: None,
                 teaching_objective: None,
                 estimated_duration: None,
+                widget_type: None,
+                widget_outline: None,
                 order: 0,
             },
         ];
@@ -883,6 +887,51 @@ mod tests {
         assert!(result.is_ok(), "generate_lesson_title must not error");
         let title = result.unwrap();
         assert!(!title.trim().is_empty() || title.is_empty(), "title must be a string");
+    }
+
+    // ── Medical web search detection tests ───────────────────────────────────
+
+    #[test]
+    fn medical_detector_identifies_clinical_content() {
+        assert!(is_medical_content("You are a teacher.", "Explain the diagnosis and treatment of type 2 diabetes"));
+        assert!(is_medical_content("System", "Lesson about pharmacology of antibiotics and drug interactions"));
+        assert!(is_medical_content("System", "Create a quiz on cardiovascular pathology and hypertension"));
+        assert!(is_medical_content("System", "Teach the mechanism of vaccine immunization"));
+        assert!(is_medical_content("System", "Explain the clinical guidelines for sepsis management"));
+    }
+
+    #[test]
+    fn medical_detector_ignores_non_medical_content() {
+        assert!(!is_medical_content("You are a teacher.", "Teach fractions and fraction models"));
+        assert!(!is_medical_content("System", "Lesson about Newton's laws of motion"));
+        assert!(!is_medical_content("System", "Explain photosynthesis in plants"));
+        assert!(!is_medical_content("System", "Introduction to Python programming"));
+        assert!(!is_medical_content("System", "The French Revolution and its causes"));
+    }
+
+    #[test]
+    fn medical_detector_catches_partial_keywords() {
+        // "dosage" should trigger even in a broader sentence
+        assert!(is_medical_content("System", "Calculate the correct dosage of medication for a patient"));
+        // "symptom" should trigger
+        assert!(is_medical_content("System", "Identify the primary symptom of the disorder"));
+    }
+
+    #[test]
+    fn medical_tool_prompt_contains_mandatory_search_and_disclaimer() {
+        let prompt = build_web_search_tool_prompt(false, true);
+        assert!(prompt.contains("MEDICAL GROUNDING MODE"), "medical prompt must announce medical mode");
+        assert!(prompt.contains("MANDATORY"), "medical prompt must mark search as mandatory");
+        assert!(prompt.contains("DISCLAIMER"), "medical prompt must require a disclaimer");
+        assert!(prompt.contains("authoritative"), "medical prompt must mention authoritative sources");
+        assert!(prompt.contains("healthcare professional"), "medical prompt must mention consulting a healthcare professional");
+    }
+
+    #[test]
+    fn non_medical_tool_prompt_omits_medical_specifics() {
+        let prompt = build_web_search_tool_prompt(false, false);
+        assert!(!prompt.contains("MEDICAL GROUNDING MODE"), "non-medical prompt must not mention medical mode");
+        assert!(!prompt.contains("DISCLAIMER"), "non-medical prompt must not require a disclaimer");
     }
 }
 

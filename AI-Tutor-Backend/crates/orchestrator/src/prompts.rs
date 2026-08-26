@@ -307,6 +307,8 @@ mod tests {
             quiz_config: None,
             interactive_config: None,
             project_config: None,
+            widget_type: None,
+            widget_outline: None,
         }
     }
 

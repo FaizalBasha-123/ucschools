@@ -45,6 +45,22 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     icon: '/logos/openai.svg',
     models: [
       {
+        id: 'qwen3.8-max',
+        name: 'Qwen 3.8 Max',
+        contextWindow: 1000000,
+        outputWindow: 131072,
+        capabilities: {
+          streaming: true,
+          tools: true,
+          vision: true,
+          thinking: {
+            toggleable: true,
+            budgetAdjustable: true,
+            defaultEnabled: false,
+          },
+        },
+      },
+      {
         id: 'gpt-5.2',
         name: 'GPT-5.2',
         contextWindow: 400000,
@@ -479,6 +495,22 @@ export const PROVIDERS: Record<ProviderId, ProviderConfig> = {
     requiresApiKey: true,
     icon: '/logos/qwen.svg',
     models: [
+      {
+        id: 'qwen3.8-max',
+        name: 'Qwen 3.8 Max',
+        contextWindow: 1000000,
+        outputWindow: 131072,
+        capabilities: {
+          streaming: true,
+          tools: true,
+          vision: true,
+          thinking: {
+            toggleable: true,
+            budgetAdjustable: true,
+            defaultEnabled: false,
+          },
+        },
+      },
       {
         id: 'qwen3.5-flash',
         name: 'Qwen3.5 Flash',
