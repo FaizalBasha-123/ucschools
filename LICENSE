@@ -1,0 +1,84 @@
+PROPRIETARY AND CONFIDENTIAL LICENSE
+
+Copyright (c) 2026 Faizal Basha (GitHub: FaizalBasha-123). All Rights Reserved.
+
+------------------------------------------------------------------------------
+
+This license governs the use, distribution, and modification of the software
+contained in this repository (the "Software"), which comprises the AI Tutor
+frontend and backend (the "Project").
+
+1. GRANT OF LICENSE
+
+   The copyright holder ("Licensor") grants you ("Licensee") a limited,
+   non-exclusive, non-transferable, non-sublicensable, revocable license to:
+
+     (a) run the Software internally for evaluation and personal,
+         non-commercial purposes; and
+     (b) read the source code for reference and review.
+
+   This license does NOT grant any right to distribute, publish, sell, lease,
+   lend, host, or otherwise make the Software available to any third party,
+   in whole or in part, in source or binary form.
+
+2. NO MODIFICATION OR DERIVATIVE WORKS
+
+   Licensee may NOT modify, adapt, translate, create derivative works of, or
+   merge the Software with other software, in whole or in part, without the
+   prior written consent of the Licensor.
+
+3. NO COMMERCIAL USE
+
+   The Software may NOT be used for any commercial purpose whatsoever,
+   including but not limited to internal business operations, paid services,
+   SaaS offerings, training delivery, or integration into a product offered
+   to third parties, without the prior written consent of the Licensor.
+
+4. NO REDISTRIBUTION
+
+   Licensee may NOT copy, redistribute, upload, publish, transmit, or share
+   the Software, in whole or in part, in source or binary form, whether
+   verbatim or modified. Forking the public repository for private review is
+   permitted; public or third-party redistribution of the contents is not.
+
+5. OWNERSHIP
+
+   The Software is and shall remain the exclusive property of the Licensor.
+   All rights not expressly granted in this license are reserved by the
+   Licensor, including all intellectual property rights.
+
+6. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+   THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY,
+   WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF,
+   OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS WITH THE
+   SOFTWARE.
+
+7. TERMINATION
+
+   This license terminates automatically upon any breach of its terms by the
+   Licensee. Upon termination, Licensee must immediately cease all use of the
+   Software and destroy all copies in their possession or control.
+
+8. GOVERNING LAW
+
+   This license shall be governed by and construed in accordance with the
+   laws of the jurisdiction in which the Licensor resides, without regard to
+   conflict of law principles.
+
+9. AMENDMENTS
+
+   The Licensor reserves the right to update or replace this license at any
+   time. Continued use of the Software after any such change constitutes
+   acceptance of the revised terms.
+
+------------------------------------------------------------------------------
+
+For licensing inquiries, commercial use requests, or written consent,
+contact the repository owner via GitHub: https://github.com/FaizalBasha-123
+
+Unless you have received prior written authorization from the Licensor,
+treat this Software as proprietary and confidential.
